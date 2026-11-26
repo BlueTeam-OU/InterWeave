@@ -9,9 +9,9 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, HeldChange, HeldIdentity, HeldProblem, IdentityIntent,
-    IdentityKey, Intent, StartBusy, TrustInput, UiModel, UnlockFacts, ViewEvent, WindowEvent,
-    WindowInput,
+    ConnectGate, ConversationKey, FrontOutcome, HeldChange, HeldIdentity, HeldProblem,
+    IdentityIntent, IdentityKey, Intent, StartBusy, TrustInput, UiModel, UnlockFacts, ViewEvent,
+    WindowEvent, WindowInput,
 };
 use interweave_transport_api::EndpointId;
 
@@ -332,30 +332,93 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         Ok(change)
     }
 
-    /// Hand over what the person did to the identities, as crossings:
+    /// Carry out what the person did to the identities, sending what the
+    /// facade side must do as crossings.
+    ///
     /// Try again on an identity that could not start becomes a
     /// [`Command::Reopen`] run as THAT identity, whichever is in front
     /// (identities §5.2;
-    /// `try_again_reopens_the_identity_it_names_and_no_other`). A Try
-    /// again naming an identity not held sends nothing. The other acts
-    /// are taken and not carried out: a switch a person makes is not
-    /// routed by this root yet.
+    /// `try_again_reopens_the_identity_it_names_and_no_other`); one
+    /// naming an identity not held sends nothing.
+    ///
+    /// Every other act is the front's model's to decide
+    /// ([`interweave_human_ui_model::Identities::act`]): opening and
+    /// closing the switcher, a snackbar closing and Your identities change
+    /// what is drawn and send nothing; a choice or Switch back that the
+    /// model decides is a switch brings that identity in front through
+    /// [`Self::switch`], in its order, and the shown switch state -- the
+    /// switcher closed, the switch's snackbar naming the new identity, the
+    /// focus asked for the switch -- goes in front with it
+    /// (`a_choice_in_the_switcher_brings_the_identity_in_front_in_the_switchs_order`).
     pub fn take_identity_acts(&mut self, mut send: impl FnMut(Crossing)) {
         for intent in self.surface.take_identity_intents() {
             if let IdentityIntent::TryAgain(key) = intent {
-                let held = self
-                    .identity
-                    .iter()
-                    .chain(self.behind.iter().map(|(e, _)| e))
-                    .find(|e| e.as_str() == key.as_str())
-                    .cloned();
-                if let Some(identity) = held {
+                if let Some(identity) = self.held_endpoint(&key) {
                     send(Crossing::Command {
                         identity,
                         command: Command::Reopen,
                     });
                 }
+                continue;
             }
+            self.identity_act(intent, &mut send);
+        }
+    }
+
+    /// The held identity `key` names, in front or behind.
+    fn held_endpoint(&self, key: &IdentityKey) -> Option<EndpointId> {
+        self.identity
+            .iter()
+            .chain(self.behind.iter().map(|(e, _)| e))
+            .find(|e| e.as_str() == key.as_str())
+            .cloned()
+    }
+
+    /// One act on the switch, the switcher or the switch's snackbar.
+    ///
+    /// The act is decided on a copy of the front's identities, so that
+    /// the old front's model, which the switch's drain draws once more,
+    /// still names its own identity: no frame shows the new identity's
+    /// name over the old identity's rows (identities §5.4). The decided
+    /// copy is then the new front's: its snackbar and focus counts carry
+    /// on from the ones the view last drew, so the view announces the new
+    /// snackbar and moves focus once.
+    fn identity_act(&mut self, intent: IdentityIntent, send: &mut impl FnMut(Crossing)) {
+        let mut decided = self.model.identities().clone();
+        // No identity's page with unsaved changes reaches the model on
+        // this root: the desktop's own card editor asks its discard
+        // question in the view, and no act answers
+        // `Identities::discard_confirmed` yet.
+        let outcome = decided.act(intent, false);
+        let FrontOutcome::Switched(switched) = outcome else {
+            *self.model.identities_mut() = decided;
+            return;
+        };
+        let old = self.identity.clone();
+        let switched_in = self
+            .held_endpoint(&switched.to)
+            .is_some_and(|to| self.switch(&to, &mut *send));
+        if !switched_in {
+            // Held by the list and with no model here (added after the
+            // identities were named): the switcher closes, nothing
+            // switches, focus back on the switch, as a choice of the row
+            // in front.
+            self.model
+                .identities_mut()
+                .act(IdentityIntent::CloseSwitcher, false);
+            return;
+        }
+        *self.model.identities_mut() = decided;
+        // The model left behind names its own identity again, its switcher
+        // closed: a later switch back replaces what it shows anyway, and
+        // a held list told meanwhile finds it in front of its own.
+        if let Some(old) = old
+            && let Some((_, behind)) = self.behind.iter_mut().find(|(e, _)| *e == old)
+        {
+            behind
+                .model
+                .identities_mut()
+                .start(Some(IdentityKey::new(old.as_str())));
         }
     }
 
@@ -1987,5 +2050,226 @@ mod tests {
         side.apply_as(&first(), Update::Done(Command::Reopen));
         side.surface_mut().events = vec![ViewEvent::Intent(Intent::Reopen)];
         assert_eq!(side.turn(), [Command::Reopen], "answered: free again");
+    }
+
+    /// A person's surface: the identity acts and the view events it hands
+    /// over at the next take, and a log of what it drew and was told,
+    /// in the order the crossings were sent.
+    struct Person {
+        log: Log,
+        events: Vec<ViewEvent>,
+        intents: Vec<IdentityIntent>,
+    }
+
+    impl Surface for Person {
+        fn render(&mut self, model: &UiModel) {
+            let ids = model.identities();
+            self.log.borrow_mut().push(format!(
+                "drawn {} switcher={}",
+                ids.front().map_or("none", key_name),
+                ids.switcher_open()
+            ));
+        }
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            std::mem::take(&mut self.events)
+        }
+        fn front_changed(&mut self, old: &EndpointId, new: &EndpointId, _left: &UiModel) {
+            self.log
+                .borrow_mut()
+                .push(format!("told {} {}", name(old), name(new)));
+        }
+        fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+            std::mem::take(&mut self.intents)
+        }
+    }
+
+    fn key_name(k: &IdentityKey) -> &'static str {
+        [("human", first()), ("second", second()), ("third", third())]
+            .into_iter()
+            .find(|(_, id)| id.as_str() == k.as_str())
+            .map_or("?", |(n, _)| n)
+    }
+
+    fn third() -> EndpointId {
+        endpoint_id("third")
+    }
+
+    /// A side holding the first and the second, the first in front, each
+    /// model told both, and the person's acts logged with every crossing.
+    fn person_side(log: &Log) -> ModelSide<Person, Nothing> {
+        let mut side = ModelSide::new(
+            Person {
+                log: log.clone(),
+                events: Vec::new(),
+                intents: Vec::new(),
+            },
+            Nothing,
+        );
+        side.hold(&[first(), second()], &first());
+        side.held_changed(&[held(first().as_str(), true), held(second().as_str(), false)])
+            .expect("two held");
+        side
+    }
+
+    /// Act `intents` as the person, every crossing into the log.
+    fn act(side: &mut ModelSide<Person, Nothing>, intents: Vec<IdentityIntent>) {
+        side.surface_mut().intents = intents;
+        let log = side.surface().log.clone();
+        side.take_identity_acts(|c| {
+            let line = match c {
+                Crossing::Command { identity, command } => {
+                    format!("command {} {command:?}", name(&identity))
+                }
+                Crossing::Front(to) => format!("front {}", name(&to)),
+            };
+            log.borrow_mut().push(line);
+        });
+    }
+
+    /// A row chosen in the open switcher brings its identity in front in
+    /// the switch's order: the old front's pending acts drained and sent
+    /// as its own, with the old front's model drawn naming the old
+    /// identity, the surface told, then the switch sent. The new front's
+    /// model shows the switcher closed, the switch's snackbar and the
+    /// switch asked for focus (F3), with Switch back to the old front;
+    /// the model left behind is in front of its own with its switcher
+    /// closed. Mutations: the act decided on the front's model itself --
+    /// the drain draws `second` over the first's rows; the decided state
+    /// not given to the new front -- no snackbar; the model left not
+    /// started on its own -- its switcher stays open; `take_identity_acts`
+    /// routing nothing but Try again -- nothing is sent.
+    #[test]
+    fn a_choice_in_the_switcher_brings_the_identity_in_front_in_the_switchs_order() {
+        let log: Log = std::rc::Rc::default();
+        let mut side = person_side(&log);
+        act(&mut side, vec![IdentityIntent::OpenSwitcher]);
+        assert!(side.model().identities().switcher_open(), "opened");
+        assert!(log.borrow().is_empty(), "opening sends nothing");
+        let opened = side.model().identities().focus_request();
+        assert_eq!(
+            opened.map(|(_, f)| f),
+            Some(interweave_human_ui_model::IdentityFocus::SwitcherTitle)
+        );
+
+        side.surface_mut().events = vec![ViewEvent::Intent(Intent::Reopen)];
+        act(&mut side, vec![IdentityIntent::Choose(key_of(&second()))]);
+        assert_eq!(
+            *log.borrow(),
+            [
+                "drawn human switcher=true",
+                "command human Reopen",
+                "told human second",
+                "front second",
+            ]
+        );
+        assert_eq!(side.front(), Some(&second()));
+        let ids = side.model().identities();
+        assert_eq!(ids.front(), Some(&key_of(&second())));
+        assert_eq!(ids.previous(), Some(&key_of(&first())));
+        assert!(!ids.switcher_open(), "closed by the choice");
+        assert!(ids.switch_snackbar().is_some(), "the switch's snackbar");
+        let (seq, focus) = ids.focus_request().expect("asked");
+        assert_eq!(focus, interweave_human_ui_model::IdentityFocus::Switch);
+        assert!(Some(seq) > opened.map(|(s, _)| s), "a new request");
+        let left = side.model_of(&first()).expect("kept").identities();
+        assert_eq!(left.front(), Some(&key_of(&first())), "its own");
+        assert!(!left.switcher_open(), "closed behind");
+        assert!(left.switch_snackbar().is_none());
+    }
+
+    /// Switch back on the switch's snackbar brings the previous identity
+    /// in front again, through the same switch, its snackbar a new one;
+    /// a Switch back naming a snackbar no longer up does nothing.
+    /// Mutation: Switch back left unrouted -- the second stays in front.
+    #[test]
+    fn switch_back_on_the_snackbar_brings_the_previous_identity_in_front() {
+        let log: Log = std::rc::Rc::default();
+        let mut side = person_side(&log);
+        act(&mut side, vec![IdentityIntent::OpenSwitcher]);
+        act(&mut side, vec![IdentityIntent::Choose(key_of(&second()))]);
+        let shown = side.model().identities().switch_snackbar().expect("up").id;
+        log.borrow_mut().clear();
+
+        act(&mut side, vec![IdentityIntent::SwitchBack(shown + 7)]);
+        assert!(log.borrow().is_empty(), "not the one up");
+        assert_eq!(side.front(), Some(&second()));
+
+        act(&mut side, vec![IdentityIntent::SwitchBack(shown)]);
+        assert_eq!(
+            *log.borrow(),
+            [
+                "drawn second switcher=false",
+                "told second human",
+                "front human"
+            ]
+        );
+        assert_eq!(side.front(), Some(&first()));
+        let ids = side.model().identities();
+        assert_eq!(ids.front(), Some(&key_of(&first())));
+        assert_eq!(ids.previous(), Some(&key_of(&second())));
+        let back = ids.switch_snackbar().expect("its own snackbar").id;
+        assert!(back > shown, "a new snackbar, announced");
+    }
+
+    /// The acts that switch nothing change what the front's model shows
+    /// and send nothing: the switcher closing, Your identities, the row
+    /// in front chosen, a row of an identity held by the list with no
+    /// model on this side (which closes the switcher as the row in front
+    /// does), and a snackbar closing. Mutations: the non-switching acts
+    /// not given to the front's model -- the switcher stays open; the
+    /// no-model fallback left out -- the switcher stays open.
+    #[test]
+    fn acts_that_switch_nothing_change_the_front_and_send_nothing() {
+        let log: Log = std::rc::Rc::default();
+        let mut side = person_side(&log);
+        let open = |side: &mut ModelSide<Person, Nothing>| {
+            act(side, vec![IdentityIntent::OpenSwitcher]);
+            assert!(side.model().identities().switcher_open());
+        };
+        open(&mut side);
+        act(&mut side, vec![IdentityIntent::CloseSwitcher]);
+        assert!(!side.model().identities().switcher_open(), "closed");
+
+        open(&mut side);
+        act(&mut side, vec![IdentityIntent::OpenIdentities]);
+        assert!(
+            !side.model().identities().switcher_open(),
+            "Your identities"
+        );
+
+        open(&mut side);
+        act(&mut side, vec![IdentityIntent::Choose(key_of(&first()))]);
+        assert!(
+            !side.model().identities().switcher_open(),
+            "the row in front"
+        );
+
+        // A third identity the list holds and this side has no model of.
+        side.held_changed(&[
+            held(first().as_str(), true),
+            held(second().as_str(), false),
+            held(third().as_str(), false),
+        ])
+        .expect("three held");
+        open(&mut side);
+        act(&mut side, vec![IdentityIntent::Choose(key_of(&third()))]);
+        let ids = side.model().identities();
+        assert!(!ids.switcher_open(), "closed");
+        assert_eq!(ids.front(), Some(&key_of(&first())), "nothing switched");
+        assert_eq!(
+            ids.focus_request().map(|(_, f)| f),
+            Some(interweave_human_ui_model::IdentityFocus::Switch)
+        );
+        assert!(log.borrow().is_empty(), "nothing sent: {:?}", log.borrow());
+        assert_eq!(side.front(), Some(&first()));
+
+        // A switch, then its snackbar closed by its time.
+        open(&mut side);
+        act(&mut side, vec![IdentityIntent::Choose(key_of(&second()))]);
+        let id = side.model().identities().switch_snackbar().expect("up").id;
+        log.borrow_mut().clear();
+        act(&mut side, vec![IdentityIntent::SnackbarClosed(id)]);
+        assert!(side.model().identities().switch_snackbar().is_none());
+        assert!(log.borrow().is_empty(), "nothing sent");
     }
 }
