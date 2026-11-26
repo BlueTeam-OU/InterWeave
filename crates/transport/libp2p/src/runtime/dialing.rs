@@ -2107,12 +2107,16 @@ pub(super) fn holds_settling_listen(listens: &PendingListens) -> bool {
 }
 
 /// How many listeners hold an OS socket, each counted once: a held
-/// wildcard listen is in both tables, so the pending one counted is
-/// only one not bound yet (`a_held_wildcard_listen_counts_once_against_the_listener_bound`).
+/// wildcard listen is in both tables, so a pending one is counted only
+/// while its listener is not in `active`: one not bound yet
+/// (`a_held_wildcard_listen_counts_once_against_the_listener_bound`).
+/// By the listener, not by `first`, which an expired address can clear
+/// on a listener still bound
+/// (`a_held_listen_whose_first_address_expired_is_answered_with_one_still_bound`).
 pub(super) fn bound_or_binding(listens: &PendingListens, active: &ActiveListeners) -> usize {
     listens
-        .values()
-        .filter(|pending| pending.first.is_none())
+        .keys()
+        .filter(|id| !active.contains_key(**id))
         .count()
         .saturating_add(active.len())
 }

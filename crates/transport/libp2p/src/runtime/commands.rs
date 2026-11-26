@@ -1540,14 +1540,26 @@ pub(super) fn translate(
         Libp2pSwarmEvent::ExpiredListenAddr {
             listener_id,
             address,
-        } => forget_address(active, listener_id, &address).then(|| {
-            SwarmEvent::ListeningStopped {
+        } => {
+            let forgotten = forget_address(active, listener_id, &address);
+            // A HELD WILDCARD LISTEN IS ANSWERED WITH AN ADDRESS STILL
+            // BOUND: its first one gone, it takes the next its listener
+            // holds, or waits for one as before it bound
+            // (`a_held_listen_whose_first_address_expired_is_answered_with_one_still_bound`).
+            if let Some(pending) = listens.get_mut(&listener_id)
+                && pending.first.as_ref() == Some(&address)
+            {
+                pending.first = active
+                    .get(listener_id)
+                    .and_then(|addresses| addresses.first().cloned());
+            }
+            forgotten.then(|| SwarmEvent::ListeningStopped {
                 addresses: vec![address],
                 // Expiry is orderly: the address went away, nothing
                 // failed.
                 reason: None,
-            }
-        }),
+            })
+        }
         // A listener that dies before binding must not leave `listen`
         // waiting for an address that will never arrive.
         //
@@ -2377,6 +2389,59 @@ mod command_helper_tests {
         listens.insert(unbound, waiting);
         assert_eq!(answer_settled_listens(&mut listens), vec![left]);
         assert!(listens.contains_key(&unbound) && !listens.contains_key(&left));
+    }
+
+    #[test]
+    fn a_held_listen_whose_first_address_expired_is_answered_with_one_still_bound() {
+        use super::super::dialing::answer_settled_listens;
+        let expire = |listens: &mut super::PendingListens,
+                      active: &mut ActiveListeners,
+                      abandoned: &mut Vec<ListenerId>,
+                      id: ListenerId,
+                      address: Multiaddr| {
+            super::translate(
+                libp2p::swarm::SwarmEvent::ExpiredListenAddr {
+                    listener_id: id,
+                    address,
+                },
+                listens,
+                active,
+                abandoned,
+            )
+        };
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let id = ListenerId::next();
+        let (held, mut answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(id, held);
+        // Control: a listen holding only the expired address is unbound
+        // again, so nothing settles it.
+        let lone = ListenerId::next();
+        let (alone, mut lone_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(lone, alone);
+        for (listener, address) in [(id, addr(16)), (id, addr(17)), (lone, addr(18))] {
+            super::translate(
+                new_listen_addr(listener, address),
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        expire(&mut listens, &mut active, &mut abandoned, id, addr(16));
+        expire(&mut listens, &mut active, &mut abandoned, lone, addr(18));
+        assert_eq!(
+            super::super::dialing::bound_or_binding(&listens, &active),
+            2,
+            "an unbound-again listen is counted once, by its listener"
+        );
+        assert!(answer_settled_listens(&mut listens).is_empty());
+        assert!(matches!(answer.try_recv(), Ok(Ok(a)) if a == addr(17)));
+        assert!(
+            lone_answer.try_recv().is_err(),
+            "nothing bound to answer with"
+        );
+        assert!(listens.contains_key(&lone));
     }
 
     #[test]
