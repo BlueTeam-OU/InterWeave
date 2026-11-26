@@ -327,6 +327,19 @@ the same text as its reason:
   ends; drafts can be typed. There is no time-out of the design's own:
   while the call blocks, the identity stays Starting (exit gate:
   "with it made to block, no lease is granted until it returns").
+  A call the client gives up on (a time-out of the transport's, not of
+  the design's) is a call that blocked: the client takes no lease and
+  asks again at the pace at which it reconnects a lost session
+  (architect-cto's REPLY 01a216e9, item A), and between the attempts
+  the identity stays Starting, unbroken — no Try again, no words of its
+  own, no focus moved. The session's Reconnecting is the client's, not
+  a state the person is shown; a daemon that is not there reads
+  Starting the same way. Try again belongs to an answered refusal
+  (Could not start, below): asking again is already happening, and
+  nothing the person does here makes it sooner. When a retry that Try
+  again began gives up the same way, its Starting form stays: Try
+  again in its place, disabled, with its progress indicator, until an
+  attempt is answered.
 - **Could not start** (`IdentityNotHidden`): the advertise assertion
   failed, so the client took no lease. "{identity} is not connected.
   This device could not make sure that {identity} stays unlisted." With **Try again**
@@ -1730,7 +1743,11 @@ pass before it lands.
     authored and the assertion made to fail, the identity shows
     `IdentityNotHidden` with Try again and no lease is granted; made to
     block, it shows `IdentityStarting` and no lease is granted until it
-    returns; after a daemon restart with the delta removed, the re-lease
+    returns; made to block past the client's time-out for two attempts,
+    then to succeed, the row and the composer line read
+    `IdentityStarting` without a break from before the first attempt
+    until the lease, with no Try again and focus not moved, and then the
+    composer line reads `ComposerAs` (§5.2); after a daemon restart with the delta removed, the re-lease
     asserts again with the same two results; a trusted peer's directory
     query lists no identity of this device. Needs D1. *(`human-client-ui.md` §13 bullet 19;
     exit gate.)*
