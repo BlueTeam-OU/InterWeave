@@ -166,6 +166,50 @@ impl Behind {
     }
 }
 
+/// What the root tells the model side once, about the whole profile
+/// rather than one identity: every model held, in front or behind, reads
+/// it, so a switch never brings in a model that missed a fact told while
+/// it was behind.
+///
+/// Not here: `start_busy` and `start_refused`, which the model itself
+/// changes ([`UiModel::retry_start_asked`]), and `unlock_facts`, whose
+/// `seen` flag the model changes as the Trust page shows its line; a copy
+/// held here would go stale the moment the model changed its own. They
+/// are the front's alone, as only a root that never holds more than one
+/// identity (Android) calls them.
+#[derive(Debug, Clone, Copy)]
+struct RootFacts {
+    daemon: Option<bool>,
+    network_allowed: bool,
+    authentication_needed: bool,
+}
+
+impl Default for RootFacts {
+    fn default() -> Self {
+        // What a fresh model reads before it is told anything.
+        Self {
+            daemon: None,
+            network_allowed: true,
+            authentication_needed: false,
+        }
+    }
+}
+
+impl RootFacts {
+    /// Tell `model` every fact. The destructuring names every field, so a
+    /// fact added to [`RootFacts`] does not build until it is carried.
+    fn tell(self, model: &mut UiModel) {
+        let Self {
+            daemon,
+            network_allowed,
+            authentication_needed,
+        } = self;
+        model.daemon_seen(daemon);
+        model.network_access(network_allowed);
+        model.authentication_needed(authentication_needed);
+    }
+}
+
 /// The model side of the root.
 ///
 /// One [`UiModel`] per held identity behind one [`Surface`] (ux ruling U2
@@ -193,6 +237,8 @@ pub struct ModelSide<S: Surface, O: Opener> {
     identity: Option<EndpointId>,
     /// The other identities held, each with its model, in held order.
     behind: Vec<(EndpointId, Behind)>,
+    /// What the root said about the profile, told to every model held.
+    facts: RootFacts,
 }
 
 impl<S: Surface, O: Opener> ModelSide<S, O> {
@@ -212,6 +258,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             reads_owed: false,
             identity: None,
             behind: Vec::new(),
+            facts: RootFacts::default(),
+        }
+    }
+
+    /// Tell the front's model and every model behind it the facts.
+    fn tell_all(&mut self) {
+        self.facts.tell(&mut self.model);
+        for (_, behind) in &mut self.behind {
+            self.facts.tell(&mut behind.model);
         }
     }
 
@@ -228,7 +283,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.identity = Some(front.clone());
         for identity in held {
             if identity != front && !self.behind.iter().any(|(e, _)| e == identity) {
-                self.behind.push((identity.clone(), Behind::new()));
+                let mut made = Behind::new();
+                self.facts.tell(&mut made.model);
+                self.behind.push((identity.clone(), made));
             }
         }
         true
@@ -359,7 +416,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// it: the facade cannot tell a missing daemon from any other failed
     /// open, the root can.
     pub fn daemon_seen(&mut self, present: Option<bool>) {
-        self.model.daemon_seen(present);
+        self.facts.daemon = present;
+        self.tell_all();
     }
 
     /// The service stopped under this model, which a root keeps showing
@@ -395,7 +453,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 attempt: 0,
                 next_at: 0,
             }));
-        self.model.daemon_seen(Some(false));
+        self.daemon_seen(Some(false));
     }
 
     /// Every draft holding text ([`UiModel::drafts`]), for the model a new
@@ -430,13 +488,15 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// Whether the platform gives this app network access, as the root
     /// sees it ([`UiModel::network_access`]).
     pub fn network_access(&mut self, allowed: bool) {
-        self.model.network_access(allowed);
+        self.facts.network_allowed = allowed;
+        self.tell_all();
     }
 
     /// Whether nothing can run until the person authenticates, as the
     /// root learns it from the platform.
     pub fn authentication_needed(&mut self, needed: bool) {
-        self.model.authentication_needed(needed);
+        self.facts.authentication_needed = needed;
+        self.tell_all();
     }
 
     /// Whether the last start was refused with the profile in use after
@@ -1425,6 +1485,64 @@ mod tests {
         assert_eq!(
             side.model().session_notice(),
             Some(SessionNotice::Reconnecting)
+        );
+    }
+
+    /// The daemon's presence is told to every identity held, not only the
+    /// one in front (#769 r1 F1): reported absent while the first is in
+    /// front, the second reads no daemon when it comes forward; returned
+    /// while the second is behind, the first reads no stale no-daemon
+    /// when it comes back. Mutation: `tell_all` telling the front alone.
+    #[test]
+    fn the_daemon_seen_reaches_every_identity_held() {
+        use interweave_human_client_api::{ClientEvent, SessionState};
+        use interweave_human_ui_model::SessionNotice;
+        let reconnecting = || {
+            Update::Client(ClientEvent::Session(SessionState::Reconnecting {
+                attempt: 1,
+                next_at: 0,
+            }))
+        };
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.hold(&[first(), second()], &first());
+        side.apply(reconnecting());
+        assert!(side.apply_as(&second(), reconnecting()));
+        side.daemon_seen(Some(false));
+        assert!(side.switch(&second(), |_| {}));
+        assert_eq!(side.model().session_notice(), Some(SessionNotice::NoDaemon));
+
+        side.daemon_seen(Some(true));
+        assert!(side.switch(&first(), |_| {}));
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::Reconnecting),
+            "no stale no-daemon"
+        );
+        assert_eq!(
+            side.model_of(&second()).unwrap().session_notice(),
+            Some(SessionNotice::Reconnecting)
+        );
+    }
+
+    /// A model made in `hold` after the daemon was reported reads it.
+    /// Mutation: `hold` not telling the model it makes.
+    #[test]
+    fn a_model_made_in_hold_reads_the_daemon_already_seen() {
+        use interweave_human_client_api::{ClientEvent, SessionState};
+        use interweave_human_ui_model::SessionNotice;
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.daemon_seen(Some(false));
+        side.hold(&[first(), second()], &first());
+        side.apply_as(
+            &second(),
+            Update::Client(ClientEvent::Session(SessionState::Reconnecting {
+                attempt: 1,
+                next_at: 0,
+            })),
+        );
+        assert_eq!(
+            side.model_of(&second()).unwrap().session_notice(),
+            Some(SessionNotice::NoDaemon)
         );
     }
 
