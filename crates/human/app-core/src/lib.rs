@@ -23,6 +23,7 @@
 pub mod card_photo;
 mod cards;
 mod facade;
+mod facade_trait;
 mod listing;
 mod model_side;
 mod profile;
@@ -32,6 +33,7 @@ mod roster;
 pub mod test_hooks;
 
 pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
+pub use facade_trait::Facade;
 /// Why the identity's key cannot be used, as a root logs it.
 pub use interweave_human_ui_model::KeyProblem;
 pub use listing::kind_of as stored_kind;
