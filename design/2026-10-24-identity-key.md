@@ -508,7 +508,8 @@ already knows**:
   That second case comes from any change, between the cut and the
   settle, in the alias that the client would choose: a rename of the
   old identity, or a change in the aliases held (a Remove that frees
-  a lower suffix, or a new identity that takes one). The settle's add
+  a lower suffix, or a new identity that takes the alias that the
+  cut step's add chose). The settle's add
   then makes an alias that differs from the alias of the entry left
   ahead. In either case, the person never saw that replacement
   finish: the old identity stands with `KeyReplaceFailed`, and
