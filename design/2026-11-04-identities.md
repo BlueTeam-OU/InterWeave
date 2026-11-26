@@ -672,15 +672,16 @@ Outcomes other than Done, each with nothing half-made shown as made:
   new key. Rejected: a second key would make a second identity if the
   first add had landed.
 - **The form's key is gone**: an add answered `refused` `key_missing`
-  (the key file is absent from its key path or cannot be read; the
-  answer does not say which, LOCAL-IPC's check order),
+  (the key file is absent from its key path or cannot be read, and the
+  answer does not say which; see LOCAL-IPC's check order),
   or a list read for Found holds the id while its key path is empty.
   No Create on this form can succeed from here: every later add sends
   the same key (step 2) and would be refused in the same way. So the
   form says this instead of offering Create again: Create is not
   offered and `IdentityAddKeyGone` ("{name} cannot be created from
-  this form, because the key that InterWeave made for it is missing.
-  Go back, then choose Add an identity to start again.") shows in its
+  this form, because the key that InterWeave made for it is missing
+  or cannot be read. Go back, then choose Add an identity to start
+  again.") shows in its
   place, focused, with Back enabled. The form keeps its fields until
   it is left. Back leaves the form as "The form is left" says: when no
   add of the key ended unknown, the empty key path counts as deleted,
@@ -705,9 +706,10 @@ Outcomes other than Done, each with nothing half-made shown as made:
   enabled. Create there sends no add. With step 1's progress, it reads
   the list first, as the settle does before it deletes a record
   (below): the id listed with its key file at its key path is Found,
-  and Create tries the record's delete again, which on success goes on
-  with step 3 and Done; the id listed while its key path is empty is
-  "The form's key is gone"; the id not listed is an unknown outcome
+  and Create tries the record's delete again and, when that delete
+  succeeds, goes on with step 3 and Done; the id listed while its key
+  path is empty is "The form's key is gone"; the id not listed is an
+  unknown outcome
   (`IdentityAddUnknown`, above), since the endpoint may have been
   removed since its add. If the read fails, or the delete fails again,
   the same line stays and focus returns to it. The form retries the
@@ -724,9 +726,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   would open Your identities on a row that the client must not show
   yet (§16 Q11).
 - **The form is left** (Back, or the app ends):
-  - when no add of its key ended unknown and none answered `added` or
-    `unchanged` or was read as Found (no add was sent, or each was
-    refused with nothing created or with `key_missing`): on Back,
+  - when no add of its key ended unknown or answered `added` or
+    `unchanged`, and the id was never read as Found (no add was sent, or
+    each was refused with nothing created or with `key_missing`): on Back,
     the client deletes the key file and, on Android, the platform key,
     then the record; a key path that holds nothing, and a platform key
     that was never made, count as deleted already. If a delete fails,
@@ -1114,7 +1116,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | Chats (two or more identities) | back or app title, the switch, the app options ⋮, then the list as today |
 | switcher (sheet or dialog) | its title (a focus stop, so the reading starts there), the identity rows, Your identities |
 | Your identities | back arrow, title, the shared-device statement, `IdentitiesUnlisted`, the rows in order (a row is one stop; its Try again, when shown, the next), Add an identity or `IdentityLimit` |
-| add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, the line above Create when one shows, Create, or `IdentityLimit` or `IdentityAddKeyGone` in its place |
+| add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, the line above Create when one shows, then Create or, in its place, `IdentityLimit` or `IdentityAddKeyGone` |
 | an identity's page | as cards §5.2, then `IdentityAlias` and its Copy, then the overflow |
 | Trust | back arrow, title and subtitle, `TrustScope`, then as today |
 | Peers | back arrow, title and subtitle, Show my address, Add an address, `PeersShared`, `PeersNoTrust`, the rows as today |
@@ -1281,7 +1283,7 @@ front.
 | `ConfirmIdentityAdded` | {name} was created. It does not trust any peer yet. | snackbar | {name} added; it trusts no one yet |
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityAddNotFinished` | {name} was created, but InterWeave could not finish setting it up. Choose Create to finish. Create does not create a second one. | the add form, above Create | it exists, but is not ready yet; Create finishes it and makes nothing new |
-| `IdentityAddKeyGone` | {name} cannot be created from this form, because the key that InterWeave made for it is missing. Go back, then choose Add an identity to start again. | the add form, in Create's place | this form can no longer create it, since its key is missing or cannot be read; leave and start a new form |
+| `IdentityAddKeyGone` | {name} cannot be created from this form, because the key that InterWeave made for it is missing or cannot be read. Go back, then choose Add an identity to start again. | the add form, in Create's place | this form can no longer create it, since its key is missing or cannot be read; leave and start a new form |
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
 | `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before its rows were deleted (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
