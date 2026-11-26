@@ -67,7 +67,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use interweave_human_client_api::{ClientEvent, SessionProblem, SessionState};
 use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{
-    AssertingBinding, ClientConfig, FirstSeed, SessionBinding, TransportClient,
+    AssertingBinding, ClientConfig, FirstSeed, NodePeer, SessionBinding, TransportClient,
 };
 use interweave_human_ui_model::{HeldIdentity, IDENTITY_CAP, IdentityKey, IdentityState};
 use interweave_local_client_api::AdminBinding;
@@ -242,6 +242,9 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         // (ADR-0067 decision 6): an added identity is given its own set
         // at its add and is never seeded.
         let seed = FirstSeed::new(first.clone());
+        // One node, so one PeerId: an added identity whose own open was
+        // refused still names it (`a_refused_identity_reads_the_node_peer_from_its_sibling`).
+        let node_peer = NodePeer::new();
         let order = std::iter::once((first.clone(), store)).chain(keyed.into_iter().map(
             |(_, endpoint)| {
                 let handle = own.handle_speaking_as(endpoint.clone());
@@ -268,7 +271,9 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 Box::new(wall.clone()),
                 now,
             )?;
-            let client = client.seeding(seed.clone());
+            let client = client
+                .seeding(seed.clone())
+                .sharing_node_peer(node_peer.clone());
             let client = if is_first {
                 client
             } else {

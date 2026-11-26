@@ -780,6 +780,42 @@ async fn every_identitys_trust_connection_seeds_the_first_alone() {
     assert_eq!(a.operator_trust_calls(), 0);
 }
 
+/// An added identity whose session open was refused still reads a trust
+/// list naming the node's peer as `local_peer` -- the first identity's
+/// session learned it, and every held client shares the cell -- so the
+/// trust page can tell the node's own `PeerId` from a peer
+/// (`EntryProblem::OwnIdentity` compares against `local_peer`). The
+/// refusal here is `EndpointInUse`; any refusal leaves the client with no
+/// session of its own, and `NotHidden` is told apart by the assertion
+/// binding, not by the trust path under test.
+/// Mutation: `Roster::new` not giving the added client the shared cell
+/// -- the list names no local peer.
+#[tokio::test]
+async fn a_refused_identity_reads_the_node_peer_from_its_sibling() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a.clone());
+    spy.refuse_in_use(&second(), true);
+    let mut roster = build(&spy, memory(), config(vec![second()], None));
+    roster.turn(0).await;
+    assert!(matches!(
+        session(&roster, &second()),
+        SessionState::Refused { .. }
+    ));
+    let routed = roster
+        .execute(&second(), Command::ReadTrust, 1)
+        .await
+        .expect("held");
+    let list = routed
+        .iter()
+        .flat_map(|(_, updates)| updates)
+        .find_map(|update| match update {
+            Update::TrustRead(Ok(list)) => Some(list.clone()),
+            _ => None,
+        })
+        .expect("the trust list was read");
+    assert_eq!(list.local_peer.as_ref(), Some(a.peer()));
+}
+
 /// A roster holds at most `IDENTITY_CAP` identities, the first among
 /// them. Mutation: the bound check off by one (`> IDENTITY_CAP + 1`) --
 /// one more is built.
