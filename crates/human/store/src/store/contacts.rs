@@ -25,7 +25,7 @@ use rusqlite::{OptionalExtension as _, params};
 use interweave_human_core::NameKeys;
 use interweave_transport_api::{EndpointId, TransportIdentity};
 
-use super::{HumanStore, sql_timestamp, stored_ms};
+use super::{Core, HumanStore, sql_timestamp, stored_ms};
 use crate::StoreError;
 
 /// Where a contact's value came from.
@@ -554,6 +554,313 @@ impl HumanStore {
     /// # Errors
     /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
     pub fn contacts(&self) -> Result<Vec<Contact>, StoreError> {
+        self.lock().contacts()
+    }
+
+    /// One contact by id.
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
+    pub fn contact(&self, contact_id: &str) -> Result<Option<Contact>, StoreError> {
+        self.lock().contact(contact_id)
+    }
+
+    /// The contact holding exactly this route, if any.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn contact_for_route(
+        &self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<Option<Contact>, StoreError> {
+        self.lock().contact_for_route(peer, endpoint)
+    }
+
+    /// One page of the contacts, `max` at most, after `after` in id order
+    /// (the first at `None`), each with its routes and whether it has a
+    /// photo, never the photo's bytes: the Contacts list and every
+    /// conversation title need every contact's name, and a photo is read
+    /// when it is shown ([`Self::contact_photo`]). The cursor of the next
+    /// page is the last contact's id. Id order is no order a person sees
+    /// (human-client-ui.md section 3): a caller reads every page before
+    /// anything is shown, and the model orders the whole
+    /// (`UiModel::contacts_listed`). The windowed start pages them
+    /// (app-core's `FacadeSide::start`).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn contact_directory_page(
+        &self,
+        after: Option<&str>,
+        max: usize,
+    ) -> Result<crate::Page<ContactListing, String>, StoreError> {
+        self.lock().contact_directory_page(after, max)
+    }
+
+    /// One contact's photo, as [`Contact::photo`] holds it: read when it
+    /// is shown, one at a time.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn contact_photo(&self, contact_id: &str) -> Result<Option<Vec<u8>>, StoreError> {
+        self.lock().contact_photo(contact_id)
+    }
+
+    /// What `card` would do if accepted, for its proposal.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn card_standing(&self, card: &AcceptedCard<'_>) -> Result<CardStanding, StoreError> {
+        self.lock().card_standing(card)
+    }
+
+    /// Accept `card`: update the contact holding its route, or create one.
+    ///
+    /// The person accepted what [`HumanStore::card_standing`] showed them,
+    /// a key change included, so the route's key becomes the card's. A
+    /// name or photo the person wrote stays.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn accept_card(
+        &mut self,
+        card: &AcceptedCard<'_>,
+        at_ms: u64,
+    ) -> Result<Accepted, StoreError> {
+        self.lock().accept_card(card, at_ms)
+    }
+
+    /// Undo an Accept: delete the contact it created, with its route, or
+    /// write back the values the contact it updated had and the key its
+    /// route had. Whether there was a contact to undo on: a contact
+    /// deleted since is not made again.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn undo_accept(&mut self, undo: &AcceptUndo) -> Result<bool, StoreError> {
+        self.lock().undo_accept(undo)
+    }
+
+    /// The person's own edit of a contact's name: it is theirs from now
+    /// on, and no card overwrites it.
+    ///
+    /// # Errors
+    /// A storage error. Whether there was such a contact.
+    pub fn set_contact_name(
+        &mut self,
+        contact_id: &str,
+        name: &str,
+        at_ms: u64,
+    ) -> Result<bool, StoreError> {
+        self.lock().set_contact_name(contact_id, name, at_ms)
+    }
+
+    /// The person's own photo for a contact, or its removal: theirs from
+    /// now on, and no card replaces it.
+    ///
+    /// # Errors
+    /// A storage error. Whether there was such a contact.
+    pub fn set_contact_photo(
+        &mut self,
+        contact_id: &str,
+        photo: Option<&[u8]>,
+        at_ms: u64,
+    ) -> Result<bool, StoreError> {
+        self.lock().set_contact_photo(contact_id, photo, at_ms)
+    }
+
+    /// Delete a contact: its row and its routes, and with them the name,
+    /// the photo and every identity key its routes recorded -- the person
+    /// removes a contact only by deleting it (ADR-0059 decision 3). The
+    /// routes are deleted by name as well as by the cascade, so the rule
+    /// does not rest on the connection's pragma. What was deleted leaves
+    /// the log as released content does (`release_done`): before this
+    /// returns (`a_deleted_contact_leaves_both_files_before_the_call_returns`),
+    /// unless another reader holds the log then, and at the next release,
+    /// open or close if so. A card from one of its routes is a new
+    /// proposal afterwards, its key unrecorded.
+    ///
+    /// # Errors
+    /// A storage error. Whether there was such a contact.
+    pub fn delete_contact(&mut self, contact_id: &str) -> Result<bool, StoreError> {
+        self.lock().delete_contact(contact_id)
+    }
+
+    /// [`HumanStore::delete_contact`], returning what it deleted for the
+    /// person's Undo ([`HumanStore::restore_contact`]): the rows are read
+    /// in the transaction that deletes them, so the Undo writes back what
+    /// was deleted and nothing else. `None` when there was no such
+    /// contact.
+    ///
+    /// # Errors
+    /// A storage error; nothing is deleted then.
+    pub fn delete_contact_for_undo(
+        &mut self,
+        contact_id: &str,
+    ) -> Result<Option<DeletedContact>, StoreError> {
+        self.lock().delete_contact_for_undo(contact_id)
+    }
+
+    /// The person's Undo of a delete (design section 6.3): the contact
+    /// and its routes written back with the values and provenance they
+    /// had, in one transaction -- unless a route it held is under another
+    /// contact now, or a contact of its id exists, when nothing is
+    /// written.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn restore_contact(
+        &mut self,
+        deleted: &DeletedContact,
+    ) -> Result<ContactRestored, StoreError> {
+        self.lock().restore_contact(deleted)
+    }
+
+    /// The person's removal of a contact's photo, as
+    /// [`HumanStore::set_contact_photo`] with no photo writes it, returning
+    /// what it removed for the person's Undo
+    /// ([`HumanStore::restore_contact_photo`]). `None` when there was no
+    /// such contact or it had no photo, and nothing is written then.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn remove_contact_photo(
+        &mut self,
+        contact_id: &str,
+        at_ms: u64,
+    ) -> Result<Option<RemovedPhoto>, StoreError> {
+        self.lock().remove_contact_photo(contact_id, at_ms)
+    }
+
+    /// The person's Undo of a photo removal (design section 6.3): the
+    /// bytes written back with where they came from and when -- only
+    /// while the contact still shows the removal, so an Undo never
+    /// overwrites a photo set since. Whether it was written.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn restore_contact_photo(&mut self, removed: &RemovedPhoto) -> Result<bool, StoreError> {
+        self.lock().restore_contact_photo(removed)
+    }
+
+    /// Delete one route of a contact, with the identity key it recorded
+    /// (ADR-0059 decision 9: deleting a contact's routes): the contact
+    /// stays with its others. A contact's last route is refused in the
+    /// same transaction and nothing is written, since a contact with no
+    /// route is a delete of the contact, which is the person's
+    /// [`HumanStore::delete_contact`]. What was deleted leaves the log as a
+    /// deleted contact does
+    /// (`a_deleted_route_leaves_both_files_and_the_last_is_refused`). A
+    /// card from the route is a new proposal afterwards, its key
+    /// unrecorded.
+    ///
+    /// # Errors
+    /// A storage error; nothing is written then.
+    pub fn delete_route(
+        &mut self,
+        contact_id: &str,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<RouteDeleted, StoreError> {
+        self.lock().delete_route(contact_id, peer, endpoint)
+    }
+
+    /// Record that the conversation on this route shared its identity's
+    /// card at `at_ms` (`conversation_index.card_shared_at`): the caller's
+    /// to call when the card's row reached Accepted by remote transport
+    /// (cards section 5.3), never when it is queued.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn mark_card_shared(
+        &mut self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+        at_ms: u64,
+    ) -> Result<(), StoreError> {
+        self.lock().mark_card_shared(peer, endpoint, at_ms)
+    }
+
+    /// Whether any conversation ever recorded a share of the identity's
+    /// card. `card_shared_at` is cleared by nothing short of a discard of
+    /// the whole store. Until ADR-0067 decision 5, app-core read it to
+    /// tell a first start, where it then made a key, from a key file lost
+    /// after a share; a missing key file is now the key-missing state
+    /// whatever this says, and no client reads it for that.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn card_ever_shared(&self) -> Result<bool, StoreError> {
+        self.lock().card_ever_shared()
+    }
+
+    /// Every direct conversation that recorded a share of the identity's
+    /// card, most recently shared first: whose counterparts may hold its
+    /// key (design/2026-10-24-identity-key.md section 5.3).
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
+    pub fn cards_shared(&self) -> Result<Vec<(TransportIdentity, EndpointId, u64)>, StoreError> {
+        self.lock().cards_shared()
+    }
+
+    /// When the conversation on this route last shared its card.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn card_shared_at(
+        &self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<Option<u64>, StoreError> {
+        self.lock().card_shared_at(peer, endpoint)
+    }
+
+    /// An identity's own card, if it has one.
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
+    pub fn own_card(&self, endpoint: &EndpointId) -> Result<Option<OwnCard>, StoreError> {
+        self.lock().own_card(endpoint)
+    }
+
+    /// When an identity's own card was made, if it has one: the held
+    /// list's order after the first identity (`human-client-ui.md` §13,
+    /// A 2026-11-25). An edit of the card leaves it as it was
+    /// (`an_own_cards_creation_time_is_its_first_write`).
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for a negative time.
+    pub fn own_card_created_at(&self, endpoint: &EndpointId) -> Result<Option<u64>, StoreError> {
+        self.lock().own_card_created_at(endpoint)
+    }
+
+    /// Write an identity's own card, as the person edited it.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn set_own_card(&mut self, card: &OwnCard, at_ms: u64) -> Result<(), StoreError> {
+        self.lock().set_own_card(card, at_ms)
+    }
+
+    /// The identity's own card, made with its route label as its name if
+    /// it has none (STATE.md: a store recreated after a discard makes one
+    /// per identity this way).
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn ensure_own_card(
+        &mut self,
+        endpoint: &EndpointId,
+        at_ms: u64,
+    ) -> Result<OwnCard, StoreError> {
+        self.lock().ensure_own_card(endpoint, at_ms)
+    }
+}
+
+impl Core {
+    pub(crate) fn contacts(&self) -> Result<Vec<Contact>, StoreError> {
         let ids: Vec<String> = self
             .conn
             .prepare(
@@ -569,11 +876,7 @@ impl HumanStore {
             .collect()
     }
 
-    /// One contact by id.
-    ///
-    /// # Errors
-    /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
-    pub fn contact(&self, contact_id: &str) -> Result<Option<Contact>, StoreError> {
+    pub(crate) fn contact(&self, contact_id: &str) -> Result<Option<Contact>, StoreError> {
         #[cfg(test)]
         self.contact_loads.set(self.contact_loads.get() + 1);
         let row = self
@@ -612,11 +915,7 @@ impl HumanStore {
         }))
     }
 
-    /// The contact holding exactly this route, if any.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn contact_for_route(
+    pub(crate) fn contact_for_route(
         &self,
         peer: &TransportIdentity,
         endpoint: &EndpointId,
@@ -663,20 +962,7 @@ impl HumanStore {
             .collect()
     }
 
-    /// One page of the contacts, `max` at most, after `after` in id order
-    /// (the first at `None`), each with its routes and whether it has a
-    /// photo, never the photo's bytes: the Contacts list and every
-    /// conversation title need every contact's name, and a photo is read
-    /// when it is shown ([`Self::contact_photo`]). The cursor of the next
-    /// page is the last contact's id. Id order is no order a person sees
-    /// (human-client-ui.md section 3): a caller reads every page before
-    /// anything is shown, and the model orders the whole
-    /// (`UiModel::contacts_listed`). The windowed start pages them
-    /// (app-core's `FacadeSide::start`).
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn contact_directory_page(
+    pub(crate) fn contact_directory_page(
         &self,
         after: Option<&str>,
         max: usize,
@@ -733,12 +1019,7 @@ impl HumanStore {
         Ok(crate::Page { items, next })
     }
 
-    /// One contact's photo, as [`Contact::photo`] holds it: read when it
-    /// is shown, one at a time.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn contact_photo(&self, contact_id: &str) -> Result<Option<Vec<u8>>, StoreError> {
+    pub(crate) fn contact_photo(&self, contact_id: &str) -> Result<Option<Vec<u8>>, StoreError> {
         Ok(self
             .conn
             .query_row(
@@ -750,11 +1031,10 @@ impl HumanStore {
             .flatten())
     }
 
-    /// What `card` would do if accepted, for its proposal.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn card_standing(&self, card: &AcceptedCard<'_>) -> Result<CardStanding, StoreError> {
+    pub(crate) fn card_standing(
+        &self,
+        card: &AcceptedCard<'_>,
+    ) -> Result<CardStanding, StoreError> {
         let updates = self.contact_for_route(card.peer, card.endpoint)?;
         let key = match updates
             .as_ref()
@@ -826,15 +1106,7 @@ impl HumanStore {
             .collect::<Result<_, _>>()?)
     }
 
-    /// Accept `card`: update the contact holding its route, or create one.
-    ///
-    /// The person accepted what [`HumanStore::card_standing`] showed them,
-    /// a key change included, so the route's key becomes the card's. A
-    /// name or photo the person wrote stays.
-    ///
-    /// # Errors
-    /// A storage error; nothing is written then.
-    pub fn accept_card(
+    pub(crate) fn accept_card(
         &mut self,
         card: &AcceptedCard<'_>,
         at_ms: u64,
@@ -1002,14 +1274,7 @@ impl HumanStore {
         result.map_err(|e| self.note_store_failure(e))
     }
 
-    /// Undo an Accept: delete the contact it created, with its route, or
-    /// write back the values the contact it updated had and the key its
-    /// route had. Whether there was a contact to undo on: a contact
-    /// deleted since is not made again.
-    ///
-    /// # Errors
-    /// A storage error; nothing is written then.
-    pub fn undo_accept(&mut self, undo: &AcceptUndo) -> Result<bool, StoreError> {
+    pub(crate) fn undo_accept(&mut self, undo: &AcceptUndo) -> Result<bool, StoreError> {
         let UndoOf::Updated {
             contact_id,
             peer,
@@ -1059,12 +1324,7 @@ impl HumanStore {
         Ok(restored)
     }
 
-    /// The person's own edit of a contact's name: it is theirs from now
-    /// on, and no card overwrites it.
-    ///
-    /// # Errors
-    /// A storage error. Whether there was such a contact.
-    pub fn set_contact_name(
+    pub(crate) fn set_contact_name(
         &mut self,
         contact_id: &str,
         name: &str,
@@ -1094,12 +1354,7 @@ impl HumanStore {
         Ok(changed == 1)
     }
 
-    /// The person's own photo for a contact, or its removal: theirs from
-    /// now on, and no card replaces it.
-    ///
-    /// # Errors
-    /// A storage error. Whether there was such a contact.
-    pub fn set_contact_photo(
+    pub(crate) fn set_contact_photo(
         &mut self,
         contact_id: &str,
         photo: Option<&[u8]>,
@@ -1124,32 +1379,11 @@ impl HumanStore {
         Ok(changed == 1)
     }
 
-    /// Delete a contact: its row and its routes, and with them the name,
-    /// the photo and every identity key its routes recorded -- the person
-    /// removes a contact only by deleting it (ADR-0059 decision 3). The
-    /// routes are deleted by name as well as by the cascade, so the rule
-    /// does not rest on the connection's pragma. What was deleted leaves
-    /// the log as released content does (`release_done`): before this
-    /// returns (`a_deleted_contact_leaves_both_files_before_the_call_returns`),
-    /// unless another reader holds the log then, and at the next release,
-    /// open or close if so. A card from one of its routes is a new
-    /// proposal afterwards, its key unrecorded.
-    ///
-    /// # Errors
-    /// A storage error. Whether there was such a contact.
-    pub fn delete_contact(&mut self, contact_id: &str) -> Result<bool, StoreError> {
+    pub(crate) fn delete_contact(&mut self, contact_id: &str) -> Result<bool, StoreError> {
         Ok(self.delete_contact_for_undo(contact_id)?.is_some())
     }
 
-    /// [`HumanStore::delete_contact`], returning what it deleted for the
-    /// person's Undo ([`HumanStore::restore_contact`]): the rows are read
-    /// in the transaction that deletes them, so the Undo writes back what
-    /// was deleted and nothing else. `None` when there was no such
-    /// contact.
-    ///
-    /// # Errors
-    /// A storage error; nothing is deleted then.
-    pub fn delete_contact_for_undo(
+    pub(crate) fn delete_contact_for_undo(
         &mut self,
         contact_id: &str,
     ) -> Result<Option<DeletedContact>, StoreError> {
@@ -1194,15 +1428,7 @@ impl HumanStore {
         Ok(deleted)
     }
 
-    /// The person's Undo of a delete (design section 6.3): the contact
-    /// and its routes written back with the values and provenance they
-    /// had, in one transaction -- unless a route it held is under another
-    /// contact now, or a contact of its id exists, when nothing is
-    /// written.
-    ///
-    /// # Errors
-    /// A storage error; nothing is written then.
-    pub fn restore_contact(
+    pub(crate) fn restore_contact(
         &mut self,
         deleted: &DeletedContact,
     ) -> Result<ContactRestored, StoreError> {
@@ -1245,15 +1471,7 @@ impl HumanStore {
         result.map_err(|e| self.note_store_failure(e))
     }
 
-    /// The person's removal of a contact's photo, as
-    /// [`HumanStore::set_contact_photo`] with no photo writes it, returning
-    /// what it removed for the person's Undo
-    /// ([`HumanStore::restore_contact_photo`]). `None` when there was no
-    /// such contact or it had no photo, and nothing is written then.
-    ///
-    /// # Errors
-    /// A storage error; nothing is written then.
-    pub fn remove_contact_photo(
+    pub(crate) fn remove_contact_photo(
         &mut self,
         contact_id: &str,
         at_ms: u64,
@@ -1298,14 +1516,10 @@ impl HumanStore {
         Ok(removed)
     }
 
-    /// The person's Undo of a photo removal (design section 6.3): the
-    /// bytes written back with where they came from and when -- only
-    /// while the contact still shows the removal, so an Undo never
-    /// overwrites a photo set since. Whether it was written.
-    ///
-    /// # Errors
-    /// A storage error; nothing is written then.
-    pub fn restore_contact_photo(&mut self, removed: &RemovedPhoto) -> Result<bool, StoreError> {
+    pub(crate) fn restore_contact_photo(
+        &mut self,
+        removed: &RemovedPhoto,
+    ) -> Result<bool, StoreError> {
         let changed = self
             .conn
             .execute(
@@ -1325,20 +1539,7 @@ impl HumanStore {
         Ok(changed == 1)
     }
 
-    /// Delete one route of a contact, with the identity key it recorded
-    /// (ADR-0059 decision 9: deleting a contact's routes): the contact
-    /// stays with its others. A contact's last route is refused in the
-    /// same transaction and nothing is written, since a contact with no
-    /// route is a delete of the contact, which is the person's
-    /// [`HumanStore::delete_contact`]. What was deleted leaves the log as a
-    /// deleted contact does
-    /// (`a_deleted_route_leaves_both_files_and_the_last_is_refused`). A
-    /// card from the route is a new proposal afterwards, its key
-    /// unrecorded.
-    ///
-    /// # Errors
-    /// A storage error; nothing is written then.
-    pub fn delete_route(
+    pub(crate) fn delete_route(
         &mut self,
         contact_id: &str,
         peer: &TransportIdentity,
@@ -1380,14 +1581,7 @@ impl HumanStore {
         Ok(deleted)
     }
 
-    /// Record that the conversation on this route shared its identity's
-    /// card at `at_ms` (`conversation_index.card_shared_at`): the caller's
-    /// to call when the card's row reached Accepted by remote transport
-    /// (cards section 5.3), never when it is queued.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn mark_card_shared(
+    pub(crate) fn mark_card_shared(
         &mut self,
         peer: &TransportIdentity,
         endpoint: &EndpointId,
@@ -1414,16 +1608,7 @@ impl HumanStore {
         Ok(())
     }
 
-    /// Whether any conversation ever recorded a share of the identity's
-    /// card. `card_shared_at` is cleared by nothing short of a discard of
-    /// the whole store. Until ADR-0067 decision 5, app-core read it to
-    /// tell a first start, where it then made a key, from a key file lost
-    /// after a share; a missing key file is now the key-missing state
-    /// whatever this says, and no client reads it for that.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn card_ever_shared(&self) -> Result<bool, StoreError> {
+    pub(crate) fn card_ever_shared(&self) -> Result<bool, StoreError> {
         Ok(self.conn.query_row(
             "SELECT EXISTS(SELECT 1 FROM conversation_index
                             WHERE local_endpoint_id = ?1 AND card_shared_at IS NOT NULL)",
@@ -1432,13 +1617,9 @@ impl HumanStore {
         )?)
     }
 
-    /// Every direct conversation that recorded a share of the identity's
-    /// card, most recently shared first: whose counterparts may hold its
-    /// key (design/2026-10-24-identity-key.md section 5.3).
-    ///
-    /// # Errors
-    /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
-    pub fn cards_shared(&self) -> Result<Vec<(TransportIdentity, EndpointId, u64)>, StoreError> {
+    pub(crate) fn cards_shared(
+        &self,
+    ) -> Result<Vec<(TransportIdentity, EndpointId, u64)>, StoreError> {
         let rows: Vec<(String, String, i64)> = self
             .conn
             .prepare(
@@ -1463,11 +1644,7 @@ impl HumanStore {
             .collect()
     }
 
-    /// When the conversation on this route last shared its card.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn card_shared_at(
+    pub(crate) fn card_shared_at(
         &self,
         peer: &TransportIdentity,
         endpoint: &EndpointId,
@@ -1489,11 +1666,7 @@ impl HumanStore {
             .transpose()
     }
 
-    /// An identity's own card, if it has one.
-    ///
-    /// # Errors
-    /// A storage error, or [`StoreError::Corrupt`] for an unreadable row.
-    pub fn own_card(&self, endpoint: &EndpointId) -> Result<Option<OwnCard>, StoreError> {
+    pub(crate) fn own_card(&self, endpoint: &EndpointId) -> Result<Option<OwnCard>, StoreError> {
         Ok(self
             .conn
             .query_row(
@@ -1516,11 +1689,22 @@ impl HumanStore {
             }))
     }
 
-    /// Write an identity's own card, as the person edited it.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn set_own_card(&mut self, card: &OwnCard, at_ms: u64) -> Result<(), StoreError> {
+    pub(crate) fn own_card_created_at(
+        &self,
+        endpoint: &EndpointId,
+    ) -> Result<Option<u64>, StoreError> {
+        self.conn
+            .query_row(
+                "SELECT created_at FROM own_cards WHERE endpoint_id = ?1",
+                params![endpoint.as_str()],
+                |r| r.get::<_, i64>(0),
+            )
+            .optional()?
+            .map(|t| stored_ms("created_at", t))
+            .transpose()
+    }
+
+    pub(crate) fn set_own_card(&mut self, card: &OwnCard, at_ms: u64) -> Result<(), StoreError> {
         let at = sql_timestamp("at", at_ms)?;
         self.conn
             .execute(
@@ -1542,13 +1726,7 @@ impl HumanStore {
         Ok(())
     }
 
-    /// The identity's own card, made with its route label as its name if
-    /// it has none (STATE.md: a store recreated after a discard makes one
-    /// per identity this way).
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn ensure_own_card(
+    pub(crate) fn ensure_own_card(
         &mut self,
         endpoint: &EndpointId,
         at_ms: u64,
@@ -1691,25 +1869,29 @@ mod tests {
         }
         // An update of one of them, and a card from a stranger.
         for (peer, expected) in [(&peers[3], 1), (&peers[39], 1)] {
-            store.contact_loads.set(0);
+            store.lock().contact_loads.set(0);
             let standing = store
                 .card_standing(&card(peer, &human, "Contact 1"))
                 .expect("standing");
             assert!(standing.updates.is_some(), "control: an update");
             assert_eq!(standing.same_name.len(), 1, "control: the same name, read");
             assert_eq!(
-                store.contact_loads.get(),
+                store.lock().contact_loads.get(),
                 expected,
                 "the updated contact alone"
             );
         }
         let stranger = peer(200);
-        store.contact_loads.set(0);
+        store.lock().contact_loads.set(0);
         let standing = store
             .card_standing(&card(&stranger, &human, "Contact 1"))
             .expect("standing");
         assert!(standing.updates.is_none());
-        assert_eq!(store.contact_loads.get(), 0, "no contact loaded at all");
+        assert_eq!(
+            store.lock().contact_loads.get(),
+            0,
+            "no contact loaded at all"
+        );
     }
 
     /// Each standing read is planned on its indexes, never a scan of the
@@ -1734,6 +1916,7 @@ mod tests {
         ] {
             let values = ["x", "y", "z", "u", "v", "w"];
             let plan: Vec<String> = store
+                .lock()
                 .conn
                 .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
                 .expect("plan")

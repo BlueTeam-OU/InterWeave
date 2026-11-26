@@ -12,8 +12,11 @@
 //! On the desktop the two run on different threads: the facade side on
 //! its own runtime, because a session whose events go undrained loses its
 //! lease; the model side on the toolkit's. Everything that crosses is a
-//! plain value. No tokio, no toolkit and no platform code here, so
-//! Android reuses it at Stage 17.
+//! plain value. With several identities held (plan §30) the facade half is
+//! a [`Roster`], a facade side per identity, and what crosses names its
+//! identity: a [`Crossing`] one way, [`Routed`] updates the other. No
+//! tokio, no toolkit and no platform code here, so Android reuses it at
+//! Stage 17.
 
 #![forbid(unsafe_code)]
 
@@ -24,6 +27,7 @@ mod listing;
 mod model_side;
 mod profile;
 mod protocol;
+mod roster;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 
@@ -36,7 +40,8 @@ pub use profile::{
     CLIENT_KIND, IdentityRefused, KeySource, identity_key, identity_key_under, leasable_endpoints,
     resolve_identity,
 };
-pub use protocol::{Command, Failure, Start, Update, WindowCommand};
+pub use protocol::{Command, Crossing, Failure, Start, Update, WindowCommand};
+pub use roster::{Roster, RosterConfig, RosterError, Routed, SwitchOutcome};
 
 // ui-model does not depend on profile-config, so this is the one place
 // that can hold the two bounds equal: the model refuses a held list longer

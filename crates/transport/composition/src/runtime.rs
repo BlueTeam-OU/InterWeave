@@ -327,6 +327,15 @@ pub(crate) enum Request {
     /// were gone. Test builds only.
     #[cfg(feature = "test-hooks")]
     FailPublishes(usize, oneshot::Sender<()>),
+    /// The next endpoint-set write's publish waits, after telling the
+    /// first sender it started, until the receiver resolves. Test builds
+    /// only.
+    #[cfg(feature = "test-hooks")]
+    HoldEndpointPublish(
+        oneshot::Sender<()>,
+        oneshot::Receiver<()>,
+        oneshot::Sender<()>,
+    ),
     /// Whether the operator's door holds a bootstrap address. Test
     /// builds only.
     #[cfg(feature = "test-hooks")]
@@ -346,6 +355,49 @@ pub(crate) enum Request {
     /// a runtime that ends on its own. Test builds only.
     #[cfg(feature = "test-hooks")]
     EndDriver(oneshot::Sender<()>),
+}
+
+/// An endpoint-set write's publish held open
+/// (`ComposedRuntime::hold_next_endpoint_publish`). Dropping it releases
+/// the publish as [`Self::release`] does
+/// (`a_second_hold_replaces_an_untaken_first`).
+#[cfg(feature = "test-hooks")]
+#[derive(Debug)]
+pub struct PublishHold {
+    /// `None` once it has resolved `Ok`: a oneshot receiver polled again
+    /// after completing panics, and `reached` may be asked twice
+    /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`).
+    reached: Option<oneshot::Receiver<()>>,
+    release: oneshot::Sender<()>,
+}
+
+#[cfg(feature = "test-hooks")]
+impl PublishHold {
+    /// Resolves once the held write has reached its publish: the driver
+    /// is inside that write's answer, its overlay written, and waits
+    /// there.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` when the hold was dropped unreached: the
+    /// driver ended, or a later `hold_next_endpoint_publish` replaced it
+    /// (`a_second_hold_replaces_an_untaken_first`).
+    /// Asked again after it resolved, `Ok` at once
+    /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`).
+    pub async fn reached(&mut self) -> Result<(), TransportError> {
+        let Some(reached) = self.reached.as_mut() else {
+            return Ok(());
+        };
+        reached
+            .await
+            .map_err(|_| TransportError::BackendUnavailable)?;
+        self.reached = None;
+        Ok(())
+    }
+
+    /// Let the held publish go on.
+    pub fn release(self) {
+        let _ = self.release.send(());
+    }
 }
 
 /// A failure a test makes the next overlay write meet, on either
@@ -697,6 +749,8 @@ impl ComposedRuntime {
             #[cfg(feature = "test-hooks")]
             publish_faults: 0,
             #[cfg(feature = "test-hooks")]
+            endpoint_publish_hold: None,
+            #[cfg(feature = "test-hooks")]
             kept_forgets: 0,
             outcomes: LastOutcomes::default(),
             refusals: ReconnectRefusals::default(),
@@ -958,6 +1012,33 @@ impl ComposedRuntime {
         self.ask(|reply| Request::FailPublishes(count, reply)).await
     }
 
+    /// Hold the substrate publish of the next write that goes through
+    /// `Driver::set_endpoints_noting` -- the endpoint set's methods, and
+    /// `admin.trust.set` with an endpoint and `admin.trust.seed`; the
+    /// tests hold an add, a remove and an endpoint `admin.trust.set` --
+    /// once its overlay is written and before its answer
+    /// (`a_remove_beside_a_held_add_answers_removed_after_the_add`), until the returned
+    /// [`PublishHold`] is released or dropped: how a test puts another
+    /// request beside a write in flight. A move refused before its write
+    /// does not take the hold
+    /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`); a
+    /// second call before the first hold is taken replaces it
+    /// (`a_second_hold_replaces_an_untaken_first`). TEST BUILDS ONLY.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped.
+    #[cfg(feature = "test-hooks")]
+    pub async fn hold_next_endpoint_publish(&self) -> Result<PublishHold, TransportError> {
+        let (reached_tx, reached) = oneshot::channel();
+        let (release, release_rx) = oneshot::channel();
+        self.ask(|reply| Request::HoldEndpointPublish(reached_tx, release_rx, reply))
+            .await?;
+        Ok(PublishHold {
+            reached: Some(reached),
+            release,
+        })
+    }
+
     /// Make the next overlay writes, trust or endpoint, meet `faults`, one each, in
     /// order: how a test reaches a write that fails after its rename,
     /// which no permission can produce. TEST BUILDS ONLY.
@@ -1062,6 +1143,10 @@ struct Driver {
     /// (test builds).
     #[cfg(feature = "test-hooks")]
     publish_faults: usize,
+    /// The hold the next endpoint-set write's publish waits on (test
+    /// builds).
+    #[cfg(feature = "test-hooks")]
+    endpoint_publish_hold: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>,
     /// How many of the next book removals answer "kept" (test builds).
     #[cfg(feature = "test-hooks")]
     kept_forgets: usize,
@@ -1528,6 +1613,11 @@ impl Driver {
                 let _ = reply.send(());
             }
             #[cfg(feature = "test-hooks")]
+            Request::HoldEndpointPublish(reached, release, reply) => {
+                self.endpoint_publish_hold = Some((reached, release));
+                let _ = reply.send(());
+            }
+            #[cfg(feature = "test-hooks")]
             Request::KeepForgets(count, reply) => {
                 self.kept_forgets = count;
                 let _ = reply.send(());
@@ -1721,6 +1811,21 @@ impl Driver {
         let published = if written.is_some() {
             Err(TransportError::Internal)
         } else {
+            // The test hold waits INSIDE the publish, as the substrate's
+            // own step does, so a driver that answered beside a write in
+            // flight would answer beside a held one too
+            // (`a_remove_beside_a_held_add_answers_removed_after_the_add`).
+            #[cfg(feature = "test-hooks")]
+            let publish = {
+                let hold = self.endpoint_publish_hold.take();
+                async move {
+                    if let Some((reached, release)) = hold {
+                        let _ = reached.send(());
+                        let _ = release.await;
+                    }
+                    publish.await
+                }
+            };
             publish.await
         };
         // A write that failed before its rename left the previous file:

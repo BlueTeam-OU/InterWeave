@@ -102,6 +102,10 @@ pub struct Profile {
     /// across restarts makes differ from the file (ADR-0028 A
     /// 2026-10-11), so the facade's open decides it, never this list.
     pub endpoints: Vec<EndpointId>,
+    /// The profile's default direct endpoint, when it is one of
+    /// [`Self::endpoints`]: in front at start when the store remembers no
+    /// identity held (`Roster::new`).
+    pub default: Option<EndpointId>,
     /// The channels the profile wants joined.
     pub channels: Vec<ChannelId>,
     /// The data socket.
@@ -196,8 +200,14 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
             paths: Box::new(paths),
         });
     }
+    let default = config
+        .endpoints
+        .default_direct_endpoint
+        .clone()
+        .filter(|e| endpoints.contains(e));
     Ok(Profile {
         endpoints,
+        default,
         channels: config.channels.desired.clone(),
         data_socket: paths.data_socket().map_err(StartError::Sockets)?,
         admin_socket: paths.admin_socket().map_err(StartError::Sockets)?,

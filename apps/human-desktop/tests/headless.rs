@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use interweave_human_app_core::{Command, FacadeSide, Opener, Update};
 use interweave_human_desktop::app::{App, SlintSurface};
-use interweave_human_desktop::facade_thread::{FacadeThread, FromFacade};
+use interweave_human_desktop::facade_thread::{FacadeFault, FacadeThread, FromFacade};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{ConversationKey, RuntimeHost, SessionNotice};
@@ -216,6 +216,7 @@ fn over_the_real_binding_with_no_daemon_the_window_says_so() {
     let paths = ProfilePaths::resolve("desk", &roots).expect("paths");
     let profile = Profile {
         endpoints: vec![human()],
+        default: None,
         channels: vec![],
         data_socket: paths.data_socket().expect("data socket"),
         admin_socket: paths.admin_socket().expect("admin socket"),
@@ -285,6 +286,25 @@ fn a_lock_that_cannot_answer_is_never_read_as_no_daemon() {
     assert!(alice.close(Duration::from_secs(5)));
 }
 
+/// A roster's failure keeps its class on the way to the window: a store
+/// that could not be read is the store's, the bound is its own (#769 r1
+/// F3). Mutation: the `OverBound` arm mapped to `Store` -- the bound's
+/// case fails.
+#[test]
+fn a_rosters_failure_keeps_its_class() {
+    use interweave_human_app_core::RosterError;
+    assert_eq!(
+        FacadeFault::from(RosterError::OverBound),
+        FacadeFault::OverBound
+    );
+    assert_eq!(
+        FacadeFault::from(RosterError::Store(
+            interweave_human_store::StoreError::AlreadyRead
+        )),
+        FacadeFault::Store
+    );
+}
+
 /// A facade that could not be built ends its thread at once; closing then
 /// returns at once, not after its whole wait. The window has taken the
 /// thread's last message (`Closed`, after `FacadeFailed`) before it closes,
@@ -295,9 +315,7 @@ fn a_lock_that_cannot_answer_is_never_read_as_no_daemon() {
 #[test]
 fn closing_a_facade_thread_that_already_ended_returns_at_once() {
     let thread = FacadeThread::spawn(
-        || -> Result<FacadeSide<FakeNode, FakeNode>, _> {
-            Err(interweave_human_store::StoreError::AlreadyRead)
-        },
+        || -> Result<FacadeSide<FakeNode, FakeNode>, _> { Err(FacadeFault::Store) },
         || Ok(true),
         Arc::new(|| {}),
         |_| {},
@@ -313,7 +331,10 @@ fn closing_a_facade_thread_that_already_ended_returns_at_once() {
     assert!(
         matches!(
             taken.as_slice(),
-            [FromFacade::FacadeFailed, FromFacade::Closed]
+            [
+                FromFacade::FacadeFailed(FacadeFault::Store),
+                FromFacade::Closed
+            ]
         ),
         "the failure, then the end: {taken:?}"
     );
@@ -554,7 +575,7 @@ fn a_window_that_stops_taking_holds_the_facade_to_its_bound() {
     while received.len() < SENT {
         wait.check_showing(|| format!("{} of {SENT} reached it", received.len()));
         for message in alice.take() {
-            if let FromFacade::Update(update) = message
+            if let FromFacade::Update(_, update) = message
                 && let Update::Received(r) = *update
             {
                 received.push(r.envelope.text);

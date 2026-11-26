@@ -11,7 +11,7 @@ use rusqlite::params;
 
 use interweave_transport_api::{ChannelId, EndpointId, TransportIdentity};
 
-use super::{HumanStore, InboundRow, sql_timestamp};
+use super::{Core, HumanStore, InboundRow, sql_timestamp};
 use crate::StoreError;
 use crate::records::{BackupTable, Page, PageLimits, RowId, StoredInbound};
 
@@ -386,12 +386,7 @@ impl HumanStore {
     /// # Errors
     /// A storage error.
     pub fn remote_endpoints(&self, peer: &TransportIdentity) -> Result<u64, StoreError> {
-        let count: i64 = self.conn.query_row(
-            ENDPOINT_COUNT,
-            params![self.identity.as_str(), peer.as_str()],
-            |r| r.get(0),
-        )?;
-        Ok(u64::try_from(count).unwrap_or(0))
+        self.lock().remote_endpoints(peer)
     }
 
     /// Whether this identity already holds `endpoint` of `peer`, as an
@@ -400,6 +395,152 @@ impl HumanStore {
     /// # Errors
     /// A storage error.
     pub fn holds_endpoint(
+        &self,
+        peer: &TransportIdentity,
+        endpoint: &EndpointId,
+    ) -> Result<bool, StoreError> {
+        self.lock().holds_endpoint(peer, endpoint)
+    }
+
+    /// Whether `conversation` stores a row of `app_message_id` this build
+    /// shows, unread or kept: a reply's target the person can page to
+    /// (`design/2026-10-27-start-window.md` §5.2). A row of the id in
+    /// another conversation, or of a kind this build cannot show, is not
+    /// one; a pending row is never asked about, since the model holds every
+    /// one. Read from two index entries, never a row
+    /// (`a_reply_target_is_read_from_an_index_alone`).
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn reply_target_present(
+        &self,
+        conversation: &StoreConversation,
+        app_message_id: &str,
+    ) -> Result<bool, StoreError> {
+        self.lock()
+            .reply_target_present(conversation, app_message_id)
+    }
+
+    /// One page of `conversation`'s rows of a kind this build shows, unread
+    /// and kept together, newest first, older than `before` (the newest at
+    /// `None`): within `limits`, and the cursor of the next page when there
+    /// are older rows. A row this build cannot show is never in a page
+    /// ([`Self::inbound_counts`] counts it).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn conversation_page(
+        &self,
+        conversation: &StoreConversation,
+        before: Option<WindowCursor>,
+        limits: PageLimits,
+    ) -> Result<Page<StoredInbound, WindowCursor>, StoreError> {
+        self.lock().conversation_page(conversation, before, limits)
+    }
+
+    /// One page of `conversation`'s shown rows within `range`, in `order`,
+    /// unread and kept together: within `limits`, and the cursor of the
+    /// next page in the same order when the range holds more. A page holds
+    /// at least one row, unless its unread room is used up and the next
+    /// row is unread: then it holds none, and the cursor says more rows
+    /// remain (design §7.1).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn conversation_range(
+        &self,
+        conversation: &StoreConversation,
+        range: PageRange,
+        order: Order,
+        limits: WindowLimits,
+    ) -> Result<Page<StoredInbound, WindowCursor>, StoreError> {
+        self.lock()
+            .conversation_range(conversation, range, order, limits)
+    }
+
+    /// [`Self::conversation_range`], saying whether the page stopped
+    /// because its unread room was used -- the next row unread, and no room
+    /// for it -- rather than at its records or bytes: the limit row is
+    /// shown only then (design section 7.1).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn conversation_window(
+        &self,
+        conversation: &StoreConversation,
+        range: PageRange,
+        order: Order,
+        limits: WindowLimits,
+    ) -> Result<WindowPage, StoreError> {
+        self.lock()
+            .conversation_window(conversation, range, order, limits)
+    }
+
+    /// Every conversation's unread count, as the badge counts it
+    /// ([`ConversationUnread`]): one grouped count per table filter, no row
+    /// decoded. A conversation with no unread row it shows is absent.
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn unread_counts(&self) -> Result<Vec<ConversationUnread>, StoreError> {
+        self.lock().unread_counts()
+    }
+
+    /// Every conversation with a row this build shows, unread or kept: the
+    /// conversations the Chats list holds from the store, a kept-only one
+    /// included, which [`Self::unread_counts`] does not name. Read from the
+    /// two kind indexes alone, no row of either table touched since v11
+    /// (`the_counts_read_a_covering_index_alone`).
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn shown_conversations(&self) -> Result<Vec<StoreConversation>, StoreError> {
+        self.lock().shown_conversations()
+    }
+
+    /// The inbound rows of a kind this build cannot show, unread and kept,
+    /// and the kept rows of a kind it shows
+    /// (`the_kept_count_is_of_the_kinds_shown`).
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn inbound_counts(&self) -> Result<InboundCounts, StoreError> {
+        self.lock().inbound_counts()
+    }
+
+    /// The highest row id the unread table ever gave, `None` before its
+    /// first row: every row committed unread so far has an id at or below
+    /// it, read or not, since the table's ids are `AUTOINCREMENT` and never
+    /// given twice. Read with the counts at a start, it tells a row the
+    /// counts already hold from one committed after them, whenever either
+    /// is handed over (design section 3: a badge counts each row once).
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn unread_high_water(&self) -> Result<Option<RowId>, StoreError> {
+        self.lock().unread_high_water()
+    }
+
+    /// One unread row by its id, if it is still unread.
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn unread_inbound_row(&self, row_id: RowId) -> Result<Option<StoredInbound>, StoreError> {
+        self.lock().unread_inbound_row(row_id)
+    }
+}
+
+impl Core {
+    pub(crate) fn remote_endpoints(&self, peer: &TransportIdentity) -> Result<u64, StoreError> {
+        let count: i64 = self.conn.query_row(
+            ENDPOINT_COUNT,
+            params![self.identity.as_str(), peer.as_str()],
+            |r| r.get(0),
+        )?;
+        Ok(u64::try_from(count).unwrap_or(0))
+    }
+
+    pub(crate) fn holds_endpoint(
         &self,
         peer: &TransportIdentity,
         endpoint: &EndpointId,
@@ -414,17 +555,7 @@ impl HumanStore {
         )?)
     }
 
-    /// Whether `conversation` stores a row of `app_message_id` this build
-    /// shows, unread or kept: a reply's target the person can page to
-    /// (`design/2026-10-27-start-window.md` §5.2). A row of the id in
-    /// another conversation, or of a kind this build cannot show, is not
-    /// one; a pending row is never asked about, since the model holds every
-    /// one. Read from two index entries, never a row
-    /// (`a_reply_target_is_read_from_an_index_alone`).
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn reply_target_present(
+    pub(crate) fn reply_target_present(
         &self,
         conversation: &StoreConversation,
         app_message_id: &str,
@@ -444,15 +575,7 @@ impl HumanStore {
         })
     }
 
-    /// One page of `conversation`'s rows of a kind this build shows, unread
-    /// and kept together, newest first, older than `before` (the newest at
-    /// `None`): within `limits`, and the cursor of the next page when there
-    /// are older rows. A row this build cannot show is never in a page
-    /// ([`Self::inbound_counts`] counts it).
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn conversation_page(
+    pub(crate) fn conversation_page(
         &self,
         conversation: &StoreConversation,
         before: Option<WindowCursor>,
@@ -472,16 +595,7 @@ impl HumanStore {
         )
     }
 
-    /// One page of `conversation`'s shown rows within `range`, in `order`,
-    /// unread and kept together: within `limits`, and the cursor of the
-    /// next page in the same order when the range holds more. A page holds
-    /// at least one row, unless its unread room is used up and the next
-    /// row is unread: then it holds none, and the cursor says more rows
-    /// remain (design §7.1).
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn conversation_range(
+    pub(crate) fn conversation_range(
         &self,
         conversation: &StoreConversation,
         range: PageRange,
@@ -492,14 +606,7 @@ impl HumanStore {
             .map(|window| window.page)
     }
 
-    /// [`Self::conversation_range`], saying whether the page stopped
-    /// because its unread room was used -- the next row unread, and no room
-    /// for it -- rather than at its records or bytes: the limit row is
-    /// shown only then (design section 7.1).
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn conversation_window(
+    pub(crate) fn conversation_window(
         &self,
         conversation: &StoreConversation,
         range: PageRange,
@@ -607,13 +714,7 @@ impl HumanStore {
         })
     }
 
-    /// Every conversation's unread count, as the badge counts it
-    /// ([`ConversationUnread`]): one grouped count per table filter, no row
-    /// decoded. A conversation with no unread row it shows is absent.
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn unread_counts(&self) -> Result<Vec<ConversationUnread>, StoreError> {
+    pub(crate) fn unread_counts(&self) -> Result<Vec<ConversationUnread>, StoreError> {
         let mut out = Vec::new();
         let local = self.identity.as_str();
         let mut direct = self.conn.prepare(DIRECT_COUNTS)?;
@@ -652,15 +753,7 @@ impl HumanStore {
         Ok(out)
     }
 
-    /// Every conversation with a row this build shows, unread or kept: the
-    /// conversations the Chats list holds from the store, a kept-only one
-    /// included, which [`Self::unread_counts`] does not name. Read from the
-    /// two kind indexes alone, no row of either table touched since v11
-    /// (`the_counts_read_a_covering_index_alone`).
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn shown_conversations(&self) -> Result<Vec<StoreConversation>, StoreError> {
+    pub(crate) fn shown_conversations(&self) -> Result<Vec<StoreConversation>, StoreError> {
         let mut out = std::collections::BTreeSet::new();
         let mut stmt = self.conn.prepare(SHOWN_CONVERSATIONS)?;
         let rows = stmt.query_map(params![self.identity.as_str()], |r| {
@@ -689,13 +782,7 @@ impl HumanStore {
         Ok(out.into_iter().collect())
     }
 
-    /// The inbound rows of a kind this build cannot show, unread and kept,
-    /// and the kept rows of a kind it shows
-    /// (`the_kept_count_is_of_the_kinds_shown`).
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn inbound_counts(&self) -> Result<InboundCounts, StoreError> {
+    pub(crate) fn inbound_counts(&self) -> Result<InboundCounts, StoreError> {
         let (hidden_unread, hidden_kept, kept): (i64, i64, i64) =
             self.conn
                 .query_row(INBOUND_COUNTS, params![self.identity.as_str()], |r| {
@@ -708,16 +795,7 @@ impl HumanStore {
         })
     }
 
-    /// The highest row id the unread table ever gave, `None` before its
-    /// first row: every row committed unread so far has an id at or below
-    /// it, read or not, since the table's ids are `AUTOINCREMENT` and never
-    /// given twice. Read with the counts at a start, it tells a row the
-    /// counts already hold from one committed after them, whenever either
-    /// is handed over (design section 3: a badge counts each row once).
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn unread_high_water(&self) -> Result<Option<RowId>, StoreError> {
+    pub(crate) fn unread_high_water(&self) -> Result<Option<RowId>, StoreError> {
         use rusqlite::OptionalExtension as _;
         Ok(self
             .conn
@@ -730,11 +808,10 @@ impl HumanStore {
             .map(RowId::from_stored))
     }
 
-    /// One unread row by its id, if it is still unread.
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn unread_inbound_row(&self, row_id: RowId) -> Result<Option<StoredInbound>, StoreError> {
+    pub(crate) fn unread_inbound_row(
+        &self,
+        row_id: RowId,
+    ) -> Result<Option<StoredInbound>, StoreError> {
         use rusqlite::OptionalExtension as _;
         self.conn
             .query_row(
@@ -775,6 +852,7 @@ mod tests {
             ("kept_inbound", CHANNEL, "kept_inbound_by_channel"),
         ] {
             let plan: Vec<String> = store
+                .lock()
                 .conn
                 .prepare(&format!(
                     "EXPLAIN QUERY PLAN {}",
@@ -833,6 +911,7 @@ mod tests {
             ),
         ] {
             let plan: Vec<String> = store
+                .lock()
                 .conn
                 .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
                 .expect("plan")
@@ -878,6 +957,7 @@ mod tests {
             (REPLY_TARGET_CHANNEL, &["m", "c", "me"][..]),
         ] {
             let plan: Vec<String> = store
+                .lock()
                 .conn
                 .prepare(&format!("EXPLAIN QUERY PLAN {sql}"))
                 .expect("plan")
@@ -920,6 +1000,7 @@ mod tests {
         )
         .expect("store");
         let plan: Vec<String> = store
+            .lock()
             .conn
             .prepare(&format!("EXPLAIN QUERY PLAN {ENDPOINT_COUNT}"))
             .expect("plan")
