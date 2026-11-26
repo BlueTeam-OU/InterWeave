@@ -458,7 +458,7 @@ async fn a_configured_peer_is_not_unknown_before_the_first_tick() {
         )
         .await
         .expect("a leases");
-    let send = |peer: &TransportIdentity, n: u8| {
+    let direct = |peer: &TransportIdentity, n: u8| {
         session.send_direct(
             DirectDestination {
                 peer: peer.clone(),
@@ -469,7 +469,7 @@ async fn a_configured_peer_is_not_unknown_before_the_first_tick() {
         )
     };
     for (peer, n, what) in [(&statically, 1, "static"), (&cached, 2, "cached")] {
-        let sent = tokio::time::timeout(PATIENCE, send(peer, n))
+        let sent = tokio::time::timeout(PATIENCE, direct(peer, n))
             .await
             .expect("answered");
         assert!(
@@ -477,7 +477,7 @@ async fn a_configured_peer_is_not_unknown_before_the_first_tick() {
             "the {what} peer is known and unreachable: {sent:?}"
         );
     }
-    let sent = tokio::time::timeout(PATIENCE, send(&unknown, 3))
+    let sent = tokio::time::timeout(PATIENCE, direct(&unknown, 3))
         .await
         .expect("answered");
     assert_eq!(
