@@ -8,8 +8,9 @@
 # (rustup at another version, the toolchain, the Android target,
 # cargo-ndk, ~/.cargo/bin after /usr/bin on PATH) is named and fails.
 # With state/loud every rustup answer is followed by a 256 KiB line, past
-# the pipe buffer, so a probe piped into grep -q under pipefail kills the
-# stub with SIGPIPE and reads its match as a miss on every run.
+# the pipe buffer, so a probe piped into grep -q under pipefail ends the
+# stub 141 and reads its match as a miss on every run, SIGPIPE ignored or
+# not.
 # The install path downloads a real toolchain and is not run here.
 #
 # Exit codes: 0 all assertions passed; 1 otherwise.
@@ -37,8 +38,9 @@ case "\$1" in
   run) shift 2; [[ "\$*" == "cargo ndk --version" && ! -e \$S/no-ndk ]] && echo "cargo-ndk 4.1.2" ;;
 esac
 st=\$?
-# A builtin write in this shell: a closed pipe kills the stub itself (141).
-[[ -e \$S/loud ]] && printf '%0262144d\n' 0
+# A closed pipe ends the stub 141 whether SIGPIPE kills this shell or is
+# ignored (inherited) and the write only fails with EPIPE.
+[[ -e \$S/loud ]] && { printf '%0262144d\n' 0 || exit 141; }
 exit \$st
 EOF
 printf '#!/usr/bin/env bash\n' > "$CH/bin/cargo"; cp "$CH/bin/cargo" "$SANDBOX/sysbin/cargo"
