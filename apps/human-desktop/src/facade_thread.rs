@@ -48,6 +48,11 @@ pub trait Facade {
     fn set_front(&mut self, to: &EndpointId) -> SwitchOutcome;
     /// Close every session.
     fn close(&mut self) -> impl Future<Output = ()>;
+    /// Whether the row naming the identity last in front could not be
+    /// read, so the start fell back to another: said once, by class.
+    fn front_unread(&self) -> bool {
+        false
+    }
 }
 
 impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
@@ -82,6 +87,9 @@ impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
     }
     async fn close(&mut self) {
         Roster::close(self).await;
+    }
+    fn front_unread(&self) -> bool {
+        Roster::front_unread(self).is_some()
     }
 }
 
@@ -284,6 +292,13 @@ impl FacadeThread {
                         out(FromFacade::FacadeFailed);
                         return;
                     };
+                    if side.front_unread() {
+                        // The class only: the row names an identity.
+                        report(
+                            "the identity last in front could not be read; \
+                             the default stands",
+                        );
+                    }
                     // Before any message: a take that holds an update
                     // finds the identities named.
                     let _ = named.set(Held {

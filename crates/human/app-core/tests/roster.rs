@@ -512,7 +512,10 @@ async fn an_overloaded_identity_retries_at_its_pace_and_the_others_act() {
 
 /// The identity in front at start: the last-front row's when it is held,
 /// else the default when it is held, else the first; an unreadable row
-/// is no row. Mutations: `resolve` taking the row's id whether or not it
+/// is no row, and its error is kept (`front_unread`, #769 r1 F2).
+/// Mutations: `new` dropping the error -- the unreadable case reads
+/// none; `new` keeping one for a readable row -- the readable case
+/// reads some; `resolve` taking the row's id whether or not it
 /// is held -- the unknown row's case; `resolve` skipping the default --
 /// the no-row case.
 #[tokio::test]
@@ -541,6 +544,14 @@ async fn the_front_at_start_is_the_last_held_else_the_default_else_the_first() {
         "a default that is no identity held: the first"
     );
     assert_eq!(front(None, None), human(), "neither: the first");
+    {
+        let (a, _b) = FakeNetwork::pair(node(&[human()]), node(&[human()]));
+        let spy = Spy::new(a);
+        let mut store = memory();
+        store.set_last_front(&second()).expect("a row");
+        let roster = build(&spy, store, config(vec![second()], None));
+        assert!(roster.front_unread().is_none(), "a readable row: no error");
+    }
 
     // A row this build does not write, read as no row.
     let dir = common::private_tempdir();
@@ -557,6 +568,10 @@ async fn the_front_at_start_is_the_last_held_else_the_default_else_the_first() {
     let spy = Spy::new(a);
     let roster = build(&spy, store, config(vec![second()], Some(second())));
     assert_eq!(roster.front(), &second(), "an unreadable row: the default");
+    assert!(
+        roster.front_unread().is_some(),
+        "the read error is kept, not swallowed"
+    );
 }
 
 /// A change of the identity in front swaps it and only then is the

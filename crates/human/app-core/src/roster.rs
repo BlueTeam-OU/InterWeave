@@ -125,6 +125,9 @@ pub struct Roster<B: SessionBinding, A: AdminBinding> {
     /// A handle of the one open, for the client's own rows: the last
     /// front and the cards' creation.
     store: HumanStore,
+    /// Why the last-front row was unreadable at start, kept beside the
+    /// fallback it caused ([`Self::front_unread`]).
+    front_unread: Option<StoreError>,
 }
 
 impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
@@ -211,12 +214,28 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             front: first,
             default: config.default,
             store: own,
+            front_unread: None,
         };
         // An unreadable row is read as no row, so a start is not refused
-        // over it (`the_front_at_start_is_the_last_held_else_the_default_else_the_first`).
-        let last = roster.store.last_front().ok().flatten();
+        // over it (`the_front_at_start_is_the_last_held_else_the_default_else_the_first`);
+        // the error is kept for the root to report
+        // ([`Self::front_unread`]).
+        let last = match roster.store.last_front() {
+            Ok(last) => last,
+            Err(e) => {
+                roster.front_unread = Some(e);
+                None
+            }
+        };
         roster.front = roster.resolve(last);
         Ok(roster)
+    }
+
+    /// Why the last-front row could not be read at start, when it could
+    /// not: the start went on with the default, and the root says so once.
+    #[must_use]
+    pub const fn front_unread(&self) -> Option<&StoreError> {
+        self.front_unread.as_ref()
     }
 
     /// The identity in front at start: `last` when it is held, else the

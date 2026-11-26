@@ -3730,6 +3730,7 @@ dependencies = [
  "interweave-profile-identity",
  "interweave-test-support",
  "interweave-transport-api",
+ "rusqlite",
  "rustix 1.1.6",
  "slint",
  "tempfile",

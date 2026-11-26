@@ -120,3 +120,72 @@ fn the_window_is_told_the_identities_and_a_switch_reaches_the_roster() {
     assert!(app.side().model_of(&human()).is_some(), "kept behind");
     assert!(app.close(Duration::from_secs(5)));
 }
+
+static FRONT_REPORTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// A last-front row the roster cannot read is reported once, by class
+/// and without the row's content, and the start goes on with the
+/// default; a readable row reports nothing (#769 r1 F2). Mutation:
+/// `FacadeThread` not asking `front_unread` -- no line; the line
+/// carrying `{:?}` of the error -- the exact-line assertion fails.
+#[test]
+fn an_unreadable_last_front_row_is_reported_once_by_class() {
+    let planted = |row: Option<&str>| {
+        let dir = common::private_tempdir();
+        let path = dir.path().join("state").join("human.sqlite3");
+        let store = HumanStore::open(&path, &human(), StoreOptions::default()).expect("opens");
+        if let Some(row) = row {
+            rusqlite::Connection::open(&path)
+                .expect("a second connection")
+                .execute(
+                    "INSERT INTO settings (key, value) VALUES ('last_front', ?1)",
+                    [row],
+                )
+                .expect("a row");
+        }
+        (dir, store)
+    };
+    let run = |row: Option<&str>| {
+        FRONT_REPORTS.lock().expect("reports").clear();
+        let (a, _b) = FakeNetwork::pair(node(&[human()]), node(&[human()]));
+        let (_dir, store) = planted(row);
+        let thread = FacadeThread::spawn(
+            move || {
+                Roster::new(
+                    RosterConfig {
+                        client_kind: "human-client".to_owned(),
+                        endpoints: vec![human()],
+                        channels: vec![],
+                        max_payload_bytes: 49_152,
+                        others: vec![],
+                        default: None,
+                    },
+                    store,
+                    |_| (a.clone(), a.clone()),
+                    || 1_786_600_000_000,
+                    0,
+                )
+                .map_err(|_| interweave_human_store::StoreError::Degraded)
+            },
+            || Ok(true),
+            Arc::new(|| {}),
+            |line| FRONT_REPORTS.lock().expect("reports").push(line.to_owned()),
+        )
+        .expect("the facade thread");
+        // The report is made before the identities are named.
+        let wait = common::Wait::on("the identities held");
+        while thread.held().is_none() {
+            wait.check();
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        let reports = FRONT_REPORTS.lock().expect("reports").clone();
+        assert!(thread.close(Duration::from_secs(5)));
+        reports
+    };
+    assert_eq!(
+        run(Some("human")),
+        ["the identity last in front could not be read; the default stands"],
+        "a row this build does not write"
+    );
+    assert!(run(None).is_empty(), "no row, no report");
+}
