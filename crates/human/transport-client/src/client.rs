@@ -347,6 +347,11 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     /// returns there rather than re-opening on a timer.
     refused_before_degrade: Option<SessionProblem>,
     reopen_attempt: u32,
+    /// What the open or the assertion that put the session back on the
+    /// re-open timer was answered: kept while the session is
+    /// `Reconnecting` from it, cleared by the next change of state
+    /// ([`TransportClient::retrying_for_room`]).
+    retry_cause: Option<TransportError>,
     recheck_attempt: u32,
     next_recheck_at: u64,
     connectivity: Connectivity,
@@ -459,6 +464,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             },
             refused_before_degrade: None,
             reopen_attempt: 0,
+            retry_cause: None,
             recheck_attempt: 0,
             next_recheck_at: now,
             connectivity: Connectivity::Unknown,
@@ -511,6 +517,21 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     #[must_use]
     pub const fn session_state(&self) -> &SessionState {
         &self.state
+    }
+
+    /// Whether the session is re-opening on its timer because the daemon
+    /// answered `Overloaded` -- its data open, or the advertise assertion
+    /// made before it -- at its last attempt: the identity has no room at
+    /// the daemon now, which the person cannot act on here
+    /// (design/2026-11-04-identities.md §5.2, "No room at the daemon").
+    /// False in any other state, and while re-opening for any other
+    /// cause (`retrying_for_room_names_an_overloaded_retry_alone`).
+    #[must_use]
+    pub fn retrying_for_room(&self) -> bool {
+        // The cause is set only beside a `Reconnecting` its failure made,
+        // and every change of state clears it (`set_state`), so it speaks
+        // for the state it was set with alone.
+        self.retry_cause == Some(TransportError::Overloaded)
     }
 
     /// Connectivity as last read.
@@ -1235,7 +1256,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             let endpoint = match self.lease_target() {
                 Ok(endpoint) => endpoint,
                 Err(e) => {
-                    self.open_failed(classify_open(e), now);
+                    self.open_failed(e, classify_open(e), now);
                     return;
                 }
             };
@@ -1265,7 +1286,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         };
         match answer {
             Ok(()) => self.open_and_settle(Some(endpoint), now).await,
-            Err(e) => self.open_failed(classify_assertion(e), now),
+            Err(e) => self.open_failed(e, classify_assertion(e), now),
         }
     }
 
@@ -1277,11 +1298,11 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
                 self.leased.clone_from(&endpoint);
                 self.set_state(SessionState::Ready { endpoint });
             }
-            Err(e) => self.open_failed(classify_open(e), now),
+            Err(e) => self.open_failed(e, classify_open(e), now),
         }
     }
 
-    fn open_failed(&mut self, failure: OpenFailure, now: u64) {
+    fn open_failed(&mut self, error: TransportError, failure: OpenFailure, now: u64) {
         match failure {
             OpenFailure::Refused(problem) => {
                 self.set_state(SessionState::Refused { problem });
@@ -1293,6 +1314,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
                     attempt,
                     next_at: now + REOPEN.delay(attempt, 1),
                 });
+                // After the state: setting one clears the cause.
+                self.retry_cause = Some(error);
             }
         }
     }
@@ -1967,6 +1990,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
 
     fn set_state(&mut self, state: SessionState) {
         if self.state != state {
+            self.retry_cause = None;
             self.state = state.clone();
             self.queue.push(ClientEvent::Session(state));
         }
