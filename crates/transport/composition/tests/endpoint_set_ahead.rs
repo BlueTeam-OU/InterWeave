@@ -571,6 +571,136 @@ async fn a_rename_of_an_add_left_ahead_is_renamed_and_loads_under_the_new_alias(
     again.stop().await.expect("stops");
 }
 
+/// `set_advertise` and `set_enabled` on an add left ahead (LOCAL-IPC.md,
+/// `admin.endpoints.set_advertise`, ruled 2026-11-26): judged by the
+/// overlay, which holds the entry -- each answered as on any entry and
+/// written, a value already in effect writing nothing -- and neither
+/// registers the endpoint. The add sent again is `unchanged` and
+/// registers it with both values, and so does the next start.
+/// `set_default` naming it leaves the overlay as it was: `EndpointUnknown`
+/// while enabled, `EndpointDisabled` once disabled. The control: each write moves the bytes on disk,
+/// so the unmoved ones are a write that did not happen.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    assert!(row_of(&port, &work).await.is_none(), "control: not served");
+
+    let default_is = |answer: TransportError, why: &'static str| {
+        let port = &port;
+        let work = work.clone();
+        let p = &p;
+        async move {
+            let before = bytes(p);
+            assert_eq!(
+                port.set_default_endpoint(Some(work)).await,
+                Err(answer),
+                "{why}"
+            );
+            assert_eq!(bytes(p), before, "{why}: the overlay as it was");
+        }
+    };
+    default_is(TransportError::EndpointUnknown, "enabled").await;
+
+    let before = bytes(&p);
+    assert_eq!(
+        port.set_endpoint_advertise(work.clone(), true).await,
+        Ok(())
+    );
+    let advertised = bytes(&p);
+    assert_ne!(advertised, before, "written");
+    assert_eq!(
+        port.set_endpoint_advertise(work.clone(), true).await,
+        Ok(())
+    );
+    assert_eq!(bytes(&p), advertised, "already in effect: nothing written");
+
+    assert_eq!(
+        port.set_endpoint_enabled(work.clone(), false).await,
+        Ok(None)
+    );
+    let disabled = bytes(&p);
+    assert_ne!(disabled, advertised, "written");
+    assert_eq!(
+        port.set_endpoint_enabled(work.clone(), false).await,
+        Ok(None)
+    );
+    assert_eq!(bytes(&p), disabled, "already in effect: nothing written");
+
+    assert!(
+        row_of(&port, &work).await.is_none(),
+        "the sets register nothing"
+    );
+    assert_eq!(
+        lease(&runtime, &work).await,
+        Err(TransportError::EndpointUnknown)
+    );
+    // AS BUILT, NOT AS 1dc975919 WORDS IT: the overlay refuses a
+    // disabled default before anything is published, as on any entry.
+    default_is(TransportError::EndpointDisabled, "disabled").await;
+
+    assert_eq!(
+        port.add_endpoint(key, "work".to_owned(), vec![]).await,
+        Ok(EndpointAddChange::Unchanged(work.clone()))
+    );
+    let row = row_of(&port, &work).await.expect("registered by the add");
+    assert_eq!((row.enabled, row.advertise), (false, true), "{row:?}");
+    drop(port);
+    runtime.stop().await.expect("stops");
+
+    let again = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("restarts");
+    let port = admin(&again).await;
+    let row = row_of(&port, &work).await.expect("loaded at the restart");
+    assert_eq!((row.enabled, row.advertise), (false, true), "{row:?}");
+    drop(port);
+    again.stop().await.expect("stops");
+}
+
+/// A `set_advertise` on an add left ahead that the composed profile
+/// would refuse -- past `directory.max_advertised` -- is `InvalidArgument`
+/// with nothing written, as on any entry. The control: the same set
+/// under a cap with room is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_set_of_an_add_left_ahead_past_the_cap_is_invalid() {
+    for (cap, expected) in [(1, Err(TransportError::InvalidArgument)), (2, Ok(()))] {
+        let p = paths();
+        let (identity, _) = id();
+        let runtime = ComposedRuntime::start(
+            &identity,
+            &profile_with(&[], &[], &["human"], cap),
+            options(&p),
+        )
+        .await
+        .expect("composes");
+        let port = admin(&runtime).await;
+        let (work, key) = mint(&p);
+        assert_eq!(
+            add_left_ahead(&runtime, &port, &key).await,
+            Err(TransportError::Internal)
+        );
+        let before = bytes(&p);
+        assert_eq!(
+            port.set_endpoint_advertise(work.clone(), true).await,
+            expected,
+            "cap {cap}"
+        );
+        assert_eq!(bytes(&p) == before, expected.is_err(), "cap {cap}");
+        drop(port);
+        runtime.stop().await.expect("stops");
+    }
+}
+
 /// An add left ahead that is neither retried nor removed takes effect at
 /// the next start (LOCAL-IPC.md, `admin.endpoints.add`): the overlay kept
 /// on disk holds the entry, so the start registers it, leasable, with

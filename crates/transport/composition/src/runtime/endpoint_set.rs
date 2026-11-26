@@ -288,6 +288,13 @@ impl Driver {
     /// delta or the added entry's member written, then the directory's
     /// answer source set, both before the answer. Not audited, as
     /// `set_enabled` is not.
+    ///
+    /// An endpoint an add left ahead is set too, as its rename is: the
+    /// registry's not-registered is agreement, the overlay keeps the
+    /// value, the directory -- which does not hold the endpoint -- has
+    /// nothing to update, and the endpoint stays unregistered until the
+    /// add is sent again or the next start
+    /// (`a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add`).
     pub(super) async fn set_endpoint_advertise(
         &mut self,
         endpoint: EndpointId,
@@ -302,10 +309,14 @@ impl Driver {
             if fault {
                 return Err(TransportError::BackendUnavailable);
             }
-            commander
+            match commander
                 .set_endpoint_advertise(endpoint, advertise)
                 .await
                 .map_err(|_| TransportError::BackendUnavailable)?
+            {
+                Err(TransportError::EndpointUnknown) => Ok(()),
+                answer => answer,
+            }
         };
         self.set_endpoints("set_advertise", moved, publish).await
     }

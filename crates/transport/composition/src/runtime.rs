@@ -1549,10 +1549,19 @@ impl Driver {
                     if fault {
                         return Err(TransportError::BackendUnavailable);
                     }
-                    commander
+                    // AN ADD LEFT AHEAD is judged by the overlay, which
+                    // holds it: the registry's not-registered is
+                    // agreement, no lease to revoke (LOCAL-IPC.md
+                    // `set_advertise`, ruled 2026-11-26;
+                    // `a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add`).
+                    match commander
                         .set_endpoint_enabled(endpoint, enabled)
                         .await
                         .map_err(|_| TransportError::BackendUnavailable)?
+                    {
+                        Err(TransportError::EndpointUnknown) => Ok(None),
+                        answer => answer,
+                    }
                 };
                 let _ = reply.send(self.set_endpoints("set_enabled", moved, publish).await);
             }
