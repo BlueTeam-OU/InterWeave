@@ -2070,14 +2070,9 @@ pub(super) struct PendingListen {
     pub(super) wildcard: bool,
     /// The first address a wildcard listener reported: what `listen`
     /// answers with, held until the Swarm has nothing more ready
-    /// ([`answer_settled_listens`]) or its hold limit has passed
-    /// ([`answer_overdue_listens`]). `None` until the listener has
+    /// ([`answer_settled_listens`]). `None` until the listener has
     /// bound; a listener holding one is in [`ActiveListeners`] too.
     pub(super) first: Option<Multiaddr>,
-    /// When `first` was reported: a held listen is answered at most
-    /// [`LISTEN_HOLD_LIMIT`] after it, idle Swarm or not
-    /// ([`answer_overdue_listens`]).
-    pub(super) held_since: Option<tokio::time::Instant>,
 }
 
 impl PendingListen {
@@ -2089,7 +2084,6 @@ impl PendingListen {
             reply,
             wildcard: is_wildcard_listen(address),
             first: None,
-            held_since: None,
         }
     }
 }
@@ -2154,36 +2148,9 @@ pub(super) fn bound_or_binding(listens: &PendingListens, active: &ActiveListener
 /// no room, since the outbox fills past its base only through progress
 /// events a test cannot hold there).
 pub(super) fn answer_settled_listens(listens: &mut PendingListens) -> Vec<ListenerId> {
-    answer_held_listens(listens, |_| true)
-}
-
-/// How long a held wildcard listen waits for an idle Swarm: an address
-/// dump already read is drained in microseconds, so a Swarm still busy
-/// a second after the first address is busy with traffic, and the
-/// answer waits for that no longer.
-pub(super) const LISTEN_HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(1);
-
-/// Answer every held listen whose first address is [`LISTEN_HOLD_LIMIT`]
-/// old at `now`, idle Swarm or not, so a Swarm that never goes idle --
-/// sustained traffic -- holds no answer without bound; returns the
-/// listeners whose caller has gone, as [`answer_settled_listens`] does
-/// (`a_held_listen_is_answered_once_its_hold_limit_has_passed`).
-pub(super) fn answer_overdue_listens(
-    listens: &mut PendingListens,
-    now: tokio::time::Instant,
-) -> Vec<ListenerId> {
-    answer_held_listens(listens, |since| {
-        now.saturating_duration_since(since) >= LISTEN_HOLD_LIMIT
-    })
-}
-
-fn answer_held_listens(
-    listens: &mut PendingListens,
-    due: impl Fn(tokio::time::Instant) -> bool,
-) -> Vec<ListenerId> {
     let settled: Vec<ListenerId> = listens
         .iter()
-        .filter(|(_, pending)| pending.first.is_some() && pending.held_since.is_none_or(&due))
+        .filter(|(_, pending)| pending.first.is_some())
         .map(|(id, _)| *id)
         .collect();
     let mut gone = Vec::new();
