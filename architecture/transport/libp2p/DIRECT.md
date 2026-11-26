@@ -131,6 +131,8 @@ For an authorized target:
 - the exchange opened but the remote never answered — the response stream ends with no bytes (§Response byte layout, A 2026-10-26) -> `PeerUnreachable`;
 - successful v2 exchange but remote `no_route` -> `RemoteEndpointUnavailable` locally.
 
+Candidate addresses the profile configures — the initial state of an enabled static-bootstrap provider, overlay entries included, and of an enabled peer-cache provider — are in the substrate's address book before the runtime's start returns and so before any session can send: the `PeerUnknown` check above reads that book directly rather than through the discovery driver, so a configured peer is not `PeerUnknown` for want of a first discovery round (`contracts/TRANSPORT.md` §send, ruled 2026-11-26). Addresses that mDNS or Kademlia would learn are not waited for.
+
 The direct operation does not command discovery providers to perform an ad hoc global search.
 
 ## Endpoint omission

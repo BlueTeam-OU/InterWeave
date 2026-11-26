@@ -95,17 +95,22 @@ fn until(
 
 /// The view's first update from a facade: its windowed start.
 fn is_listing(message: &ToView) -> bool {
-    matches!(message, ToView::Update(u) if matches!(**u, Update::Started(_)))
+    matches!(message, ToView::Update(_, u) if matches!(**u, Update::Started(_)))
 }
 
 fn is_ready(message: &ToView) -> bool {
     matches!(
         message,
-        ToView::Update(u)
+        ToView::Update(_, u)
             if matches!(**u, Update::Client(ClientEvent::Session(SessionState::Ready { .. })))
     )
 }
 
+/// A view attached to a running service is told the one identity its
+/// facade holds before anything of the start, then the listing and a
+/// Ready session, every update naming that identity: the roster's first,
+/// held alone and in front. Mutation: the facade loop tagging an update with any other
+/// identity fails the `named` assert.
 #[test]
 fn a_started_service_gives_a_view_its_listing_then_a_ready_session() {
     let app = app();
@@ -113,15 +118,31 @@ fn a_started_service_gives_a_view_its_listing_then_a_ready_session() {
     assert!(service.is_running());
     let mut link = attach(&service);
     let first = link.take();
-    assert!(
-        matches!(first[..], [ToView::Start(_), ToView::Running(true), ..]),
-        "the view hears the service runs first: {first:?}"
+    let Some(ToView::Held(held)) = first.first() else {
+        panic!("the view hears the identities held first: {first:?}");
+    };
+    let held = held.clone();
+    assert_eq!(
+        held.held,
+        vec![held.front.clone()],
+        "one identity, in front"
     );
+    assert!(
+        matches!(first[1..], [ToView::Start(_), ToView::Running(true), ..]),
+        "then that the service runs: {first:?}"
+    );
+    let named = |message: &ToView| {
+        if let ToView::Update(identity, _) = message {
+            assert_eq!(*identity, held.front, "named as the side speaks");
+        }
+    };
+    first.iter().for_each(named);
     let mut listed = first.iter().any(is_listing);
     let mut ready = false;
     let deadline = Instant::now() + WAIT;
     while !(listed && ready) && Instant::now() < deadline {
         for message in link.take() {
+            named(&message);
             if is_listing(&message) {
                 listed = true;
             } else if is_ready(&message) {
@@ -389,7 +410,7 @@ fn a_command_accepted_before_a_stop_is_answered() {
         .map(interweave_human_ui_model::RowId::from_stored)
         .collect();
     for row in &rows {
-        assert!(service.hub().command(Command::MarkRead(*row)).is_ok());
+        assert!(service.hub().command(None, Command::MarkRead(*row)).is_ok());
     }
     let _ = service.stop(GRACE).expect("it ran");
     let mut answered = std::collections::BTreeSet::new();
@@ -399,7 +420,7 @@ fn a_command_accepted_before_a_stop_is_answered() {
         waiting.extend(link.take());
         for message in waiting {
             match message {
-                ToView::Update(update) => match *update {
+                ToView::Update(_, update) => match *update {
                     Update::Done(Command::MarkRead(row))
                     | Update::Failed {
                         command: Command::MarkRead(row),
@@ -422,7 +443,7 @@ fn a_command_accepted_before_a_stop_is_answered() {
         "every accepted command answered before the stop"
     );
     assert_eq!(
-        service.hub().command(Command::Reopen),
+        service.hub().command(None, Command::Reopen),
         Err(Command::Reopen),
         "handed back once stopped"
     );
@@ -457,7 +478,7 @@ fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() 
 
     let release = service.hub().hold_commands_for_test();
     let row = interweave_human_ui_model::RowId::from_stored(4_242);
-    assert!(service.hub().command(Command::MarkRead(row)).is_ok());
+    assert!(service.hub().command(None, Command::MarkRead(row)).is_ok());
     let stopped = service.stop(GRACE).expect("it ran");
     assert!(
         !stopped.session_closed,
@@ -466,7 +487,10 @@ fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() 
     until(&mut link, &mut held, "the stop said", |m| {
         matches!(m, ToView::Running(false))
     });
-    assert_eq!(service.hub().command(Command::Reopen), Err(Command::Reopen));
+    assert_eq!(
+        service.hub().command(None, Command::Reopen),
+        Err(Command::Reopen)
+    );
     assert!(matches!(
         service.plan_store_discard(&app.dir, PROFILE, &FilesystemCustody),
         Err(StoreActionRefused::Running)
@@ -485,7 +509,7 @@ fn a_facade_past_its_stop_publishes_nothing_and_holds_the_store_until_it_ends() 
     // The old facade answers its command before its thread ends, and its
     // end is what lists again: an answer reaching the view comes first.
     let answers = |m: &ToView| {
-        matches!(m, ToView::Update(u) if matches!(
+        matches!(m, ToView::Update(_, u) if matches!(
             &**u,
             Update::Done(Command::MarkRead(r)) | Update::Failed { command: Command::MarkRead(r), .. }
                 if *r == row
@@ -1205,7 +1229,7 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     let mut model = UiModel::new();
     let mut start = None;
     until(&mut link, &mut held, "the start", |m| match m {
-        ToView::Update(u) => match &**u {
+        ToView::Update(_, u) => match &**u {
             Update::Started(s) => {
                 start = Some((**s).clone());
                 true
@@ -1225,12 +1249,12 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     assert_eq!(asks.len(), 1, "the opening's one page");
     let fetch = Command::Window(WindowCommand::FetchPage(Box::new(asks.remove(0))));
     assert!(
-        service.hub().command(fetch).is_ok(),
+        service.hub().command(None, fetch).is_ok(),
         "a facade takes commands"
     );
     let mut page = None;
     until(&mut link, &mut held, "the page", |m| match m {
-        ToView::Update(u) => match &**u {
+        ToView::Update(_, u) => match &**u {
             Update::Page(rows) => {
                 page = Some((**rows).clone());
                 true
@@ -1254,14 +1278,14 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
     // Read both; keep one.
     for row in [kept_row, read_row] {
         assert!(
-            service.hub().command(Command::MarkRead(row)).is_ok(),
+            service.hub().command(None, Command::MarkRead(row)).is_ok(),
             "a facade takes commands"
         );
         until(
             &mut link,
             &mut held,
             "the read",
-            |m| matches!(m, ToView::Update(u) if matches!(**u, Update::Read(r) if r == row)),
+            |m| matches!(m, ToView::Update(_, u) if matches!(**u, Update::Read(r) if r == row)),
         );
         model.read(row);
     }
@@ -1275,12 +1299,12 @@ fn without_network_a_message_is_read_and_kept_as_with_one() {
             _ => None,
         })
         .expect("Keep offered on the read message");
-    assert!(service.hub().command(keep).is_ok());
+    assert!(service.hub().command(None, keep).is_ok());
     until(
         &mut link,
         &mut held,
         "the keep",
-        |m| matches!(m, ToView::Update(u) if matches!(**u, Update::Kept { .. })),
+        |m| matches!(m, ToView::Update(_, u) if matches!(**u, Update::Kept { .. })),
     );
     service.stop(GRACE).expect("it ran");
 
@@ -1323,19 +1347,22 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     assert!(
         service
             .hub()
-            .command(Command::Send {
-                key: ConversationKey::Direct {
-                    peer: stranger,
-                    endpoint: None,
-                },
-                draft: "to nobody".to_owned(),
-            })
+            .command(
+                None,
+                Command::Send {
+                    key: ConversationKey::Direct {
+                        peer: stranger,
+                        endpoint: None,
+                    },
+                    draft: "to nobody".to_owned(),
+                }
+            )
             .is_ok()
     );
     let settled = |status: &OutboundStatus| matches!(status, OutboundStatus::NeedsAttention { .. });
     let mut row = None;
     until(&mut first, &mut held, "a settled pending row", |message| {
-        if let ToView::Update(update) = message
+        if let ToView::Update(_, update) = message
             && let Update::Client(ClientEvent::Outbound(outbound)) = &**update
             && settled(&outbound.status)
         {
@@ -1353,7 +1380,7 @@ fn a_view_attaching_late_is_told_a_pending_rows_status_at_once() {
     let told = loop {
         held.extend(late.take());
         let told = held.iter().any(|message| {
-            matches!(message, ToView::Update(update)
+            matches!(message, ToView::Update(_, update)
                 if matches!(&**update, Update::Client(ClientEvent::Outbound(o)) if o.row == row))
         });
         if told || Instant::now() > deadline {
@@ -1381,7 +1408,7 @@ fn a_view_attaching_late_is_told_this_device() {
         &mut late,
         &mut held,
         "this device's PeerId",
-        |message| matches!(message, ToView::Update(u) if matches!(**u, Update::ThisDevice(_))),
+        |message| matches!(message, ToView::Update(_, u) if matches!(**u, Update::ThisDevice(_))),
     );
     service.stop(GRACE).expect("it ran");
 }
@@ -1714,7 +1741,7 @@ fn listed_identity(service: &ServiceHost) -> Option<interweave_human_ui_model::I
     let mut held = Vec::new();
     let mut identity = None;
     until(&mut link, &mut held, "the start", |m| match m {
-        ToView::Update(u) => match &**u {
+        ToView::Update(_, u) => match &**u {
             Update::Started(s) => {
                 identity = Some(s.identity.clone());
                 true
@@ -1861,4 +1888,93 @@ fn a_start_without_network_finishes_m3_beside_one_sealed_key() {
         embedded_identity_document(PROFILE, &id),
         "form 2 names the key's id"
     );
+}
+
+/// The Service holds a roster of the first identity alone (plan section
+/// 30, the note of 2026-11-25), which behaves as `main`'s lone facade
+/// did: a command naming no identity runs as the one in front and is
+/// answered under it; one naming an identity not held is not run, and
+/// answers nothing; a switch to the identity in front changes nothing,
+/// writes no last-front row and says nothing for the log. Mutations: an
+/// unheld command run as the front fails the `stranger` assert; a switch
+/// to the front writing the row (app-core `Roster::set_front` without its
+/// unchanged check) fails the last-front assert.
+#[test]
+fn the_first_identity_alone_runs_as_the_front_and_a_switch_to_it_writes_nothing() {
+    use interweave_human_app_core::Crossing;
+    use interweave_human_ui_model::RowId;
+
+    let app = app();
+    common::provision_first_identity(&app.dir, PROFILE);
+    let service = ServiceHost::new();
+    service
+        .start_without_network(
+            &app.dir,
+            PROFILE,
+            Arc::new(interweave_human_store::key_custody::FilesystemCustody),
+        )
+        .expect("the posture starts");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    let mut said = None;
+    until(&mut link, &mut held, "the identities held", |m| {
+        if let ToView::Held(h) = m {
+            said = Some(h.clone());
+            return true;
+        }
+        false
+    });
+    let said = said.expect("held");
+    assert_eq!(said.held, vec![said.front.clone()], "the first alone");
+    let front = said.front;
+    until(&mut link, &mut held, "the listing", is_listing);
+
+    let stranger = interweave_test_support::endpoint_keys::endpoint_id("stranger");
+    let (unheld, asked) = (RowId::from_stored(2_000), RowId::from_stored(1_000));
+    assert!(
+        service
+            .hub()
+            .command(Some(stranger), Command::MarkRead(unheld))
+            .is_ok()
+    );
+    assert!(service.hub().cross(Crossing::Front(front.clone())).is_ok());
+    assert!(
+        service
+            .hub()
+            .command(None, Command::MarkRead(asked))
+            .is_ok()
+    );
+    let answered = |message: &ToView| match message {
+        ToView::Update(identity, update) => match &**update {
+            Update::Done(Command::MarkRead(row))
+            | Update::Failed {
+                command: Command::MarkRead(row),
+                ..
+            } => Some((identity.clone(), *row)),
+            _ => None,
+        },
+        _ => None,
+    };
+    let mut seen = Vec::new();
+    until(&mut link, &mut held, "the front's answer", |m| {
+        let one = answered(m);
+        seen.extend(one.clone());
+        one.is_some_and(|(_, row)| row == asked)
+    });
+    // Carried out in the order sent: the unheld command, had it run,
+    // was answered before this one.
+    assert_eq!(seen, vec![(front.clone(), asked)], "stranger: not run");
+    service.stop(GRACE).expect("it ran");
+
+    assert!(service.take_facade_notes().is_empty(), "nothing said");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let store = interweave_human_store::HumanStore::open_profile(
+        &paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+        &front,
+        interweave_human_store::StoreOptions::default(),
+    )
+    .expect("the store");
+    assert_eq!(store.last_front().expect("read"), None, "no row written");
 }

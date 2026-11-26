@@ -493,25 +493,39 @@ mod tests {
             side.connect_owed();
             side
         });
+        side.apply(ToView::Held(held())).expect("applied");
         side.apply(ToView::Start(start)).expect("applied");
         side.apply(ToView::Running(true)).expect("applied");
         side
     }
 
+    /// The one identity a facade of these tests holds.
+    fn me() -> interweave_transport_api::EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id("human")
+    }
+
+    fn held() -> crate::hub::Held {
+        crate::hub::Held {
+            held: vec![me()],
+            front: me(),
+        }
+    }
+
     /// Both reads answer with empty lists: the model's turn opens Connect.
     fn read_empty(side: &mut ViewSide<Blank, Blank>) {
-        let me = ProfileIdentity::generate()
+        let peer = ProfileIdentity::generate()
             .transport_identity()
             .expect("a peer id");
         let reads = [
             Update::TrustRead(Ok(TrustList {
-                local_peer: Some(me),
+                local_peer: Some(peer),
                 allowed: Vec::new(),
             })),
             Update::AddressesRead(Ok(AddressList::default())),
         ];
         for read in reads {
-            side.apply(ToView::Update(Box::new(read))).expect("applied");
+            side.apply(ToView::Update(me(), Box::new(read)))
+                .expect("applied");
         }
     }
 
@@ -769,6 +783,7 @@ mod tests {
         rules.count_from(2);
         side.apply(ToView::StartBusy(Some(StartBusy::Starting)))
             .expect("applied");
+        side.apply(ToView::Held(held())).expect("applied");
         side.apply(ToView::Start(1)).expect("applied");
         side.apply(ToView::Running(true)).expect("applied");
         let turned = rules.turn(&mut side, false, 2, 5_000);

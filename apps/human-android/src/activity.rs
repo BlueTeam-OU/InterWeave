@@ -684,6 +684,10 @@ impl Root {
         // opening the turn has yet to take is counted already, so the
         // reads it settles open nothing over it.
         let opened = self.view.borrow().opened_from_chats();
+        // The front's commands, by name once the hub said what the facade
+        // holds: before that the one model is the front's, whichever it
+        // is (android-platform's `ToFacade::Command`).
+        let front = self.side.side().front().cloned();
         let now = u64::try_from(EPOCH.elapsed().as_millis()).unwrap_or(u64::MAX);
         let held = crate::onboard::held_start().is_some();
         let turned = rules().turn(&mut self.side, held, opened, now);
@@ -697,7 +701,7 @@ impl Root {
             after(Duration::from_millis(wait), turn);
         }
         for command in turned.commands {
-            if let Err(command) = hub.command(command) {
+            if let Err(command) = hub.command(front.clone(), command) {
                 // Failed explicitly, so the model lets go of it and says so,
                 // rather than holding it in flight with no answer (owner's
                 // finding P2-2).

@@ -11,8 +11,9 @@
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AdminPort, DataCapability, DataSessionBinding, DataSessionPort, EndpointAddChange,
-    EndpointRemoveChange, EndpointSetKind, SessionRequest, TrustChange, TrustDirection,
+    AdminPort, AliasChange, DataCapability, DataSessionBinding, DataSessionPort, EndpointAddChange,
+    EndpointAddRefusal, EndpointRemoveChange, EndpointSetKind, SessionRequest, TrustChange,
+    TrustDirection,
 };
 use interweave_transport_api::{
     DirectDestination, EndpointId, MessageId, Payload, TransportError, TransportEvent,
@@ -490,6 +491,231 @@ async fn a_remove_of_an_add_left_ahead_is_removed_and_gone_at_the_restart() {
     );
     drop(port);
     again.stop().await.expect("stops");
+}
+
+/// A rename of an add left ahead (LOCAL-IPC.md, `admin.endpoints.
+/// set_alias`, ruled 2026-11-26): the overlay holds the entry, so it is
+/// `renamed` and written, and it registers nothing -- the list still
+/// lacks the id. An add with the alias the entry had is then `exists`;
+/// one with the new alias is `unchanged` and registers it under that
+/// alias; a restart loads it under the new alias. The control: before
+/// the rename the runtime never listed it, and the overlay on disk held
+/// the old alias.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rename_of_an_add_left_ahead_is_renamed_and_loads_under_the_new_alias() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    assert!(row_of(&port, &work).await.is_none(), "control: not served");
+    let on_disk = |p: &endpoint_set_common::Profile| {
+        String::from_utf8(bytes(p).expect("an overlay")).expect("utf-8")
+    };
+    assert!(on_disk(&p).contains("\"work\""), "control: the old alias");
+
+    assert_eq!(
+        port.set_endpoint_alias(work.clone(), "office".to_owned())
+            .await,
+        Ok(AliasChange::Renamed)
+    );
+    assert!(on_disk(&p).contains("\"office\""), "written");
+    assert!(!on_disk(&p).contains("\"work\""), "nothing put back");
+    assert!(
+        row_of(&port, &work).await.is_none(),
+        "the rename registers nothing"
+    );
+    assert_eq!(
+        lease(&runtime, &work).await,
+        Err(TransportError::EndpointUnknown),
+        "not leasable after the rename"
+    );
+
+    let refused = port
+        .add_endpoint(key.clone(), "work".to_owned(), vec![])
+        .await;
+    assert!(
+        matches!(
+            refused,
+            Ok(EndpointAddChange::Refused {
+                reason: EndpointAddRefusal::Exists,
+                ..
+            })
+        ),
+        "the old alias: {refused:?}"
+    );
+    assert!(row_of(&port, &work).await.is_none(), "still not served");
+    assert_eq!(
+        port.add_endpoint(key, "office".to_owned(), vec![]).await,
+        Ok(EndpointAddChange::Unchanged(work.clone()))
+    );
+    let row = row_of(&port, &work).await.expect("registered by the add");
+    assert_eq!(row.alias.as_deref(), Some("office"));
+    assert_eq!(lease(&runtime, &work).await, Ok(()), "leasable");
+    drop(port);
+    runtime.stop().await.expect("stops");
+
+    let again = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("restarts");
+    let port = admin(&again).await;
+    let row = row_of(&port, &work).await.expect("loaded at the restart");
+    assert_eq!(row.alias.as_deref(), Some("office"));
+    drop(port);
+    again.stop().await.expect("stops");
+}
+
+/// `set_advertise` and `set_enabled` on an add left ahead (LOCAL-IPC.md,
+/// `admin.endpoints.set_advertise`, ruled 2026-11-26): judged by the
+/// overlay, which holds the entry -- each answered as on any entry and
+/// written, a value already in effect writing nothing -- and neither
+/// registers the endpoint. The add sent again is `unchanged` and
+/// registers it with both values, and so does the next start.
+/// `set_default` naming it is `EndpointUnknown` with nothing written,
+/// enabled or not. The control: each write moves the bytes on disk,
+/// so the unmoved ones are a write that did not happen.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add() {
+    use interweave_transport_composition::OverlayFault::BeforeRename;
+
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    assert!(row_of(&port, &work).await.is_none(), "control: not served");
+
+    // NO WRITE AT ALL, not equal bytes after a write and its put-back:
+    // a write fault is queued first, so a write would answer `Internal`.
+    let default_is_unknown = |why: &'static str| {
+        let port = &port;
+        let runtime = &runtime;
+        let work = work.clone();
+        let p = &p;
+        async move {
+            runtime
+                .fail_overlay_writes(vec![BeforeRename])
+                .await
+                .expect("queued");
+            let before = bytes(p);
+            assert_eq!(
+                port.set_default_endpoint(Some(work)).await,
+                Err(TransportError::EndpointUnknown),
+                "{why}"
+            );
+            assert_eq!(bytes(p), before, "{why}: the overlay as it was");
+            // THE CONTROL: the fault is still queued, and the next write
+            // -- clearing the default, which `human` holds -- takes it.
+            assert_eq!(
+                port.set_default_endpoint(None).await,
+                Err(TransportError::Internal),
+                "{why}: the queued fault was armed"
+            );
+            assert_eq!(bytes(p), before, "{why}: nothing written");
+        }
+    };
+    default_is_unknown("enabled").await;
+
+    let before = bytes(&p);
+    assert_eq!(
+        port.set_endpoint_advertise(work.clone(), true).await,
+        Ok(())
+    );
+    let advertised = bytes(&p);
+    assert_ne!(advertised, before, "written");
+    assert_eq!(
+        port.set_endpoint_advertise(work.clone(), true).await,
+        Ok(())
+    );
+    assert_eq!(bytes(&p), advertised, "already in effect: nothing written");
+
+    assert_eq!(
+        port.set_endpoint_enabled(work.clone(), false).await,
+        Ok(None)
+    );
+    let disabled = bytes(&p);
+    assert_ne!(disabled, advertised, "written");
+    assert_eq!(
+        port.set_endpoint_enabled(work.clone(), false).await,
+        Ok(None)
+    );
+    assert_eq!(bytes(&p), disabled, "already in effect: nothing written");
+
+    assert!(
+        row_of(&port, &work).await.is_none(),
+        "the sets register nothing"
+    );
+    assert_eq!(
+        lease(&runtime, &work).await,
+        Err(TransportError::EndpointUnknown)
+    );
+    // Registration is asked before the overlay's disabled check, so a
+    // disabled entry left ahead has the one answer.
+    default_is_unknown("disabled").await;
+
+    assert_eq!(
+        port.add_endpoint(key, "work".to_owned(), vec![]).await,
+        Ok(EndpointAddChange::Unchanged(work.clone()))
+    );
+    let row = row_of(&port, &work).await.expect("registered by the add");
+    assert_eq!((row.enabled, row.advertise), (false, true), "{row:?}");
+    drop(port);
+    runtime.stop().await.expect("stops");
+
+    let again = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("restarts");
+    let port = admin(&again).await;
+    let row = row_of(&port, &work).await.expect("loaded at the restart");
+    assert_eq!((row.enabled, row.advertise), (false, true), "{row:?}");
+    drop(port);
+    again.stop().await.expect("stops");
+}
+
+/// A `set_advertise` on an add left ahead that the composed profile
+/// would refuse -- past `directory.max_advertised` -- is `InvalidArgument`
+/// with nothing written, as on any entry. The control: the same set
+/// under a cap with room is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_set_of_an_add_left_ahead_past_the_cap_is_invalid() {
+    for (cap, expected) in [(1, Err(TransportError::InvalidArgument)), (2, Ok(()))] {
+        let p = paths();
+        let (identity, _) = id();
+        let runtime = ComposedRuntime::start(
+            &identity,
+            &profile_with(&[], &[], &["human"], cap),
+            options(&p),
+        )
+        .await
+        .expect("composes");
+        let port = admin(&runtime).await;
+        let (work, key) = mint(&p);
+        assert_eq!(
+            add_left_ahead(&runtime, &port, &key).await,
+            Err(TransportError::Internal)
+        );
+        let before = bytes(&p);
+        assert_eq!(
+            port.set_endpoint_advertise(work.clone(), true).await,
+            expected,
+            "cap {cap}"
+        );
+        assert_eq!(bytes(&p) == before, expected.is_err(), "cap {cap}");
+        drop(port);
+        runtime.stop().await.expect("stops");
+    }
 }
 
 /// An add left ahead that is neither retried nor removed takes effect at

@@ -219,7 +219,7 @@ fn pair() -> Pair {
     let mut link = service.hub().attach(Arc::new(|| {}));
     let deadline = Instant::now() + WAIT;
     while !link.take().iter().any(|m| {
-        matches!(m, ToView::Update(u)
+        matches!(m, ToView::Update(_, u)
             if matches!(**u, Update::Client(ClientEvent::Session(SessionState::Ready { .. }))))
     }) {
         assert!(
@@ -349,7 +349,7 @@ fn a_send_while_the_close_waits_is_refused() {
     let stages = service.stop_stages_for_test();
     service
         .hub()
-        .command(Command::RecheckStorage)
+        .command(None, Command::RecheckStorage)
         .expect("a facade takes it");
     parked
         .recv_timeout(WAIT)

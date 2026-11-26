@@ -20,11 +20,18 @@
 //! ran or was refused for another reason, and what it showed replaced the
 //! stopped model, so the set-aside rows are no longer the list as it was
 //! (a refused or discarded store's rows never come back).
+//!
+//! Every model made here is named with the identities the hub last said
+//! are held ([`ToView::Held`]) as it is made, and every update applies to
+//! the model of the identity it names, as the desktop's window does: a
+//! model side applies an update naming an identity it does not hold to
+//! none (`an_update_reaches_the_model_of_the_identity_it_names`).
 
-use interweave_human_app_core::{ModelSide, Opener, Surface};
+use interweave_human_app_core::{Crossing, ModelSide, Opener, Surface};
 use interweave_human_ui_model::{ConnectPhase, StartBusy};
+use interweave_transport_api::EndpointId;
 
-use crate::hub::{StoreAnswer, StoreGeneration, ToView, UnlockSaid};
+use crate::hub::{Held, StoreAnswer, StoreGeneration, ToView, UnlockSaid};
 
 /// The store could not be listed for this view: what it holds stays
 /// unshown until the view attaches again. A class, never content.
@@ -35,6 +42,9 @@ pub struct ListingFailed;
 pub struct ViewSide<S: Surface, O: Opener> {
     side: ModelSide<S, O>,
     fresh: Box<dyn FnMut() -> ModelSide<S, O>>,
+    /// The identities held, as the hub last said them; `None` until it
+    /// has.
+    held: Option<Held>,
     /// Network access as the hub last said it.
     network: bool,
     /// Whether the person must authenticate first, as the hub last said.
@@ -71,6 +81,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
         Self {
             side: fresh(),
             fresh: Box::new(fresh),
+            held: None,
             network: true,
             authentication: false,
             store: None,
@@ -92,6 +103,15 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
         self.store
     }
 
+    /// A model made again, named with the identities held.
+    fn made(&mut self) -> ModelSide<S, O> {
+        let mut side = (self.fresh)();
+        if let Some(held) = &self.held {
+            side.hold(&held.held, &held.front);
+        }
+        side
+    }
+
     /// Apply one message from the hub.
     ///
     /// # Errors
@@ -100,7 +120,8 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     pub fn apply(&mut self, message: ToView) -> Result<(), ListingFailed> {
         match message {
             ToView::Running(running) => {
-                let last = std::mem::replace(&mut self.side, (self.fresh)());
+                let made = self.made();
+                let last = std::mem::replace(&mut self.side, made);
                 if running {
                     // The model set aside first, then the one shown since,
                     // whose edits are the later.
@@ -132,6 +153,12 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                     self.show_kept();
                 }
             }
+            ToView::Held(held) => {
+                // The model shown is named now too: no update can reach it
+                // before, and a model already named keeps its names.
+                self.side.hold(&held.held, &held.front);
+                self.held = Some(held);
+            }
             ToView::Start(start) => self.start = Some(start),
             ToView::NetworkAccess(allowed) => {
                 self.network = allowed;
@@ -152,7 +179,11 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                     self.side.daemon_seen(None);
                 }
             }
-            ToView::Update(update) => self.side.apply(*update),
+            // An identity not held has no model to apply to: with the
+            // hub saying the held before the start it names, none comes.
+            ToView::Update(identity, update) => {
+                let _ = self.side.apply_as(&identity, *update);
+            }
             ToView::ListingFailed => return Err(ListingFailed),
             ToView::Unlock(said) => {
                 self.unlock = Some(said);
@@ -275,6 +306,16 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
         if self.running { self.start } else { None }
     }
 
+    /// Bring `to` in front, as the desktop's window does: the model side
+    /// drains the old front's acts and hands them to `send` as that
+    /// identity's, then the switch (`ModelSide::switch`), for the root to
+    /// cross to the facade ([`crate::Hub::cross`]). False, and nothing
+    /// sent, when `to` is in front or not held -- with one identity held,
+    /// always (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`).
+    pub fn switch(&mut self, to: &EndpointId, send: impl FnMut(Crossing)) -> bool {
+        self.side.switch(to, send)
+    }
+
     /// The model side, for the root's turn.
     pub const fn side_mut(&mut self) -> &mut ModelSide<S, O> {
         &mut self.side
@@ -314,8 +355,24 @@ mod tests {
         fn authenticate(&mut self) {}
     }
 
+    /// A view side told the one identity held, as the hub tells it before
+    /// a start.
     fn view_side() -> ViewSide<Blank, Blank> {
-        ViewSide::new(|| ModelSide::new(Blank, Blank))
+        let mut side = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        side.apply(ToView::Held(held())).expect("applied");
+        side
+    }
+
+    /// The one identity a facade of these tests holds.
+    fn me() -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id("human")
+    }
+
+    fn held() -> Held {
+        Held {
+            held: vec![me()],
+            front: me(),
+        }
     }
 
     fn arrival() -> Received {
@@ -345,15 +402,112 @@ mod tests {
         side.side().model()
     }
 
+    fn other() -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id("other")
+    }
+
+    /// An update applies to the model of the identity it names: the one
+    /// held, in front, shows it; one naming an identity not held applies
+    /// to nothing. Mutation: applying every update to the model shown,
+    /// whatever it names, fails the first assert.
+    #[test]
+    fn an_update_reaches_the_model_of_the_identity_it_names() {
+        let mut side = view_side();
+        side.apply(ToView::Running(true)).expect("applied");
+        side.apply(ToView::Update(
+            other(),
+            Box::new(Update::Received(arrival())),
+        ))
+        .expect("applied");
+        assert!(
+            model(&side).conversations().is_empty(),
+            "another identity's arrival is not this model's"
+        );
+        side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
+            .expect("applied");
+        assert_eq!(model(&side).conversations().len(), 1, "its own is");
+    }
+
+    /// A view attached late -- or a window made again -- hears the held
+    /// identities before the start, and names the model the start makes
+    /// before its first update, which then applies. Mutations: the model a
+    /// start makes left unnamed, or `Held` not kept for it, drops the
+    /// update and fails the last assert.
+    #[test]
+    fn a_view_attached_late_names_the_held_before_its_first_update() {
+        let mut side = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        assert_eq!(side.side().front(), None, "nothing said yet");
+        side.apply(ToView::Held(held())).expect("applied");
+        side.apply(ToView::Start(1)).expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(side.side().front(), Some(&me()));
+        side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
+            .expect("applied");
+        assert_eq!(model(&side).conversations().len(), 1, "applied");
+    }
+
+    /// Every model made again at a change of the running state is named
+    /// again with what the hub last said is held. Mutation: `made` not
+    /// naming its model fails the first assert.
+    #[test]
+    fn a_model_made_again_is_named_again() {
+        let mut side = view_side();
+        for running in [true, false, true] {
+            side.apply(ToView::Running(running)).expect("applied");
+            assert_eq!(side.side().front(), Some(&me()), "running {running}");
+        }
+        side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
+            .expect("applied");
+        assert_eq!(model(&side).conversations().len(), 1, "and applies");
+    }
+
+    /// The switch crosses to the hub as the desktop's does, the switch
+    /// naming the new front; with one identity held it cannot happen and
+    /// sends nothing. Two models are held here with no start said: the
+    /// front-only facts are not told. Mutation: `switch` not handing
+    /// the model side's crossings on fails the `ToFacade::Front(other())`
+    /// assert.
+    #[test]
+    fn a_switch_crosses_to_the_hub_and_with_one_held_none_can() {
+        let hub = crate::Hub::new();
+        let (commands, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let _ = hub.started(commands, held());
+        let cross = |crossing| {
+            hub.cross(crossing).expect("a facade takes it");
+        };
+
+        let mut one = view_side();
+        assert!(!one.switch(&me(), cross), "in front already");
+        assert!(!one.switch(&other(), cross), "not held");
+        assert!(rx.try_recv().is_err(), "nothing crossed");
+
+        let mut two = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        two.apply(ToView::Held(Held {
+            held: vec![me(), other()],
+            front: me(),
+        }))
+        .expect("applied");
+        assert!(two.switch(&other(), cross), "two held: switched");
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(crate::ToFacade::Front(other())),
+            "the switch crossed"
+        );
+        assert_eq!(two.side().front(), Some(&other()));
+    }
+
     #[test]
     fn a_service_that_stops_leaves_no_ready_session_and_no_rows() {
         let mut side = view_side();
         side.apply(ToView::Running(true)).expect("applied");
-        side.apply(ToView::Update(Box::new(Update::Client(
-            ClientEvent::Session(SessionState::Ready { endpoint: None }),
-        ))))
+        side.apply(ToView::Update(
+            me(),
+            Box::new(Update::Client(ClientEvent::Session(SessionState::Ready {
+                endpoint: None,
+            }))),
+        ))
         .expect("applied");
-        side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+        side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
             .expect("applied");
         assert_eq!(
             model(&side).session_notice(),
@@ -383,11 +537,14 @@ mod tests {
     fn a_stop_the_lock_follows_keeps_the_rows() {
         let mut side = view_side();
         side.apply(ToView::Running(true)).expect("applied");
-        side.apply(ToView::Update(Box::new(Update::Client(
-            ClientEvent::Session(SessionState::Ready { endpoint: None }),
-        ))))
+        side.apply(ToView::Update(
+            me(),
+            Box::new(Update::Client(ClientEvent::Session(SessionState::Ready {
+                endpoint: None,
+            }))),
+        ))
         .expect("applied");
-        side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+        side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
             .expect("applied");
         side.apply(ToView::Running(false)).expect("applied");
         assert!(
@@ -481,7 +638,7 @@ mod tests {
         let stopped_with_a_row = || {
             let mut side = view_side();
             side.apply(ToView::Running(true)).expect("applied");
-            side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+            side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
                 .expect("applied");
             side.apply(ToView::Running(false)).expect("applied");
             side
@@ -522,7 +679,7 @@ mod tests {
     fn a_stop_while_locked_keeps_the_rows() {
         let mut side = view_side();
         side.apply(ToView::Running(true)).expect("applied");
-        side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+        side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
             .expect("applied");
         side.apply(ToView::AuthenticationNeeded(true))
             .expect("applied");
@@ -552,7 +709,7 @@ mod tests {
     fn a_service_that_starts_again_starts_from_a_fresh_model() {
         let mut side = view_side();
         side.apply(ToView::Running(true)).expect("applied");
-        side.apply(ToView::Update(Box::new(Update::Received(arrival()))))
+        side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
             .expect("applied");
         side.apply(ToView::Running(true)).expect("applied");
         assert!(
@@ -703,6 +860,7 @@ mod tests {
             side.connect_owed();
             side
         });
+        owed.apply(ToView::Held(held())).expect("applied");
         owed.apply(ToView::Running(true)).expect("applied");
         assert!(!owed.start_decided(asked_at), "owed, the reads unanswered");
         owed.side_mut().apply(Update::TrustRead(Ok(TrustList {
@@ -836,7 +994,7 @@ mod tests {
     /// (`Start`, `Running(true)`), then the start's answer is counted.
     fn service_starts(hub: &crate::Hub) -> u64 {
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
-        let generation = hub.started(commands);
+        let generation = hub.started(commands, held());
         hub.set_store_answer(StoreAnswer::Opened);
         generation
     }
@@ -916,10 +1074,17 @@ mod tests {
         hub.listed(
             generation,
             relists,
-            ToView::Update(Box::new(Update::Diagnostics(Diagnostics::default()))),
+            [ToView::Update(
+                me(),
+                Box::new(Update::Diagnostics(Diagnostics::default())),
+            )],
         );
         for _ in 0..crate::hub::TO_VIEW {
-            hub.update(generation, Update::Diagnostics(Diagnostics::default()));
+            hub.update(
+                generation,
+                &me(),
+                Update::Diagnostics(Diagnostics::default()),
+            );
         }
         hub.retire(generation);
         assert!(pump(&mut side, &mut link), "detached by the full queue");
