@@ -46,8 +46,8 @@ use interweave_transport_api::{
 
 use crate::backoff::{RECHECK, REOPEN, SEND};
 use crate::problem::{
-    AttemptFailure, OpenFailure, classify_address, classify_open, classify_send, classify_trust,
-    ends_session, may_have_reached,
+    AttemptFailure, OpenFailure, classify_address, classify_assertion, classify_open,
+    classify_send, classify_trust, ends_session, may_have_reached,
 };
 use crate::queue::{Capped, EventQueue};
 use interweave_human_client_api::{
@@ -154,6 +154,41 @@ type Landing = Result<(TerminalCause, Option<EndpointId>), TransportError>;
 /// One attempt on the wire, owning what it needs: the session shared, the
 /// row it is for.
 type InFlight = Pin<Box<dyn Future<Output = (RowId, Landing)> + Send>>;
+
+/// One advertise assertion on its way: a short admin connection of its
+/// own, opened for it, asked `set_advertise(endpoint, false)`, and closed
+/// when the future ends. Owned, so a tick that finds it unanswered leaves
+/// it held and returns.
+type Asserting = Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send>>;
+
+/// Whether the client asserts an identity's `advertise: false` before
+/// each lease it takes (ADR-0061 decision 5). Set by the constructor and
+/// by nothing else: [`TransportClient::new`] asserts and has no switch,
+/// so a graphical client cannot be composed without the assertion, and
+/// [`TransportClient::for_command_line`] is the one composition that
+/// makes none.
+enum Hiding {
+    /// Before every acquisition -- the first open, Try again, a re-open
+    /// after the daemon restarted or the store recovered -- the endpoint
+    /// is asserted unadvertised, and no lease is asked before the answer
+    /// is `Ok`.
+    BeforeEveryLease(Box<dyn Fn(EndpointId) -> Asserting + Send + Sync>),
+    /// No assertion: the command-line client's.
+    NotAsserted,
+}
+
+/// Assert `endpoint` unadvertised over a connection of its own holding
+/// `admin.endpoints` alone, never the standing status connection: the
+/// port is dropped with the answer, which closes it.
+async fn assert_hidden<A: AdminBinding>(
+    binding: &A,
+    endpoint: EndpointId,
+) -> Result<(), TransportError> {
+    let admin = binding
+        .admin(BTreeSet::from([AdminCapability::Endpoints]))
+        .await?;
+    admin.set_endpoint_advertise(endpoint, false).await
+}
 
 /// How often a healthy admin connection is asked for status.
 const STATUS_INTERVAL_MS: u64 = 5_000;
@@ -272,10 +307,28 @@ pub trait SessionBinding: DataSessionBinding<Session: Send + Sync + 'static> {}
 
 impl<T> SessionBinding for T where T: DataSessionBinding<Session: Send + Sync + 'static> {}
 
+/// An admin binding a graphical client's facade asserts through: its
+/// assertions are owned futures held across ticks
+/// ([`Hiding::BeforeEveryLease`]), so the binding is shared with them and
+/// its port goes with them. Every platform binding is one.
+pub trait AssertingBinding: AdminBinding<Admin: Send> + Send + Sync + 'static {}
+
+impl<T> AssertingBinding for T where T: AdminBinding<Admin: Send> + Send + Sync + 'static {}
+
 /// The human client's transport facade.
 pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     binding: B,
-    admin_binding: A,
+    /// Shared with [`Hiding::BeforeEveryLease`]'s assertions, which each
+    /// open their own port on it.
+    admin_binding: Arc<A>,
+    hiding: Hiding,
+    /// The assertion made for this acquisition, and the endpoint it is
+    /// for, while the daemon has not answered it: polled at each tick and
+    /// never awaited, so a call that blocks holds no other identity's
+    /// turn (`an_assertion_that_blocks_takes_no_lease_until_it_answers`,
+    /// `tests/hiding.rs`). The session
+    /// stays `Reconnecting` meanwhile, and no lease is asked.
+    asserting: Option<(EndpointId, Asserting)>,
     store: HumanStore,
     config: ClientConfig,
     wall: WallClock,
@@ -295,6 +348,11 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     /// returns there rather than re-opening on a timer.
     refused_before_degrade: Option<SessionProblem>,
     reopen_attempt: u32,
+    /// What the open or the assertion that put the session back on the
+    /// re-open timer was answered: kept while the session is
+    /// `Reconnecting` from it, cleared by the next change of state
+    /// ([`TransportClient::retrying_for_room`]).
+    retry_cause: Option<TransportError>,
     recheck_attempt: u32,
     next_recheck_at: u64,
     connectivity: Connectivity,
@@ -321,6 +379,11 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// 1e), so a row that needed attention before a restart is attempted
     /// once more -- its peer's trust may have changed meanwhile.
     ///
+    /// Before each lease it takes, the client asserts the identity's
+    /// endpoint `advertise: false` (ADR-0061 decision 5): see
+    /// [`Hiding::BeforeEveryLease`]. This is the graphical clients'
+    /// constructor, and it has no way to leave the assertion out.
+    ///
     /// # Errors
     /// The store's, if its pending rows cannot be read.
     pub fn new(
@@ -330,10 +393,64 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         config: ClientConfig,
         wall: WallClock,
         now: u64,
+    ) -> Result<Self, StoreError>
+    where
+        A: AssertingBinding,
+    {
+        let admin_binding = Arc::new(admin_binding);
+        let asserts = Arc::clone(&admin_binding);
+        let hiding = Hiding::BeforeEveryLease(Box::new(move |endpoint| {
+            let binding = Arc::clone(&asserts);
+            Box::pin(async move { assert_hidden(&*binding, endpoint).await })
+        }));
+        Self::build(binding, admin_binding, hiding, store, config, wall, now)
+    }
+
+    /// The command-line client's facade: as [`Self::new`], except that it
+    /// leases with NO advertise assertion. Plan §30's note on the
+    /// command-line client's `--endpoint`: one run leases the one entry it
+    /// names, any entry admitting `human-client`, authored or added, and
+    /// such an entry is leased with no `advertise` assertion -- a deployed
+    /// profile may author an entry advertised on purpose, and a run of a
+    /// script must not turn that off (architect-cto's ruling, 2026-11-26).
+    /// Nothing else composes without the assertion
+    /// (`the_command_line_client_never_asserts`).
+    ///
+    /// # Errors
+    /// The store's, if its pending rows cannot be read.
+    pub fn for_command_line(
+        binding: B,
+        admin_binding: A,
+        store: HumanStore,
+        config: ClientConfig,
+        wall: WallClock,
+        now: u64,
+    ) -> Result<Self, StoreError> {
+        Self::build(
+            binding,
+            Arc::new(admin_binding),
+            Hiding::NotAsserted,
+            store,
+            config,
+            wall,
+            now,
+        )
+    }
+
+    fn build(
+        binding: B,
+        admin_binding: Arc<A>,
+        hiding: Hiding,
+        store: HumanStore,
+        config: ClientConfig,
+        wall: WallClock,
+        now: u64,
     ) -> Result<Self, StoreError> {
         let mut client = Self {
             binding,
             admin_binding,
+            hiding,
+            asserting: None,
             store,
             config,
             wall,
@@ -348,6 +465,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             },
             refused_before_degrade: None,
             reopen_attempt: 0,
+            retry_cause: None,
             recheck_attempt: 0,
             next_recheck_at: now,
             connectivity: Connectivity::Unknown,
@@ -400,6 +518,21 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     #[must_use]
     pub const fn session_state(&self) -> &SessionState {
         &self.state
+    }
+
+    /// Whether the session is re-opening on its timer because the daemon
+    /// answered `Overloaded` -- its data open, or the advertise assertion
+    /// made before it -- at its last attempt: the identity has no room at
+    /// the daemon now, which the person cannot act on here
+    /// (design/2026-11-04-identities.md §5.2, "No room at the daemon").
+    /// False in any other state, and while re-opening for any other
+    /// cause (`retrying_for_room_names_an_overloaded_retry_alone`).
+    #[must_use]
+    pub fn retrying_for_room(&self) -> bool {
+        // The cause is set only beside a `Reconnecting` its failure made,
+        // and every change of state clears it (`set_state`), so it speaks
+        // for the state it was set with alone.
+        self.retry_cause == Some(TransportError::Overloaded)
     }
 
     /// Connectivity as last read.
@@ -1065,8 +1198,9 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// is and the rest are built with this, so N identities hold one
     /// standing admin connection, not N. The composition root takes
     /// connectivity from the status-reading client. Trust and peer-address
-    /// calls still open their own short admin connection when made, as
-    /// before; only the standing status one is dropped.
+    /// calls, and the advertise assertion before each lease, still open
+    /// their own short admin connection when made, as before; only the
+    /// standing status one is dropped.
     #[must_use]
     pub fn without_status(mut self) -> Self {
         self.reads_status = false;
@@ -1116,35 +1250,79 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         let SessionState::Reconnecting { next_at, .. } = self.state else {
             return;
         };
-        if now < next_at {
-            return;
+        if self.asserting.is_none() {
+            if now < next_at {
+                return;
+            }
+            let endpoint = match self.lease_target() {
+                Ok(endpoint) => endpoint,
+                Err(e) => {
+                    self.open_failed(e, classify_open(e), now);
+                    return;
+                }
+            };
+            match (endpoint, &self.hiding) {
+                (Some(endpoint), Hiding::BeforeEveryLease(assert)) => {
+                    let asserting = assert(endpoint.clone());
+                    self.asserting = Some((endpoint, asserting));
+                }
+                (endpoint, _) => {
+                    self.open_and_settle(endpoint, now).await;
+                    return;
+                }
+            }
         }
-        match self.open().await {
+        // THE LEASE WAITS FOR THE ANSWER: an assertion still unanswered
+        // leaves the session `Reconnecting` and asks nothing more this
+        // tick; only `Ok` reaches the open below
+        // (`an_assertion_that_blocks_takes_no_lease_until_it_answers`).
+        let Some((_, asserting)) = self.asserting.as_mut() else {
+            return;
+        };
+        let Some(answer) = asserting.as_mut().now_or_never() else {
+            return;
+        };
+        let Some((endpoint, _)) = self.asserting.take() else {
+            return;
+        };
+        match answer {
+            Ok(()) => self.open_and_settle(Some(endpoint), now).await,
+            Err(e) => self.open_failed(e, classify_assertion(e), now),
+        }
+    }
+
+    async fn open_and_settle(&mut self, endpoint: Option<EndpointId>, now: u64) {
+        match self.open(endpoint).await {
             Ok((session, endpoint)) => {
                 self.session = Some(Arc::new(session));
                 self.reopen_attempt = 0;
                 self.leased.clone_from(&endpoint);
                 self.set_state(SessionState::Ready { endpoint });
             }
-            Err(e) => match classify_open(e) {
-                OpenFailure::Refused(problem) => {
-                    self.set_state(SessionState::Refused { problem });
-                }
-                OpenFailure::Retry => {
-                    self.reopen_attempt = self.reopen_attempt.saturating_add(1);
-                    let attempt = self.reopen_attempt;
-                    self.set_state(SessionState::Reconnecting {
-                        attempt,
-                        next_at: now + REOPEN.delay(attempt, 1),
-                    });
-                }
-            },
+            Err(e) => self.open_failed(e, classify_open(e), now),
         }
     }
 
-    /// Open a session leasing the identity the store speaks as, and make
-    /// its joins; a join that fails closes it. Answers the session and the
-    /// endpoint it leased: none for a broadcast-only configuration.
+    fn open_failed(&mut self, error: TransportError, failure: OpenFailure, now: u64) {
+        match failure {
+            OpenFailure::Refused(problem) => {
+                self.set_state(SessionState::Refused { problem });
+            }
+            OpenFailure::Retry => {
+                self.reopen_attempt = self.reopen_attempt.saturating_add(1);
+                let attempt = self.reopen_attempt;
+                self.set_state(SessionState::Reconnecting {
+                    attempt,
+                    next_at: now + REOPEN.delay(attempt, 1),
+                });
+                // After the state: setting one clears the cause.
+                self.retry_cause = Some(error);
+            }
+        }
+    }
+
+    /// The endpoint an open leases: the identity the store speaks as, or
+    /// none for a broadcast-only configuration.
     ///
     /// THE ONE CANDIDATE IS THE STORE'S IDENTITY, never another endpoint
     /// the configuration lists. The rows the client reads and writes are
@@ -1163,17 +1341,25 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     ///
     /// A store identity the configuration does not list is a composition
     /// fault, not the runtime's refusal: answered `Internal` before the
-    /// runtime is asked, so nothing is leased for it.
-    async fn open(&self) -> Result<(B::Session, Option<EndpointId>), TransportError> {
-        let endpoint = if self.config.endpoints.is_empty() {
-            None
-        } else {
-            let identity = self.store.identity();
-            if !self.config.endpoints.contains(identity) {
-                return Err(TransportError::Internal);
-            }
-            Some(identity.clone())
-        };
+    /// runtime is asked -- the advertise assertion included -- so nothing
+    /// is leased for it.
+    fn lease_target(&self) -> Result<Option<EndpointId>, TransportError> {
+        if self.config.endpoints.is_empty() {
+            return Ok(None);
+        }
+        let identity = self.store.identity();
+        if !self.config.endpoints.contains(identity) {
+            return Err(TransportError::Internal);
+        }
+        Ok(Some(identity.clone()))
+    }
+
+    /// Open a session leasing `endpoint`, and make its joins; a join that
+    /// fails closes it. Answers the session and the endpoint it leased.
+    async fn open(
+        &self,
+        endpoint: Option<EndpointId>,
+    ) -> Result<(B::Session, Option<EndpointId>), TransportError> {
         let request = SessionRequest::new(
             self.config.client_kind.clone(),
             endpoint.clone(),
@@ -1360,6 +1546,9 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// it is retried on the next session. `None` on the final close, which
     /// reports nothing more.
     async fn close_session(&mut self, now: Option<u64>) {
+        // An assertion not yet answered belongs to an acquisition this
+        // close ends; the next one asserts again.
+        self.asserting = None;
         // What has answered is settled first, an acceptance included: only
         // what is still on the wire is taken off it. Settled, not landed --
         // the session is closing already.
@@ -1802,6 +1991,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
 
     fn set_state(&mut self, state: SessionState) {
         if self.state != state {
+            self.retry_cause = None;
             self.state = state.clone();
             self.queue.push(ClientEvent::Session(state));
         }

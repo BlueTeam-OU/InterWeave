@@ -138,7 +138,7 @@ impl Tap {
 /// What one connection asked for: the capabilities its `hello`
 /// requested, and every request method it sent. The IPC frame is a
 /// four-byte big-endian length and that many bytes of JSON.
-#[derive(Debug, Default)]
+#[derive(Debug, Default, PartialEq, Eq)]
 pub(crate) struct Asked {
     pub(crate) capabilities: BTreeSet<String>,
     pub(crate) endpoint: Option<String>,
@@ -232,21 +232,46 @@ async fn the_client_keeps_data_and_admin_apart_on_their_own_sockets() {
     // the no-reach notice keys on, read once a session is ready.
     let reads =
         |names: &[&str]| -> BTreeSet<String> { names.iter().map(|n| (*n).to_owned()).collect() };
+    // And the advertise assertion made before every lease (ADR-0061
+    // decision 5): a short connection of its own, holding
+    // `admin.endpoints` alone and asking `set_advertise` alone.
     let capabilities = reads(&["admin.status", "admin.trust", "admin.peers"]);
     let methods = reads(&[
         "admin.status",
         "admin.trust.list",
         "admin.peers.list_addresses",
     ]);
+    let assertion = Asked {
+        capabilities: reads(&["admin.endpoints"]),
+        endpoint: None,
+        methods: reads(&["admin.endpoints.set_advertise"]),
+    };
+    let connections: Vec<Asked> = admin
+        .from(pid)
+        .iter()
+        .map(|c| asked(std::slice::from_ref(c)))
+        .collect();
     assert!(
-        on_admin.capabilities == capabilities && on_admin.methods == methods,
+        connections.contains(&assertion),
+        "control: the client was seen asserting on a connection of its own: {connections:?}"
+    );
+    assert!(
+        on_admin.capabilities
+            == capabilities
+                .union(&assertion.capabilities)
+                .cloned()
+                .collect()
+            && on_admin.methods == methods.union(&assertion.methods).cloned().collect(),
         "control: the client was seen reading its status and the two lists: {on_admin:?}"
     );
     assert!(
         on_admin.endpoint.is_none()
-            && on_admin.capabilities.is_subset(&capabilities)
-            && on_admin.methods.is_subset(&methods),
-        "on the admin socket only those reads, never a change, a lease or a send: {on_admin:?}"
+            && connections.iter().all(|c| *c == assertion
+                || (c.endpoint.is_none()
+                    && c.capabilities.is_subset(&capabilities)
+                    && c.methods.is_subset(&methods))),
+        "on the admin socket only those reads and the assertion on its own connection, \
+         never another change, a lease or a send: {connections:?}"
     );
     assert!(
         human_lease(&world.a.binding()).await.is_none(),

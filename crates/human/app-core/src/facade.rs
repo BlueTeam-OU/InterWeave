@@ -101,7 +101,11 @@ pub struct FacadeSide<B: interweave_human_transport_client::SessionBinding, A: A
     /// Where the key lives, when the root gave it ([`Self::set_key_source`]):
     /// what opens it again.
     key_source: Option<crate::KeySource>,
-    /// Why the key could not be used, while it cannot.
+    /// Why the key could not be used, while it cannot. The session does
+    /// not wait on it: an identity whose key is missing or refused is
+    /// asserted and leased as any other, and only sharing its card stops
+    /// (ADR-0067 decisions 3 and 5;
+    /// `an_added_identity_without_its_key_is_leased_and_given_no_key`).
     key_problem: Option<interweave_human_ui_model::KeyProblem>,
     /// The last Accept or Decline, held for its Undo until its snackbar
     /// closes ([`Command::ForgetCard`]) or the next one replaces it: one
@@ -377,6 +381,19 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
     pub fn set_key_source(&mut self, source: crate::KeySource) {
         self.key_source = Some(source);
         self.open_key();
+    }
+
+    /// Whether a message of this identity waits for the person: a pending
+    /// row the facade will not retry on its own (`NeedsAttention`), as
+    /// last reported.
+    #[must_use]
+    pub fn not_sent(&self) -> bool {
+        self.outbound.values().any(|u| {
+            matches!(
+                u.status,
+                interweave_human_client_api::OutboundStatus::NeedsAttention { .. }
+            )
+        })
     }
 
     /// Why the identity's key cannot be used, while it cannot: what a

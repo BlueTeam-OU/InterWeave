@@ -834,6 +834,12 @@ ui_texts! {
     /// its format marker, could not be read or used. The path is the
     /// file.
     RefusalProfileSettings => "InterWeave could not use the settings in the file below. Check the file, then start InterWeave again.",
+    /// DESKTOP, start-up refusal screen: the endpoint overlay, which lists
+    /// the identities added and each identity's trust, is present and
+    /// could not be read (design/2026-11-04-identities.md §6.1, "The list
+    /// cannot be read at start"; §13). The path is the overlay. Nothing
+    /// offers Try again.
+    RefusalIdentitiesUnreadable => "InterWeave could not read the file below, which holds the list of your identities and of the peers that each identity trusts. InterWeave did not start, because the list that it would show you may be incomplete. Nothing was changed. Check the file, then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: the profile's folders could not
     /// be worked out, or two of them are one. No path.
     RefusalProfileFolders => "InterWeave could not set up the folders for this profile. Check where this profile stores its files, then start InterWeave again.",
@@ -2103,7 +2109,13 @@ pub const fn send_error_class(error: &SendError) -> ErrorClass {
 pub const fn session_problem_class(problem: SessionProblem) -> ErrorClass {
     match problem {
         SessionProblem::EndpointInUse => ErrorClass::EndpointInUse,
-        SessionProblem::NotAvailableToThisClient => ErrorClass::EndpointNotAvailable,
+        // `NotHidden`'s words for the person are the identity's own
+        // state, `IdentityState::NotHidden` (`IdentityNotHidden`); the
+        // session notice keeps the nearest class until that state is read
+        // from the session.
+        SessionProblem::NotAvailableToThisClient | SessionProblem::NotHidden => {
+            ErrorClass::EndpointNotAvailable
+        }
         SessionProblem::Internal => ErrorClass::Internal,
     }
 }

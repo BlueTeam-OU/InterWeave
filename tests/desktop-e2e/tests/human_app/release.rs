@@ -487,6 +487,54 @@ impl Operated {
             .get(alias)
             .unwrap_or_else(|| panic!("{alias} was brought over"))
     }
+
+    /// The endpoint overlay in `after` is the operator's, plus the one
+    /// delta the client's advertise assertion (ADR-0061 decision 5)
+    /// writes, and only where the authored value was true (architect-cto's
+    /// ruling): `advertise: false` for the first identity, whose authored
+    /// entry advertises. Everything else the overlay held is value-equal
+    /// to what it was. Returns the overlay's name in the snapshots.
+    fn only_the_assertions_delta(&self, after: &BTreeMap<PathBuf, Vec<u8>>) -> String {
+        let overlay = EndpointOverlay::path_for(&self.home.paths);
+        let overlay_name = overlay
+            .strip_prefix(self.home.root.path())
+            .expect("inside")
+            .display()
+            .to_string();
+        let human_entry = self
+            .config
+            .lines()
+            .find(|l| l.contains("alias: human,"))
+            .expect("the first identity's entry");
+        assert!(
+            human_entry.contains("advertise: true"),
+            "the premise: the authored first identity advertises: {human_entry}"
+        );
+        let parse = |bytes: Option<&Vec<u8>>| -> serde_json::Value {
+            bytes.map_or_else(
+                || serde_json::json!({}),
+                |b| serde_json::from_slice(b).expect("the overlay's JSON"),
+            )
+        };
+        let mut asserted = parse(self.after_operator.get(Path::new(&overlay_name)));
+        asserted
+            .as_object_mut()
+            .expect("an object")
+            .entry("advertise")
+            .or_insert_with(|| serde_json::json!({}))
+            .as_object_mut()
+            .expect("the advertise member")
+            .insert(
+                self.id("human").as_str().to_owned(),
+                serde_json::json!(false),
+            );
+        assert_eq!(
+            parse(after.get(Path::new(&overlay_name))),
+            asserted,
+            "the overlay as the operator left it, plus the assertion's delta alone"
+        );
+        overlay_name
+    }
 }
 
 /// The daemon of `home`, from the package, ANSWERING: a socket accepts
@@ -578,7 +626,9 @@ async fn a_fresh_install_keeps_the_peer_id_init_printed() {
 /// endpoint overlay (the disabled endpoint still disabled, under the id
 /// its alias now names), the store migrated to this build's schema --
 /// and rewrites none of the key, the
-/// profile or the overlays: `config.yaml` differs from the frozen one by
+/// profile or the overlays but for the endpoint overlay's one
+/// `advertise: false` delta the client's advertise assertion writes over
+/// the authored first identity: `config.yaml` differs from the frozen one by
 /// the operator's entries alone, and the only new files beside the
 /// store's, the cache's and the marker's are the endpoint keys the
 /// commands wrote.
@@ -771,13 +821,14 @@ async fn an_upgrade_reads_the_previous_builds_artefacts_and_counts_what_v14_disc
             );
         }
     }
+    let overlay_name = operated.only_the_assertions_delta(&after);
     let rewritten: Vec<_> = rewritten
         .into_iter()
-        .filter(|name| *name != marker_name && *name != store_key_name)
+        .filter(|name| *name != marker_name && *name != store_key_name && *name != overlay_name)
         .collect();
     assert!(
         rewritten.is_empty(),
-        "the key, the profile and the overlays are read, never rewritten: {rewritten:?}"
+        "the key, the profile and the trust overlay are read, never rewritten: {rewritten:?}"
     );
     // What v14 discarded is counted, read last since the open is a write:
     // the one conversation, its unread and its kept row, and its pending

@@ -10,9 +10,10 @@
 use std::fmt;
 use std::path::{Path, PathBuf};
 
-use interweave_human_app_core::leasable_endpoints;
+use interweave_human_app_core::{HeldEntry, held_list, leasable_endpoints};
 use interweave_human_store::key_custody::FilesystemCustody;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
+use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 use interweave_profile_config::{LoadError, PersistError, ProfileConfig, ProfilePaths, XdgRoots};
 use interweave_transport_api::{ChannelId, EndpointId};
 
@@ -102,9 +103,15 @@ pub struct Profile {
     /// across restarts makes differ from the file (ADR-0028 A
     /// 2026-10-11), so the facade's open decides it, never this list.
     pub endpoints: Vec<EndpointId>,
-    /// The profile's default direct endpoint, when it is one of
-    /// [`Self::endpoints`]: in front at start when the store remembers no
-    /// identity held (`Roster::new`).
+    /// The identities this client holds (app-core's `held_list`): the
+    /// first of [`Self::endpoints`], then every entry the endpoint
+    /// overlay added that admits this client's kind. A later authored
+    /// entry of [`Self::endpoints`] is a route, not an identity, and is
+    /// not here.
+    pub held: Vec<HeldEntry>,
+    /// The profile's effective default -- the endpoint overlay's, else
+    /// `config.yaml`'s -- when it is held: in front at start when the
+    /// store remembers no identity held (`Roster::new`).
     pub default: Option<EndpointId>,
     /// The channels the profile wants joined.
     pub channels: Vec<ChannelId>,
@@ -149,6 +156,16 @@ pub enum StartError {
         /// The profile's paths, for the file a refusal names.
         paths: Box<ProfilePaths>,
     },
+    /// The endpoint overlay is present and could not be read: the
+    /// identities held cannot be known, and are never guessed as the
+    /// first alone (identities §6.1, "The list cannot be read at start";
+    /// architect-cto's REPLY 01a216b6, item 4).
+    IdentitiesUnreadable {
+        /// Why.
+        error: EndpointOverlayError,
+        /// The overlay, which the refusal names.
+        path: PathBuf,
+    },
     /// The socket paths could not be derived.
     Sockets(PersistError),
 }
@@ -171,6 +188,12 @@ impl fmt::Display for StartError {
             Self::NoHumanEndpoint { .. } => write!(
                 f,
                 "no endpoint in the profile allows the {CLIENT_KIND} client kind"
+            ),
+            Self::IdentitiesUnreadable { error, path } => write!(
+                f,
+                "the endpoint overlay at {}, which lists the identities this client holds, \
+                 could not be read: {error}",
+                path.display()
             ),
             Self::Sockets(e) => write!(f, "the daemon's socket paths could not be derived: {e}"),
         }
@@ -200,14 +223,16 @@ pub fn resolve(launch: &Launch, roots: &XdgRoots) -> Result<Profile, StartError>
             paths: Box::new(paths),
         });
     }
-    let default = config
-        .endpoints
-        .default_direct_endpoint
-        .clone()
-        .filter(|e| endpoints.contains(e));
+    // Read-only, as the daemon's start reads it: a present overlay that
+    // cannot be read stops this start too, never read as no added entry.
+    let list = held_list(&paths, &config).map_err(|error| StartError::IdentitiesUnreadable {
+        error,
+        path: EndpointOverlay::path_for(&paths),
+    })?;
     Ok(Profile {
         endpoints,
-        default,
+        held: list.held,
+        default: list.default,
         channels: config.channels.desired.clone(),
         data_socket: paths.data_socket().map_err(StartError::Sockets)?,
         admin_socket: paths.admin_socket().map_err(StartError::Sockets)?,

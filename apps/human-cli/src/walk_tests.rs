@@ -124,7 +124,7 @@ fn session(
     dir: &Path,
     faults: Option<Arc<StoreFaults>>,
 ) -> Session<FakeNode, FakeNode> {
-    let client = TransportClient::new(
+    let client = TransportClient::for_command_line(
         node.clone(),
         node.clone(),
         store_at(dir),

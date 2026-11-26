@@ -167,7 +167,7 @@ impl Side {
     }
 
     fn facade(&self) -> FacadeSide<FakeNode, FakeNode> {
-        let client = TransportClient::new(
+        let client = TransportClient::for_command_line(
             self.node.clone(),
             self.node.clone(),
             store(self.dir.path()),

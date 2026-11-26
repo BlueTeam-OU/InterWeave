@@ -16,8 +16,8 @@ use std::time::Duration;
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
-    AddressProblem, AddressRefused, ClientConfig, LineAdded, PeerAddress, ShowAddresses,
-    TransportClient,
+    AddressProblem, AddressRefused, AssertingBinding, ClientConfig, LineAdded, PeerAddress,
+    ShowAddresses, TransportClient,
 };
 use interweave_local_client_api::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminCapability,
@@ -243,7 +243,7 @@ fn node() -> FakeNode {
     FakeNetwork::pair(config(), config()).0
 }
 
-fn facade<A: AdminBinding>(admin: A) -> TransportClient<FakeNode, A> {
+fn facade<A: AssertingBinding>(admin: A) -> TransportClient<FakeNode, A> {
     TransportClient::new(
         node(),
         admin,

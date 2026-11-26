@@ -88,7 +88,7 @@ fn session_over(
     store: HumanStore,
     faults: Option<std::sync::Arc<StoreFaults>>,
 ) -> Session<FakeNode, FakeNode> {
-    let client = TransportClient::new(
+    let client = TransportClient::for_command_line(
         node.clone(),
         node.clone(),
         store,
@@ -475,7 +475,7 @@ async fn with_the_daemon_gone_a_send_is_unreachable_and_a_read_shows_the_store()
     let (a, _b) = FakeNetwork::pair(node(), node());
     a.stop();
     let dir = private_dir();
-    let client = TransportClient::new(
+    let client = TransportClient::for_command_line(
         a.clone(),
         a.clone(),
         store(dir.path()),

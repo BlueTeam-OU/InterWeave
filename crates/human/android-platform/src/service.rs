@@ -1168,6 +1168,10 @@ fn roster_config(
         max_payload_bytes: MAX_PAYLOAD_BYTES,
         others: Vec::new(),
         default: config.endpoints.default_direct_endpoint.clone(),
+        // The roster's aliases name the rows of its held identities
+        // (`Roster::held_if_changed`), which this Service does not read:
+        // its view is told the identity through `ToView::Held`.
+        aliases: std::collections::BTreeMap::new(),
     }
 }
 

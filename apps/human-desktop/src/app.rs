@@ -7,7 +7,7 @@
 
 use interweave_human_app_core::{ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_transport_client::{ClientEvent, SessionState};
-use interweave_human_ui_model::{UiModel, ViewEvent, WindowEvent};
+use interweave_human_ui_model::{IdentityIntent, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::View;
 use interweave_transport_api::EndpointId;
 
@@ -27,6 +27,10 @@ impl Surface for SlintSurface {
 
     fn take_window(&mut self) -> Vec<WindowEvent> {
         self.0.take_window_events()
+    }
+
+    fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+        self.0.take_identity_intents()
     }
 }
 
@@ -200,6 +204,11 @@ impl<S: Surface, O: Opener> App<S, O> {
                     self.side.apply_as(&identity, *update);
                 }
                 FromFacade::Daemon(present) => self.side.daemon_seen(present),
+                FromFacade::Held(held) => {
+                    if let Err(problem) = self.side.held_changed(&held) {
+                        log(&format!("the identities held were not taken: {problem:?}"));
+                    }
+                }
                 FromFacade::ListingFailed => {
                     self.listing_failed = true;
                     log("the message store could not be listed");
@@ -213,13 +222,28 @@ impl<S: Surface, O: Opener> App<S, O> {
                 FromFacade::Closed => {}
             }
         }
+        // The person's acts on the identities before the turn: a switch
+        // drains and sends the old front's acts as its own ahead of its
+        // crossing, and the turn below then draws the new front's model
+        // and asks as it, with no second wake needed to show the switch.
+        // Try again names its identity, whichever is in front.
+        let mut stopped = false;
+        self.side.take_identity_acts(|crossing| {
+            if !stopped && !facade.cross(crossing) {
+                log("the transport side has stopped");
+                stopped = true;
+            }
+        });
         // The front's, by name once the facade said what it holds: before
         // that the one model is the front's, whichever it is.
         let front = self.side.front().cloned();
         for command in self.side.turn() {
+            if stopped {
+                break;
+            }
             if !facade.command(front.clone(), command) {
                 log("the transport side has stopped");
-                break;
+                stopped = true;
             }
         }
         self.log_problems();
