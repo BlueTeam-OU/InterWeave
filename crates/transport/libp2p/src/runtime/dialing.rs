@@ -2214,7 +2214,6 @@ impl ActiveListeners {
         &mut self.0[at].1
     }
 
-    #[cfg(test)]
     pub(super) fn get(&self, id: ListenerId) -> Option<&Vec<Multiaddr>> {
         self.0.iter().find(|(held, _)| *held == id).map(|(_, a)| a)
     }
@@ -2226,7 +2225,6 @@ impl ActiveListeners {
             .map(|(_, a)| a)
     }
 
-    #[cfg(test)]
     pub(super) fn contains_key(&self, id: ListenerId) -> bool {
         self.0.iter().any(|(held, _)| *held == id)
     }
