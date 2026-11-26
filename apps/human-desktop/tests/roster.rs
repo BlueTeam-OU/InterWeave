@@ -19,7 +19,7 @@ use std::time::Duration;
 
 use interweave_human_app_core::{Opener, Roster, RosterConfig};
 use interweave_human_desktop::app::{App, SlintSurface};
-use interweave_human_desktop::facade_thread::FacadeThread;
+use interweave_human_desktop::facade_thread::{FacadeFault, FacadeThread};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_ui_model::RuntimeHost;
 use interweave_human_ui_slint::View;
@@ -90,7 +90,7 @@ fn the_window_is_told_the_identities_and_a_switch_reaches_the_roster() {
                 || 1_786_600_000_000,
                 0,
             )
-            .map_err(|_| interweave_human_store::StoreError::Degraded)
+            .map_err(FacadeFault::from)
         },
         || Ok(true),
         Arc::new(|| {}),
@@ -165,7 +165,7 @@ fn an_unreadable_last_front_row_is_reported_once_by_class() {
                     || 1_786_600_000_000,
                     0,
                 )
-                .map_err(|_| interweave_human_store::StoreError::Degraded)
+                .map_err(FacadeFault::from)
             },
             || Ok(true),
             Arc::new(|| {}),

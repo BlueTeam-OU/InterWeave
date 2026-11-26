@@ -11,12 +11,13 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use interweave_human_app_core::{KeySource, Roster, RosterConfig, RosterError};
+use interweave_human_app_core::{KeySource, Roster, RosterConfig};
 use interweave_human_store::HumanStore;
 use interweave_human_store::identity_key::FilesystemCustody;
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
+use crate::facade_thread::FacadeFault;
 use crate::startup::{CLIENT_KIND, Profile};
 
 /// Unix milliseconds, for what the store and the envelope record.
@@ -35,9 +36,7 @@ fn wall_ms() -> u64 {
 pub fn facade_over_ipc(
     profile: &Profile,
     store: HumanStore,
-) -> impl FnOnce() -> Result<Roster<IpcBinding, IpcBinding>, interweave_human_store::StoreError>
-+ Send
-+ 'static {
+) -> impl FnOnce() -> Result<Roster<IpcBinding, IpcBinding>, FacadeFault> + Send + 'static {
     let binding = IpcBinding::new(
         SocketPaths {
             data: profile.data_socket.clone(),
@@ -69,11 +68,7 @@ pub fn facade_over_ipc(
             wall_ms,
             0,
         )
-        .map_err(|e| match e {
-            RosterError::Store(e) => e,
-            // One identity is never past the bound.
-            RosterError::OverBound => interweave_human_store::StoreError::Degraded,
-        })?;
+        .map_err(FacadeFault::from)?;
         // The identity in front's own key, by app-core's rule: a file this
         // build refuses is named on stderr by its kind, never its content,
         // and the identity's page says so and offers what it can.

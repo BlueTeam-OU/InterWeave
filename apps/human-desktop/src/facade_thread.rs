@@ -16,7 +16,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use interweave_human_app_core::{
-    Command, Crossing, FacadeSide, Roster, Routed, Start, SwitchOutcome, Update,
+    Command, Crossing, FacadeSide, Roster, RosterError, Routed, Start, SwitchOutcome, Update,
 };
 use interweave_human_store::StoreError;
 use interweave_human_transport_client::SessionBinding;
@@ -178,6 +178,32 @@ pub struct Held {
     pub front: EndpointId,
 }
 
+/// Why a facade could not be built: a class, never content, so the window
+/// says what happened and not what the store holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FacadeFault {
+    /// The store could not be read: its pending rows, or a card's
+    /// creation time.
+    Store,
+    /// More identities than a client holds (`RosterError::OverBound`).
+    OverBound,
+}
+
+impl From<StoreError> for FacadeFault {
+    fn from(_: StoreError) -> Self {
+        Self::Store
+    }
+}
+
+impl From<RosterError> for FacadeFault {
+    fn from(e: RosterError) -> Self {
+        match e {
+            RosterError::Store(_) => Self::Store,
+            RosterError::OverBound => Self::OverBound,
+        }
+    }
+}
+
 /// What the facade's side sends back.
 #[derive(Debug)]
 pub enum FromFacade {
@@ -190,9 +216,9 @@ pub enum FromFacade {
     /// The store could not be listed at start: what it holds stays
     /// unshown this session. A class, never content.
     ListingFailed,
-    /// The facade could not be built: its store's pending rows could not
-    /// be read. Nothing is sent or received this session.
-    FacadeFailed,
+    /// The facade could not be built, for the class it carries. Nothing
+    /// is sent or received this session.
+    FacadeFailed(FacadeFault),
     /// The session is closed and the thread is ending.
     Closed,
 }
@@ -224,8 +250,8 @@ pub struct FacadeThread {
 
 impl FacadeThread {
     /// Start the facade `make` builds -- the roster, or a facade side
-    /// alone -- on a thread of its own (`make` fails only when the store's
-    /// pending rows cannot be read).
+    /// alone -- on a thread of its own (`make` fails with the class of
+    /// what could not be built, [`FacadeFault`]).
     /// `daemon_present` asks whether a daemon serves the profile (`Err`
     /// when it cannot tell: that is logged once per change, never read as
     /// "absent").
@@ -237,7 +263,7 @@ impl FacadeThread {
     /// # Errors
     /// When the thread or its runtime cannot be started.
     pub fn spawn<F: Facade + 'static>(
-        make: impl FnOnce() -> Result<F, StoreError> + Send + 'static,
+        make: impl FnOnce() -> Result<F, FacadeFault> + Send + 'static,
         daemon_present: impl Fn() -> Result<bool, String> + Send + 'static,
         notify: Arc<dyn Fn() + Send + Sync>,
         report: fn(&str),
@@ -251,7 +277,7 @@ impl FacadeThread {
     /// # Errors
     /// When the thread or its runtime cannot be started.
     pub fn spawn_bounded<F: Facade + 'static>(
-        make: impl FnOnce() -> Result<F, StoreError> + Send + 'static,
+        make: impl FnOnce() -> Result<F, FacadeFault> + Send + 'static,
         daemon_present: impl Fn() -> Result<bool, String> + Send + 'static,
         notify: Arc<dyn Fn() + Send + Sync>,
         report: fn(&str),
@@ -288,9 +314,12 @@ impl FacadeThread {
                     }
                 };
                 runtime.block_on(async move {
-                    let Ok(mut side) = make() else {
-                        out(FromFacade::FacadeFailed);
-                        return;
+                    let mut side = match make() {
+                        Ok(side) => side,
+                        Err(fault) => {
+                            out(FromFacade::FacadeFailed(fault));
+                            return;
+                        }
                     };
                     if side.front_unread() {
                         // The class only: the row names an identity.

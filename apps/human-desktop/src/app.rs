@@ -11,7 +11,7 @@ use interweave_human_ui_model::{UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::View;
 use interweave_transport_api::EndpointId;
 
-use crate::facade_thread::{FacadeThread, FromFacade};
+use crate::facade_thread::{FacadeFault, FacadeThread, FromFacade};
 
 /// The view as the root drives it.
 pub struct SlintSurface(pub View);
@@ -204,8 +204,11 @@ impl<S: Surface, O: Opener> App<S, O> {
                     self.listing_failed = true;
                     log("the message store could not be listed");
                 }
-                FromFacade::FacadeFailed => {
+                FromFacade::FacadeFailed(FacadeFault::Store) => {
                     log("the message store's pending rows could not be read");
+                }
+                FromFacade::FacadeFailed(FacadeFault::OverBound) => {
+                    log("more identities are held than a client holds");
                 }
                 FromFacade::Closed => {}
             }
