@@ -109,10 +109,10 @@ printf '%s:6:\n' "$fpr" | gpg --batch --quiet --import-ownertrust 2>/dev/null
 # The user's own git config never decides the format or the program.
 status="$(git -C "$repo" -c gpg.format=openpgp -c gpg.program=gpg verify-tag --raw "$ref" 2>&1)" \
     || die "$(printf '%q' "$tag") does not verify against the pinned key: $(printf '%s' "$status" | grep -E '^\[GNUPG:\] (BADSIG|ERRSIG|EXPSIG|EXPKEYSIG|REVKEYSIG|NO_PUBKEY)' | head -n 1)"
-if printf '%s\n' "$status" | grep -qE '^\[GNUPG:\] (BADSIG|ERRSIG|EXPSIG|EXPKEYSIG|REVKEYSIG) '; then
+if grep -qE '^\[GNUPG:\] (BADSIG|ERRSIG|EXPSIG|EXPKEYSIG|REVKEYSIG) ' <<<"$status"; then
     die "$(printf '%q' "$tag"): $(printf '%s\n' "$status" | grep -E '^\[GNUPG:\] (BADSIG|ERRSIG|EXPSIG|EXPKEYSIG|REVKEYSIG) ' | head -n 1)"
 fi
-printf '%s\n' "$status" | grep -q '^\[GNUPG:\] GOODSIG ' || die "$(printf '%q' "$tag") carries no good signature"
+grep -q '^\[GNUPG:\] GOODSIG ' <<<"$status" || die "$(printf '%q' "$tag") carries no good signature"
 # VALIDSIG's tenth argument is the primary key's fingerprint, the signing
 # subkey's being the first.
 signer="$(printf '%s\n' "$status" | awk '$1 == "[GNUPG:]" && $2 == "VALIDSIG" { print $12; exit }')"
