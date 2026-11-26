@@ -491,11 +491,12 @@ holds the alias of the first add that ended unknown is the design's.
 
 ### Amendment 2026-11-26 — The replaces record is written before the replacement's key is sealed, the pending-add record is bounded, and a store discard takes both (ii)
 
-Six things. The first is a gap both reviews of the pending-add text at
+Seven things. The first is a gap both reviews of the pending-add text at
 cadd2cf47 named as standing before it; the next three were owed since
 that text landed; the fifth is a gap of the 2026-11-25 note that this
 change's own review named; the sixth answers a question the design
-asked of the pending-add record after it landed.
+asked of the pending-add record after it landed; the seventh settles,
+from the daemon's code, the order the 2026-11-26 note left undecided.
 
 **The replaces record's order.** Decision 7 and `STATE.md` had the
 record written before the administrative add, and the design's step
@@ -592,10 +593,16 @@ path before it sends the remove, so an add answered before the remove
 has its entry in the set when the remove reads it and the remove
 answers `removed`, and an add answered after it finds the key path
 empty and is refused `key_missing`. `EndpointUnknown` therefore means
-that no entry stood and that none is written for that id while its key
-file is gone, and neither settlement leaves an entry listed with its
-key gone. `LOCAL-IPC.md` now says that the endpoint set's methods are
-answered one at a time. No test sends an add and a remove together or
+that no overlay entry stood and that none is written for that id while
+its key file is gone: no late add leaves an entry listed with its key
+gone. That is the whole of what the order settles. A remove left ahead
+of the runtime, its overlay write installed and its publish and restore
+failed, is another residue and stands as the contract's remove bullet
+has it: the remove sent again answers `EndpointUnknown`, the record is
+deleted, and the list holds the id with its key gone until the daemon's
+next start. `LOCAL-IPC.md` now says that the endpoint set's writing methods are
+answered one at a time, `admin.endpoints.list` being the runtime's view
+and ordering nothing. No test sends an add and a remove together or
 asserts the one-at-a-time answering, so a daemon change that answered
 requests concurrently would fail nothing as this is written; the
 interleaving test is asked of p2p-network-dev.
