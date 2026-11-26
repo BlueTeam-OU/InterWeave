@@ -359,12 +359,14 @@ pub(crate) enum Request {
 
 /// An endpoint-set write's publish held open
 /// (`ComposedRuntime::hold_next_endpoint_publish`). Dropping it releases
-/// the publish as [`Self::release`] does.
+/// the publish as [`Self::release`] does
+/// (`a_second_hold_replaces_an_untaken_first`).
 #[cfg(feature = "test-hooks")]
 #[derive(Debug)]
 pub struct PublishHold {
     /// `None` once it has resolved `Ok`: a oneshot receiver polled again
-    /// after completing panics, and `reached` may be asked twice.
+    /// after completing panics, and `reached` may be asked twice
+    /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`).
     reached: Option<oneshot::Receiver<()>>,
     release: oneshot::Sender<()>,
 }
@@ -377,7 +379,8 @@ impl PublishHold {
     ///
     /// # Errors
     /// `BackendUnavailable` when the hold was dropped unreached: the
-    /// driver ended, or a later `hold_next_endpoint_publish` replaced it.
+    /// driver ended, or a later `hold_next_endpoint_publish` replaced it
+    /// (`a_second_hold_replaces_an_untaken_first`).
     /// Asked again after it resolved, `Ok` at once
     /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`).
     pub async fn reached(&mut self) -> Result<(), TransportError> {
@@ -1009,18 +1012,18 @@ impl ComposedRuntime {
         self.ask(|reply| Request::FailPublishes(count, reply)).await
     }
 
-    /// Hold the substrate publish of the next write to the endpoint
-    /// overlay open -- the eight that go through
-    /// `Driver::set_endpoints_noting`: `admin.endpoints.add`, `remove`,
-    /// `set_enabled`, `set_default`, `set_advertise`, `set_alias`, and
-    /// `admin.trust.set` with an endpoint and `admin.trust.seed` -- once
-    /// its overlay is written and before its answer, until the returned
+    /// Hold the substrate publish of the next write that goes through
+    /// `Driver::set_endpoints_noting` -- the endpoint set's methods, and
+    /// `admin.trust.set` with an endpoint and `admin.trust.seed`; the
+    /// tests hold an add, a remove and an endpoint `admin.trust.set` --
+    /// once its overlay is written and before its answer
+    /// (`a_remove_beside_a_held_add_answers_removed_after_the_add`), until the returned
     /// [`PublishHold`] is released or dropped: how a test puts another
     /// request beside a write in flight. A move refused before its write
     /// does not take the hold
     /// (`a_hold_is_taken_by_the_first_write_that_reaches_its_publish`); a
-    /// second call before the first hold is taken replaces it. TEST BUILDS
-    /// ONLY.
+    /// second call before the first hold is taken replaces it
+    /// (`a_second_hold_replaces_an_untaken_first`). TEST BUILDS ONLY.
     ///
     /// # Errors
     /// `BackendUnavailable` once the runtime has stopped.
@@ -1810,7 +1813,8 @@ impl Driver {
         } else {
             // The test hold waits INSIDE the publish, as the substrate's
             // own step does, so a driver that answered beside a write in
-            // flight would answer beside a held one too.
+            // flight would answer beside a held one too
+            // (`a_remove_beside_a_held_add_answers_removed_after_the_add`).
             #[cfg(feature = "test-hooks")]
             let publish = {
                 let hold = self.endpoint_publish_hold.take();

@@ -355,7 +355,8 @@ async fn a_hold_is_taken_by_the_first_write_that_reaches_its_publish() {
 
 /// A second hold asked for before the first was taken replaces it: the
 /// first answers `BackendUnavailable` while the driver runs, and the
-/// second is the one the next write takes.
+/// second is the one the next write takes. Dropping the second, not
+/// releasing it, lets the held add go on and answer.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_second_hold_replaces_an_untaken_first() {
     let p = paths();
@@ -374,7 +375,7 @@ async fn a_second_hold_replaces_an_untaken_first() {
     within(second.reached())
         .await
         .expect("the add took the second");
-    second.release();
+    drop(second);
     assert_eq!(within(&mut add).await, Ok(EndpointAddChange::Added(work)));
     drop(add);
     drop(port);
