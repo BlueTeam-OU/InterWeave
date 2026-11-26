@@ -643,8 +643,12 @@ Outcomes other than Done, each with nothing half-made shown as made:
   created. Choose Create to try again. If {name} was already
   created, Create does not create a second one.") above Create, focus on
   it, and Back enabled. Create there reads the list first and, not
-  Found, calls the add again with the same key, alias and kinds
-  (step 2). **Alternative named:** try the add again at once, with a
+  Found, or when that read fails, calls the add again with the same
+  key, alias and kinds (step 2); its answer is then handled as this
+  section says for any add, so an add that had landed answers
+  `unchanged` and is Found. A failed read never ends a Create by
+  itself: the add is safe to send, since it can only make the same
+  EndpointId. **Alternative named:** try the add again at once, with a
   new key. Rejected: a second key would make a second identity if the
   first add had landed.
 - **The form is left** (Back, or the app ends):
