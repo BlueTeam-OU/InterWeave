@@ -2009,6 +2009,13 @@ impl SwarmRuntime {
                         let _ = swarm.remove_listener(id);
                     }
                 }
+                // AND AT ITS LIMIT on a Swarm that stays busy: an idle
+                // Swarm is the usual answer, and this one bounds the
+                // wait when it does not come.
+                for id in dialing::answer_overdue_listens(&mut listens, tokio::time::Instant::now())
+                {
+                    let _ = swarm.remove_listener(id);
+                }
                 let settling = dialing::holds_settling_listen(&listens);
 
                 // THE EARLIEST RETRY STILL AHEAD, for the scheduler to

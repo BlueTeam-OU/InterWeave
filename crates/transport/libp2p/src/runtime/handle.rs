@@ -111,7 +111,10 @@ impl SwarmRuntime {
     /// the loopback address, and a private candidate learned at once
     /// raced the LAN address's report
     /// (`a_wildcard_listen_answers_once_its_lan_address_is_observed`).
-    /// An interface the watcher has not seen yet is not waited for.
+    /// An interface the watcher has not seen yet is not waited for, and
+    /// on a Swarm kept busy by traffic the answer waits no longer than
+    /// a second after the first address
+    /// (`a_held_listen_is_answered_once_its_hold_limit_has_passed`).
     ///
     /// # Errors
     /// Returns [`SubstrateError::Stopped`] if the task is gone,

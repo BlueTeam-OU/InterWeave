@@ -1514,11 +1514,15 @@ pub(super) fn translate(
             // met ADR-0052 rule 3's refusal for want of the private
             // listener the next event would have reported (j237). So it
             // keeps its first address and is answered with it once the
-            // Swarm has nothing ready (`dialing::answer_settled_listens`).
+            // Swarm has nothing ready (`dialing::answer_settled_listens`),
+            // or at its hold limit (`dialing::answer_overdue_listens`).
             if let Some(pending) = listens.get_mut(&listener_id)
                 && pending.wildcard
             {
-                pending.first.get_or_insert_with(|| address.clone());
+                if pending.first.is_none() {
+                    pending.first = Some(address.clone());
+                    pending.held_since = Some(tokio::time::Instant::now());
+                }
             } else if let Some(pending) = listens.remove(&listener_id)
                 && pending.reply.send(Ok(address.clone())).is_err()
             {
@@ -2377,6 +2381,37 @@ mod command_helper_tests {
         listens.insert(unbound, waiting);
         assert_eq!(answer_settled_listens(&mut listens), vec![left]);
         assert!(listens.contains_key(&unbound) && !listens.contains_key(&left));
+    }
+
+    #[test]
+    fn a_held_listen_is_answered_once_its_hold_limit_has_passed() {
+        use super::super::dialing::{LISTEN_HOLD_LIMIT, answer_overdue_listens};
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let id = ListenerId::next();
+        let (held, mut answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(id, held);
+        // Control: an unbound listen has no hold to time out.
+        let unbound = ListenerId::next();
+        let (waiting, mut waiting_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(unbound, waiting);
+        super::translate(
+            new_listen_addr(id, addr(15)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        let since = listens[&id]
+            .held_since
+            .expect("held from its first address");
+        let just_before = since + LISTEN_HOLD_LIMIT - std::time::Duration::from_millis(1);
+        assert!(answer_overdue_listens(&mut listens, just_before).is_empty());
+        assert!(answer.try_recv().is_err(), "still held below the limit");
+        assert!(answer_overdue_listens(&mut listens, since + LISTEN_HOLD_LIMIT).is_empty());
+        assert!(matches!(answer.try_recv(), Ok(Ok(a)) if a == addr(15)));
+        assert!(waiting_answer.try_recv().is_err(), "the unbound one waits");
+        assert!(listens.contains_key(&unbound) && !listens.contains_key(&id));
     }
 
     #[test]
