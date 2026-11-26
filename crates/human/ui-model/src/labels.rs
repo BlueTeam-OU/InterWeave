@@ -839,8 +839,7 @@ ui_texts! {
     /// could not be read (design/2026-11-04-identities.md §6.1, "The list
     /// cannot be read at start"; §13). The path is the overlay. Nothing
     /// offers Try again.
-    // PLACEHOLDER (en)
-    RefusalIdentitiesUnreadable => "InterWeave could not read the file below, which lists your identities and the peers that each of them trusts. So that it does not show you a list that may be incomplete, InterWeave did not open. Nothing was changed. Check the file, then start InterWeave again.",
+    RefusalIdentitiesUnreadable => "InterWeave could not read the file below, which holds the list of your identities and of the peers that each identity trusts. InterWeave did not start, because the list that it would show you may be incomplete. Nothing was changed. Check the file, then start InterWeave again.",
     /// DESKTOP, start-up refusal screen: the profile's folders could not
     /// be worked out, or two of them are one. No path.
     RefusalProfileFolders => "InterWeave could not set up the folders for this profile. Check where this profile stores its files, then start InterWeave again.",
