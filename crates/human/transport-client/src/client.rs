@@ -50,6 +50,7 @@ use crate::problem::{
     classify_send, classify_trust, ends_session, may_have_reached,
 };
 use crate::queue::{Capped, EventQueue};
+use crate::trust::{FirstSeed, IdentityTrustPort};
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
     AddressProblem, AddressRefused, ClientEvent, Connectivity, Destination, Diagnostics, Inbound,
@@ -361,6 +362,13 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     /// Whether this client reads status at all; see
     /// [`without_status`](TransportClient::without_status).
     reads_status: bool,
+    /// The first identity's seed, asked on each trust connection; see
+    /// [`seeding`](TransportClient::seeding).
+    seed: Option<FirstSeed>,
+    /// This node's `PeerId` as the last session or status read learned
+    /// it: what a trust list names as the local peer, since an
+    /// identity's set carries none, and kept after a session ends.
+    known_peer: Option<TransportIdentity>,
     rows: BTreeMap<RowId, Row>,
     /// Inbound already committed but not yet handed over, because the
     /// facade took what a session held before closing it. Durable
@@ -472,6 +480,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             admin_attempt: 0,
             next_status_at: now,
             reads_status: true,
+            seed: None,
+            known_peer: None,
             rows: BTreeMap::new(),
             held: Capped::new(HELD_CAP),
             queue: EventQueue::default(),
@@ -1033,6 +1043,83 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         })
     }
 
+    /// The trust of the identity this client speaks as (`human-client-ui.md`
+    /// §8): the peers both members of its own set hold, read on an
+    /// administrative connection of its own holding `admin.trust` alone
+    /// and closing with the call, never the operator's list. With
+    /// [`seeding`](Self::seeding), the first identity's seed is asked on
+    /// that connection before the read.
+    ///
+    /// # Errors
+    /// The failure's class; an identity the daemon holds no entry for,
+    /// or a page that is not one direction of one identity's set, is
+    /// `Internal`.
+    pub async fn identity_trust(&self) -> Result<TrustList, TrustProblem> {
+        let port = self.identity_trust_port().await?;
+        let rows = port.read().await.map_err(classify_trust)?;
+        Ok(self.trust_list(rows))
+    }
+
+    /// Allow `peer` for the identity this client speaks as, or revoke it
+    /// -- written into both members of its set -- then read the set back
+    /// on the same connection. A revoke closes nothing while another set
+    /// (another identity's, or the operator's list) still holds the peer:
+    /// it takes effect at this identity's route, and no session is told
+    /// `PeerDisconnected` (`LOCAL-IPC.md`, A 2026-11-19).
+    ///
+    /// # Errors
+    /// Whether the change was made, as for the address writes: not made
+    /// when the connection or the set failed before anything left;
+    /// unconfirmed when the set failed after it may have reached the
+    /// daemon (`may_have_reached`); made when only the read-back failed.
+    pub async fn set_identity_trust(
+        &self,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<TrustList, TrustSetFailure> {
+        let port = self
+            .identity_trust_port()
+            .await
+            .map_err(TrustSetFailure::NotMade)?;
+        let change = port.set(peer, allowed).await.map_err(|error| {
+            if may_have_reached(error) {
+                TrustSetFailure::Unconfirmed(classify_trust(error))
+            } else {
+                TrustSetFailure::NotMade(classify_trust(error))
+            }
+        })?;
+        match change {
+            TrustChange::Set => {}
+            TrustChange::Refused(TrustRefusal::Superseded) => {
+                return Err(TrustSetFailure::Superseded);
+            }
+        }
+        let rows = port
+            .read()
+            .await
+            .map_err(|error| TrustSetFailure::MadeNotReadBack(classify_trust(error)))?;
+        Ok(self.trust_list(rows))
+    }
+
+    /// The identity's trust connection: the store's identity, the one
+    /// every act of this client is made as.
+    async fn identity_trust_port(&self) -> Result<IdentityTrustPort<A::Admin>, TrustProblem> {
+        IdentityTrustPort::open(
+            &*self.admin_binding,
+            self.store.identity().clone(),
+            self.seed.as_ref(),
+        )
+        .await
+        .map_err(classify_trust)
+    }
+
+    fn trust_list(&self, rows: Vec<interweave_local_client_api::TrustedPeer>) -> TrustList {
+        TrustList {
+            local_peer: self.local_peer().or(self.known_peer.as_ref()).cloned(),
+            allowed: rows.into_iter().map(trust_row).collect(),
+        }
+    }
+
     async fn trust_port(&self) -> Result<A::Admin, TrustProblem> {
         self.admin_binding
             .admin(BTreeSet::from([AdminCapability::Trust]))
@@ -1207,6 +1294,18 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         self
     }
 
+    /// A facade that asks `seed` -- the authored first identity's -- on
+    /// each trust connection it opens, before that connection's first
+    /// read or write, whichever identity this client speaks as
+    /// (ADR-0067 decision 6; [`FirstSeed`]). A composition root gives
+    /// every client it holds a clone of one seed, so the record of
+    /// whether one was answered is the process run's.
+    #[must_use]
+    pub fn seeding(mut self, seed: FirstSeed) -> Self {
+        self.seed = Some(seed);
+        self
+    }
+
     /// End the session; the facade does nothing more until dropped. What
     /// the session's queue still holds is committed unread first, in one
     /// read, as for a session lost: it was accepted, and the close
@@ -1294,6 +1393,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     async fn open_and_settle(&mut self, endpoint: Option<EndpointId>, now: u64) {
         match self.open(endpoint).await {
             Ok((session, endpoint)) => {
+                self.known_peer = Some(session.session().local_peer().clone());
                 self.session = Some(Arc::new(session));
                 self.reopen_attempt = 0;
                 self.leased.clone_from(&endpoint);
@@ -1401,6 +1501,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         };
         self.admin_attempt = 0;
         self.next_status_at = now + STATUS_INTERVAL_MS;
+        self.known_peer = Some(status.peer);
         if let Some(normalized) = connectivity_of(status.health, Some(&status.connectivity)) {
             self.set_connectivity(normalized);
         }
