@@ -8558,6 +8558,56 @@ identity's, the comparison is to the lease as it was on that day.
   built for the one-at-a-time publish (#770) serves is theirs to say.
   The stage does not close on the scripted port alone.
 
+**2026-11-26 (ii), the desktop holds the added identities, and an
+identity whose key is missing is leased.** For rust-ui-dev-02 (their
+REQUEST 01a217b6-930e) and ux-designer-01 (their QUESTION
+01a217b8-da3b), read at rust-ui-dev-02's branch head 553f9d801. The
+first bullet of the note of 2026-11-25 ends with that change, as its
+condition says: the assertion before every lease, the refusal with its
+notice and the added entries held are one batch.
+
+- **What the desktop holds.** The first authored entry admitting
+  `human-client`, then every entry of the overlay's `added` member
+  admitting it, in the overlay's order; each is asserted unadvertised
+  and then leased. A later authored `human-client` entry is a route
+  and is not held, and an added entry of another client kind is not
+  held (ADR-0061 decisions 1 and 2; `human-client-ui.md` §13). The
+  default among them is the overlay's effective default when it is
+  held, else none.
+- **An overlay that is present and does not read stops the start.**
+  It is not read as an overlay with no added entry, since the client
+  would then show a held list the file may contradict. The desktop
+  refuses the start naming the file, with the exit class of a
+  configuration error, and of a privacy refusal when the file is
+  reachable by another user. An absent overlay is the first identity
+  and nothing else.
+- **A key that is missing or refused takes no lease away.** ADR-0067
+  decisions 3 and 5 and `ENDPOINTS.md` §Configured endpoint set say it
+  of every endpoint: the entry holds its lease and its routes and
+  signs nothing, and the client says so. So an added identity in the
+  key-missing state is asserted unadvertised and leased as the first
+  is, sends and receives, and cannot share its card until the person
+  replaces it (ADR-0067 decision 5). architect-cto's REPLY
+  01a216b6-6939, item 4, said "not leased, not asserted" of such an
+  entry; that was wrong against the record and is withdrawn here, the
+  rest of the item standing (held, not dropped, given no key). As
+  the branch stood at 553f9d801 it built the withdrawn reading: an
+  identity other than the first whose key did not open took no lease
+  and made no assertion, while the first leased with its key missing.
+  The change does not land so, and no state of its own is drawn for a
+  key-missing identity that holds no lease.
+- **Android.** No program under `apps/human-android` reads the
+  overlay's added entries into a held list at that head: the phone
+  holds the first identity, asserted, and the added ones follow with
+  step 3. The stage does not close before that.
+- **What stays from the note of 2026-11-25.** Its third bullet, whole:
+  the control that creates a second identity is reachable in no build
+  until every trust act carries the identity in front and the first
+  identity's seed has run. Until then an added entry is there where
+  an administrative call from outside the client or a hand edit wrote
+  it. Its fourth bullet, the command-line client's `--endpoint`, is
+  unchanged.
+
 A limit carried by name, which no text changes now: the identities a
 client holds connected are counted against the daemon's IPC connection
 limit, `ipc.max_clients` less what the client's own administrative
