@@ -112,7 +112,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     }
 
     /// A model made again, named with the identities held and told their
-    /// rows as the hub last said them
+    /// rows as the hub last said them, none once the service stopped
     /// (`a_model_made_again_is_told_the_identities_again`).
     fn made(&mut self) -> ModelSide<S, O> {
         let mut side = (self.fresh)();
@@ -141,6 +141,12 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     pub fn apply(&mut self, message: ToView) -> Result<(), ListingFailed> {
         match message {
             ToView::Running(running) => {
+                if !running {
+                    // As the hub drops its rows at a stop, and tells a view
+                    // attached after one none: the model made now is not
+                    // told rows no facade holds.
+                    self.identities = None;
+                }
                 let made = self.made();
                 let last = std::mem::replace(&mut self.side, made);
                 if running {
@@ -1424,13 +1430,16 @@ mod tests {
     }
 
     /// The identities' rows the hub tells reach the model shown, and
-    /// every model made again at a change of the running state is told
-    /// them again; a list the model refuses is kept for the root to log.
+    /// every model made again while the service runs is told them again;
+    /// a stop drops them, as the hub drops its rows, so a model made at
+    /// the stop, and at the next start until the facade tells its own, is
+    /// told none; a list the model refuses is kept for the root to log.
     /// One identity is held here: the front-only facts a running state
     /// tells are not yet told with a model behind (another change moves
-    /// them). Mutations: `Identities` not told to the model shown -- the
-    /// first assert; `made` not telling them -- the "made again" assert;
-    /// the refusal dropped -- `take_held_refused` answers `None`.
+    /// them). Mutations: `Identities` not told to the
+    /// model shown -- the first assert; `made` not telling them -- the
+    /// "made again" assert; the rows kept at a stop -- the "stopped"
+    /// assert; the refusal dropped -- `take_held_refused` answers `None`.
     #[test]
     fn a_model_made_again_is_told_the_identities_again() {
         let mut side = view_side();
@@ -1438,10 +1447,15 @@ mod tests {
         side.apply(ToView::Identities(told.clone()))
             .expect("applied");
         assert_eq!(held_rows(&side), told, "told to the model shown");
-        for running in [true, false, true] {
-            side.apply(ToView::Running(running)).expect("applied");
-            assert_eq!(held_rows(&side), told, "made again (running {running})");
-        }
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(held_rows(&side), told, "made again (running)");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(held_rows(&side), [], "stopped: no facade holds rows");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(held_rows(&side), [], "started: the facade tells its own");
+        side.apply(ToView::Identities(told.clone()))
+            .expect("applied");
+        assert_eq!(held_rows(&side), told, "told again");
         assert_eq!(side.take_held_refused(), None);
         let twice = rows(&[(me(), "mine"), (me(), "again")]);
         side.apply(ToView::Identities(twice)).expect("applied");
@@ -1516,8 +1530,14 @@ mod tests {
         side.apply(ToView::Running(false)).expect("applied");
         assert_eq!(side.side().front(), Some(&other()), "named with the new");
 
+        // A facade that stopped holds no rows: the next start tells its own.
         hub.retire(generation);
         drop(rx);
+        side.apply(ToView::Identities(rows(&[
+            (me(), "mine"),
+            (other(), "work"),
+        ])))
+        .expect("applied");
         intents.borrow_mut().extend(choose(&me()));
         assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
         side.apply(ToView::Running(false)).expect("applied");
