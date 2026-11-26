@@ -507,9 +507,11 @@ already knows**:
   left ahead of the running device, and the add is refused `exists`.
   That second case comes from any change, between the cut and the
   settle, in the alias that the client would choose: a rename of the
-  old identity, or a change in the aliases held (a Remove that frees
-  a lower suffix, or a new identity that takes the alias that the
-  cut step's add chose). The settle's add
+  old identity, or a lower suffix freed in the aliases held (by a
+  Remove, or by a rename of an identity's alias away from it). A new
+  identity is never such a cause: while the entry is left ahead, an
+  add of another id with its alias is refused `alias_taken`
+  (`LOCAL-IPC.md`). The settle's add
   then makes an alias that differs from the alias of the entry left
   ahead. In either case, the person never saw that replacement
   finish: the old identity stands with `KeyReplaceFailed`, and
