@@ -3888,11 +3888,13 @@ fn trust_settings(
     view.render(model);
 }
 
-/// Each listed peer says where it comes from: the profile's configuration,
-/// or added in these settings (ADR-0028 A 2026-10-07), beside its exact
-/// `PeerId`.
+/// A trusted peer's row draws its exact `PeerId` and no origin line,
+/// whatever the daemon's row says it came from: every row of an
+/// identity's set is its own (design/2026-11-04-identities.md section 16
+/// Q5). The `PeerId`s drawn are the control. Mutation: the row's origin
+/// drawn again under its `PeerId`.
 #[test]
-fn each_trusted_peer_says_whether_it_is_configured_or_added_here() {
+fn a_trust_row_says_no_origin() {
     use slint::Model as _;
     let mut view = view();
     let mut model = UiModel::new();
@@ -3909,24 +3911,21 @@ fn each_trusted_peer_says_whether_it_is_configured_or_added_here() {
     }));
     view.render(&model);
     let rows = view.window().get_trusted();
-    let drawn: Vec<(String, String)> = (0..rows.row_count())
-        .map(|i| {
-            let row = rows.row_data(i).expect("a row");
-            (row.peer.to_string(), row.origin.to_string())
-        })
+    let drawn: Vec<String> = (0..rows.row_count())
+        .map(|i| rows.row_data(i).expect("a row").peer.to_string())
         .collect();
     assert_eq!(
         drawn,
-        vec![
-            (
-                carol.as_str().to_owned(),
-                text(UiText::TrustFromConfiguration).to_owned()
-            ),
-            (
-                dave.as_str().to_owned(),
-                text(UiText::TrustAddedHere).to_owned()
-            ),
-        ]
+        vec![carol.as_str().to_owned(), dave.as_str().to_owned()]
+    );
+    for peer in [&carol, &dave] {
+        assert!(!labelled(&view, peer.as_str()).is_empty(), "drawn");
+    }
+    // The configured row would have said the configuration (a text
+    // the Stage 22 release retires); the added one says nothing either.
+    assert!(
+        labelled(&view, text(UiText::TrustAddedHere)).is_empty(),
+        "no origin line on the Trust page"
     );
 }
 
