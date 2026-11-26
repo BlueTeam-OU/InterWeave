@@ -1601,11 +1601,18 @@ pub(super) fn translate(
                 // failing is no failed bind, so it is answered with its
                 // first address as the idle Swarm would have answered it
                 // (`a_listener_error_answers_a_held_wildcard_listen_with_its_address`).
+                // Its caller gone, it belongs to nobody, and the sweep
+                // after this event no longer finds it in `listens`, so it
+                // is closed here as `NewListenAddr` closes one
+                // (`a_listener_error_closes_a_held_listen_whose_caller_has_gone`).
+                let bound = pending.first.is_some();
                 let answer = match pending.first {
                     Some(first) => Ok(first),
                     None => Err(listen_refusal(&error, None)),
                 };
-                let _ = pending.reply.send(answer);
+                if pending.reply.send(answer).is_err() && bound {
+                    abandoned.push(listener_id);
+                }
             }
             None
         }
@@ -2453,6 +2460,44 @@ mod command_helper_tests {
         }
         assert!(matches!(held_answer.try_recv(), Ok(Ok(a)) if a == addr(12)));
         assert!(matches!(unbound_answer.try_recv(), Ok(Err(_))));
+        assert!(listens.is_empty());
+    }
+
+    #[test]
+    fn a_listener_error_closes_a_held_listen_whose_caller_has_gone() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let gone_id = ListenerId::next();
+        let (gone, gone_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(gone_id, gone);
+        // Control: a held listen whose caller still waits is answered,
+        // not closed.
+        let kept_id = ListenerId::next();
+        let (kept, mut kept_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(kept_id, kept);
+        for id in [gone_id, kept_id] {
+            super::translate(
+                new_listen_addr(id, addr(13)),
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        drop(gone_answer);
+        for id in [gone_id, kept_id] {
+            super::translate(
+                libp2p::swarm::SwarmEvent::ListenerError {
+                    listener_id: id,
+                    error: std::io::Error::other("accept failed"),
+                },
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        assert_eq!(abandoned, vec![gone_id]);
+        assert!(matches!(kept_answer.try_recv(), Ok(Ok(a)) if a == addr(13)));
         assert!(listens.is_empty());
     }
 
