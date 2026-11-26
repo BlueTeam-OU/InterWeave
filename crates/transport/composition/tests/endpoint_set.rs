@@ -740,6 +740,47 @@ async fn unlisting_a_disabled_added_endpoint_is_ok_and_its_lease_is_refused() {
     runtime.stop().await.expect("stops");
 }
 
+/// Listing reads the enabled value only through
+/// `directory.max_advertised`, which counts enabled endpoints alone: at
+/// the cap, a DISABLED endpoint is listed and answered `Ok`, and its
+/// enabling is the call refused `InvalidArgument`. The control: the same
+/// listing while it is enabled is refused, so the `Ok` is the disabling's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn listing_a_disabled_endpoint_at_the_cap_is_ok_and_its_enabling_is_refused() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(
+        &identity,
+        &profile_with(&[], &[], &["human"], 1),
+        options(&p),
+    )
+    .await
+    .expect("composes");
+    let port = admin(&runtime).await;
+    assert_eq!(
+        port.set_endpoint_advertise(ep("agent"), true).await,
+        Err(TransportError::InvalidArgument),
+        "the control: an enabled endpoint past the cap"
+    );
+    port.set_endpoint_enabled(ep("agent"), false)
+        .await
+        .expect("disabled");
+    assert_eq!(
+        port.set_endpoint_advertise(ep("agent"), true).await,
+        Ok(()),
+        "a disabled endpoint is not counted"
+    );
+    let row = row_of(&port, &ep("agent")).await.expect("listed");
+    assert!(!row.enabled && row.advertise, "{row:?}");
+    assert_eq!(
+        port.set_endpoint_enabled(ep("agent"), true).await.err(),
+        Some(TransportError::InvalidArgument),
+        "enabling it would pass the cap"
+    );
+    drop(port);
+    runtime.stop().await.expect("stops");
+}
+
 /// `set_alias`: `authored` before an invalid alias, invalid before taken;
 /// taken against an added and an authored entry; `unchanged` for the
 /// entry's own; each writing nothing. The rename is written and the
