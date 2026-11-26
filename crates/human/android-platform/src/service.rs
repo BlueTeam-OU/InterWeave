@@ -191,8 +191,9 @@ pub struct ServiceHost {
     /// was not: the app logs its class, as the desktop prints it (#414 F3).
     key_refused: Arc<Mutex<Option<KeyProblem>>>,
     /// Each identity other than the first whose key was not opened at the
-    /// last start, by the problem's kind alone, never a path: the app logs
-    /// them as it logs [`Self::identity_key_refused`].
+    /// last start, by the problem's kind alone, which names no folder
+    /// (`a_key_problems_kind_names_no_folder`): the app logs them as it
+    /// logs [`Self::identity_key_refused`].
     others_key_refused: Arc<Mutex<Vec<&'static str>>>,
     /// What the facade said for the platform log and the app has not
     /// taken yet ([`Self::take_facade_notes`]): each class once, however
@@ -416,7 +417,7 @@ impl ServiceHost {
     }
 
     /// Why the last start ran with no identity key, if it did: a class for
-    /// the platform log, never the key.
+    /// the platform log, not the key.
     #[must_use]
     pub fn identity_key_refused(&self) -> Option<KeyProblem> {
         self.key_refused
@@ -427,7 +428,7 @@ impl ServiceHost {
 
     /// The kind of each problem the last start met opening the key of an
     /// identity other than the first, in held order: a class for the
-    /// platform log, never the key and never a path.
+    /// platform log, its kind alone (`a_key_problems_kind_names_no_folder`).
     #[must_use]
     pub fn other_identity_keys_refused(&self) -> Vec<&'static str> {
         self.others_key_refused
@@ -1223,7 +1224,8 @@ fn human_endpoint(config: &ProfileConfig) -> Option<interweave_transport_api::En
 /// this client's kind, in app-core's [`held_list`] order, each with its
 /// entry's alias; and the overlay's effective default when it is held.
 struct Held {
-    /// The first first; never empty.
+    /// The first first, so the list holds at least it
+    /// (`androids_first_stays_first_and_only_the_added_follow`).
     held: Vec<HeldEntry>,
     default: Option<interweave_transport_api::EndpointId>,
 }
@@ -1288,7 +1290,8 @@ fn android_held(
     default: Option<interweave_transport_api::EndpointId>,
 ) -> Held {
     let mut held = vec![first];
-    // `held_list`'s own first is an authored entry, never an added one.
+    // `held_list`'s own first is the first authored entry, so skipping it
+    // drops no added one (app-core's `a_second_authored_human_entry_is_not_held`).
     for entry in list.held.into_iter().skip(1) {
         if !held.iter().any(|h| h.endpoint == entry.endpoint) {
             held.push(entry);
@@ -1350,8 +1353,8 @@ impl KeyCipher for SharedCipher {
     }
 }
 
-/// A key problem's kind, for the platform log: never the folder a
-/// [`KeyProblem::DirUnsafe`] names.
+/// A key problem's kind, for the platform log: not the folder a
+/// [`KeyProblem::DirUnsafe`] names (`a_key_problems_kind_names_no_folder`).
 const fn key_problem_kind(problem: &KeyProblem) -> &'static str {
     match problem {
         KeyProblem::LostOnDevice => "lost on device",
@@ -1552,11 +1555,13 @@ mod tests {
 
     /// Android's first identity stays first, whichever entry app-core's
     /// `held_list` put first, and only the list's added entries follow it,
-    /// in its order, Android's first not twice; the default is the list's
-    /// when Android holds it, else none. Mutations: the list's own first
-    /// kept (`skip(1)` dropped) -- `authored` is held; the duplicate check
-    /// dropped -- `android` is held twice; the default left unfiltered --
-    /// `authored` is the default.
+    /// in its order, Android's first not twice, and held at least when the
+    /// list is empty; the default is the one given when Android holds it,
+    /// else none. Mutations: the list's own first kept (`skip(1)`
+    /// dropped) -- `authored` is held; the duplicate check dropped --
+    /// `android` is held twice; the default left unfiltered -- `authored`
+    /// is the default; Android's first not seeded -- the order assert
+    /// fails.
     #[test]
     fn androids_first_stays_first_and_only_the_added_follow() {
         let list = HeldList {
@@ -1579,6 +1584,29 @@ mod tests {
         let held = android_held(list, entry("android"), Some(id("authored")));
         assert_eq!(ids(&held), [id("android"), id("work")]);
         assert_eq!(held.default, None, "the default Android does not hold");
+        let held = android_held(
+            HeldList {
+                held: Vec::new(),
+                default: None,
+            },
+            entry("android"),
+            None,
+        );
+        assert_eq!(ids(&held), [id("android")], "held at least the first");
+    }
+
+    /// A key problem's kind says what went wrong and not where: the folder
+    /// a `DirUnsafe` names is in no kind's text. Mutation: the label of
+    /// `DirUnsafe` made a path ("folder/unsafe") -- the separator assert
+    /// fails.
+    #[test]
+    fn a_key_problems_kind_names_no_folder() {
+        let folder = "/data/user/0/app/endpoint-keys".to_owned();
+        let kind = key_problem_kind(&KeyProblem::DirUnsafe {
+            folder: folder.clone(),
+        });
+        assert!(!kind.contains(&folder), "{kind}");
+        assert!(!kind.contains('/'), "{kind}");
     }
 
     /// A profile of two authored human-client entries, `first` and
