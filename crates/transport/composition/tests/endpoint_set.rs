@@ -684,6 +684,62 @@ async fn set_advertise_refuses_what_the_profile_would_refuse() {
     runtime.stop().await.expect("stops");
 }
 
+/// Unlisting a DISABLED added endpoint is answered `Ok` and written, and
+/// its lease is still refused `EndpointDisabled`: the desktop asserts
+/// `set_advertise(id, false)` before each lease of an added entry
+/// (#778), and reads a disabled one as unavailable only on these two
+/// answers. The entry is listed first, so the unlisting is a write and
+/// not a value already in effect, which is answered before the overlay
+/// is read. The control: the lease the entry grants while enabled, so
+/// the refusal is the disabling's.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn unlisting_a_disabled_added_endpoint_is_ok_and_its_lease_is_refused() {
+    let p = paths();
+    let runtime = start(&p).await;
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        port.add_endpoint(key, "work".into(), vec!["human-client".into()])
+            .await,
+        Ok(EndpointAddChange::Added(work.clone()))
+    );
+    assert_eq!(
+        port.set_endpoint_advertise(work.clone(), true).await,
+        Ok(())
+    );
+    let session = runtime
+        .sessions()
+        .open(lease_request(&work))
+        .await
+        .expect("the control: an enabled entry is leasable");
+    drop(session);
+
+    port.set_endpoint_enabled(work.clone(), false)
+        .await
+        .expect("disabled");
+    let row = row_of(&port, &work).await.expect("listed");
+    assert!(!row.enabled && row.advertise, "{row:?}");
+    let before = bytes(&p);
+    assert_eq!(
+        port.set_endpoint_advertise(work.clone(), false).await,
+        Ok(()),
+        "unlisting a disabled entry"
+    );
+    assert_ne!(bytes(&p), before, "the unlisting is written");
+    assert!(!row_of(&port, &work).await.expect("listed").advertise);
+    assert_eq!(
+        port.set_endpoint_advertise(work.clone(), false).await,
+        Ok(()),
+        "and again, a value already in effect: the desktop's usual call"
+    );
+    assert_eq!(
+        runtime.sessions().open(lease_request(&work)).await.err(),
+        Some(TransportError::EndpointDisabled)
+    );
+    drop(port);
+    runtime.stop().await.expect("stops");
+}
+
 /// `set_alias`: `authored` before an invalid alias, invalid before taken;
 /// taken against an added and an authored entry; `unchanged` for the
 /// entry's own; each writing nothing. The rename is written and the
