@@ -576,20 +576,35 @@ not taken: it would make a discard depend on what the store holds for
 an id its record says is not yet an identity. What the form says when
 its add succeeded and the delete failed is the design's.
 
-Still not decided, and not verified, as the 2026-11-26 note left it:
-how the daemon orders an add applied late against a discard's remove.
-`LOCAL-IPC.md` says of the endpoint methods that none is ordered by
-connection and that an add applied late after the key file is deleted
-is `key_missing`; it does not say that an add past its key check cannot
-write after a remove answered `EndpointUnknown`. Both settlements end
-on that answer, so the residue is the same for both: an entry listed
-with its key gone, removed by the person. A daemon interleaving test
-would settle it; the daemon is p2p-network-dev's.
+**A late add against a discard's remove.** The 2026-11-26 note left
+undecided how the daemon orders an add applied late against a discard's
+remove, `LOCAL-IPC.md` not saying that an add past its key check cannot
+write after a remove answered `EndpointUnknown`. Asked of the daemon's
+owner, answered alike by both its holders from the code, nothing run,
+and read on main at 3782a9afb: one driver task holds the endpoint
+set and answers one request at a time, every admin session and the
+embedded host reaching it through one request channel, and an add's
+reading of the key file and its overlay write are one answer, the
+file read in that turn and not when the request is accepted
+(`crates/transport/composition/src/runtime.rs`, the driver loop;
+`runtime/endpoint_set.rs`, `add_endpoint`). The client empties the key
+path before it sends the remove, so an add answered before the remove
+has its entry in the set when the remove reads it and the remove
+answers `removed`, and an add answered after it finds the key path
+empty and is refused `key_missing`. `EndpointUnknown` therefore means
+that no entry stood and that none is written for that id while its key
+file is gone, and neither settlement leaves an entry listed with its
+key gone. `LOCAL-IPC.md` now says that the endpoint set's methods are
+answered one at a time. No test sends an add and a remove together or
+asserts the one-at-a-time answering, so a daemon change that answered
+requests concurrently would fail nothing as this is written; the
+interleaving test is asked of p2p-network-dev.
 
 Propagation: decision 7, and decision 1, whose added endpoints now
 except an id a pending-add record names; this note; the log row; the
 digest entry, its replacement bullet and its pending-add bullet; `STATE.md` §Logical
-tables, both records. Four design texts state the order or a case this
+tables, both records; `LOCAL-IPC.md`, the endpoint methods' one-at-a-time
+answering. Four design texts state the order or a case this
 note changes and are their owner's to bring to it, unchanged here:
 `design/2026-10-24-identity-key.md` §5.3 step 1 ("the key minted and
 sealed at the new identity's key path, the record, the add") and
