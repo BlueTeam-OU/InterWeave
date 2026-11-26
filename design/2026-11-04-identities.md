@@ -636,7 +636,7 @@ no card is named by it.
    Create whose record is refused at that bound first settles the other
    records, as opening Your identities does, and then writes its record
    again; only a second refusal ends Create as "Refused, with nothing
-   created". The next Create does the same, so "Choose Create to try
+   created" (ADR-0061 decision 7, A 2026-11-26 (iii)). The next Create does the same, so "Choose Create to try
    again" stays a promise that a Create can keep: each Create settles
    again, and each settle that the daemon answers frees the records that
    this settle ends.
@@ -881,9 +881,10 @@ Outcomes other than Done, each with nothing half-made shown as made:
     while it shows `IdentityAddNotFinished`, and also when it is left
     while it shows, after a Create chosen on `IdentityAddNotFinished`,
     either `IdentityAddKeyGone` or `IdentityAddUnknown`.
-- **A pending-add record is settled** at the client's next start and
-  whenever Your identities opens, so also right after Back, which
-  opens Your identities. The settle handles every record except the
+- **A pending-add record is settled** at the client's next start,
+  whenever Your identities opens (so also right after Back, which
+  opens Your identities), and when a Create's record is refused at
+  the bound (step 2; ADR-0061 decision 7, A 2026-11-26 (iii)). The settle handles every record except the
   record of a form that is open now. For each record, the client lists
   the endpoints:
   - The list fails: nothing is deleted and the record is kept, to be
@@ -908,8 +909,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
     platform key cannot be emptied, no remove is sent and the record
     is kept. On any other answer of the remove, or if it gets no
     answer, the record is kept.
-    A kept record is settled again at the next start and the next
-    opening of Your identities.
+    A kept record is settled again at the next of these three
+    moments.
     This branch also applies to an id for which an add answered
     `added`, when something outside the client (the command line, for
     example) removed the endpoint of that id before the record's delete
