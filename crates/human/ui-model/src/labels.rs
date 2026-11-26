@@ -2103,7 +2103,13 @@ pub const fn send_error_class(error: &SendError) -> ErrorClass {
 pub const fn session_problem_class(problem: SessionProblem) -> ErrorClass {
     match problem {
         SessionProblem::EndpointInUse => ErrorClass::EndpointInUse,
-        SessionProblem::NotAvailableToThisClient => ErrorClass::EndpointNotAvailable,
+        // `NotHidden`'s words for the person are the identity's own
+        // state, `IdentityState::NotHidden` (`IdentityNotHidden`); the
+        // session notice keeps the nearest class until that state is read
+        // from the session.
+        SessionProblem::NotAvailableToThisClient | SessionProblem::NotHidden => {
+            ErrorClass::EndpointNotAvailable
+        }
         SessionProblem::Internal => ErrorClass::Internal,
     }
 }

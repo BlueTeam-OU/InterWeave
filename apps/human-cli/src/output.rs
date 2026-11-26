@@ -32,6 +32,9 @@ pub(crate) const fn session_problem(problem: SessionProblem) -> &'static str {
     match problem {
         SessionProblem::EndpointInUse => "endpoint-in-use",
         SessionProblem::NotAvailableToThisClient => "not-available-to-this-client",
+        // Never this client's: it makes no advertise assertion
+        // (`TransportClient::for_command_line`).
+        SessionProblem::NotHidden => "not-hidden",
         SessionProblem::Internal => "internal",
     }
 }

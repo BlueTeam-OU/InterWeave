@@ -73,6 +73,12 @@ pub enum SessionProblem {
     /// The endpoint is unknown, disabled, refuses this client kind, or
     /// the connection lacks a capability: not available to this client.
     NotAvailableToThisClient,
+    /// The daemon answered the advertise assertion made before the lease
+    /// (`admin.endpoints.set_advertise` to false, ADR-0061 decision 5)
+    /// with anything but success, so no lease was taken: the identity
+    /// could be listed in the endpoint directory (`identities` design
+    /// §5.2, `IdentityNotHidden`). Try again asserts again.
+    NotHidden,
     /// Anything else.
     Internal,
 }
