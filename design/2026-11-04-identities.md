@@ -108,7 +108,7 @@ acceptance case in §14 that needs one says so:
   It says nothing about an earlier add of the same key whose outcome
   was unknown, since the entry that the earlier add left ahead can
   still be in the configuration when a later add is refused
-  (architect-cto's ruling of 2026-11-25, REPLY 01a21460, Q1).
+  (ADR-0061 decision 7, A 2026-11-26).
   Neither the add nor the remove
   promises more about an answer that was lost: a write the client
   stopped waiting for may still commit after a later list has answered
@@ -563,7 +563,7 @@ no card is named by it.
    key file that no record names is never deleted by the form or by
    the settle below (Remove, §7, deletes only an identity's key). A key
    that Replace minted (identity-key §5.3 step 1) is named by no such
-   record (ruled 2026-11-25, REPLY 01a21460, Q3). If the record cannot
+   record (ADR-0061 decision 7, A 2026-11-26). If the record cannot
    be written, nothing is sealed, and Create ends as "Refused, with
    nothing created" says (below).
    The form keeps that key for as long as it is open: **every later
@@ -610,7 +610,7 @@ Outcomes other than Done, each with nothing half-made shown as made:
   next Create takes the alias again from what the Name field says
   then.
   These, and `bound` with no earlier unknown add, are the only cases in which the client
-  knows that nothing was created (D1; ruled 2026-11-25, REPLY 01a21460, Q1).
+  knows that nothing was created (D1; ADR-0061 decision 7, A 2026-11-26).
 - **The add answers that the id is held**: `unchanged` (an earlier add
   landed, D1) is handled as Found: the record is deleted and the client
   goes on with step 3; nothing is shown as refused. `exists` (the id is
@@ -683,8 +683,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   that Replace minted is never reached, before or after Replace writes
   its replaces record (§7, "An identity that cannot come back").
   **Alternative named:** settle the record as a replaces record is, by
-  sending the same add again (identity-key §5.3). Rejected (ruled
-  2026-11-25, REPLY 01a21460, Q2): a replacement is finished because
+  sending the same add again (identity-key §5.3). Rejected (ADR-0061
+  decision 7, A 2026-11-26): a replacement is finished because
   the person asked for it and the old identity waits for it, while
   nothing waits for a form that was left; and the add would need the
   alias and kinds stored after the form is gone.
@@ -805,7 +805,7 @@ where focus lands — with its dialog changed for ADR-0067:
     identity whose key file is still there keeps its rows, since it can
     be configured again. **There are two exceptions.** The rule never
     takes a pending-add record, which only §6.2 deletes, by its own
-    rules (ruled 2026-11-25, REPLY 01a21460). And it never takes a
+    rules (ADR-0061 decision 7, A 2026-11-26). And it never takes a
     replaces record (ADR-0061 decision 7, A 2026-11-25), nor the rows
     of the new identity that a replaces record names, even when the
     list lacks that identity's id and its key path is empty, because
@@ -1358,7 +1358,7 @@ pass before it lands.
     after it made to fail, so `IdentityAddUnknown` shows; then the key
     file moved aside and Back): the settle sends the remove of that
     listed id, which answers `removed`, and deletes the record. Needs
-    D1 and ADR-0061 decision 7 as amended for j188.
+    D1 and ADR-0061 decision 7 (A 2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
