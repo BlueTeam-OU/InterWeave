@@ -2129,8 +2129,12 @@ pub(super) fn bound_or_binding(listens: &PendingListens, active: &ActiveListener
 /// its queue; the fallback backend Android uses runs `get_if_addrs`
 /// synchronously at its first poll and queues every address; and
 /// libp2p-tcp 0.45's `ListenStream` yields one address per poll, so the
-/// Swarm stays ready until the queue is out. None of that is budgeted
-/// by tokio's cooperative scheduling. What the watcher has not seen yet
+/// Swarm stays ready until the queue is out. Draining what is already
+/// queued reads no socket, so tokio's cooperative budget cannot cut it
+/// short. The limit: a dump spanning several datagrams -- a host with
+/// hundreds of addresses -- brings its later part on a later read,
+/// which may come after the answer; the answer is then early, as before
+/// the hold, and rule 3's widening counts the rest. What the watcher has not seen yet
 /// -- on Android, an interface `getifaddrs` does not answer until the
 /// platform's view arrives -- is not waited for: rule 3's widening
 /// counts it when it comes.
