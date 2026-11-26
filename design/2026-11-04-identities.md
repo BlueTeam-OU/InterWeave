@@ -680,7 +680,29 @@ Outcomes other than Done, each with nothing half-made shown as made:
   item says: Found, the form's key gone, or `IdentityAddUnknown`.
   When that read finds anything other than Found, or fails, the add
   that was answered `exists` counts as an add that ended unknown
-  (step 2).
+  (step 2). So does a first add answered `exists`, with no add of the
+  form's key ended unknown before it: Back from the
+  `IdentityAddUnknown` that follows keeps the key and the record
+  ("The form is left", below; acceptance 10 (r)).
+  An `exists` can come back on every Create. This happens when an add
+  was left ahead of the running device (`Internal`, below), and the
+  entry it wrote was then given another alias from the command line.
+  Each Create sends the alias of the first add that ended unknown
+  (step 2). The daemon answers `exists` again, and the list read after
+  it lacks the id, since the running device does not serve it. So
+  `IdentityAddUnknown` shows again, and "Choose Create to try again"
+  is not kept until the daemon's next start. That start loads the
+  entry, and the next Create's list read finds the id as Found
+  (acceptance 10 (m)). Back ends it sooner: the settle discards the
+  id, since the remove is judged by the overlay and answers
+  `removed`, and a new form makes a new key. This note accepts the
+  repeat. It needs an act outside the client on an add whose outcome
+  was already unknown, and whoever renamed the entry from the command
+  line knows that it was made. **Alternative named:** a line of
+  its own after a second `exists`, asking the person to restart
+  InterWeave. Rejected for now: a new string and a new state for a
+  case that only the command line reaches. If a run shows the case
+  reached without the command line, this choice is reopened.
 - **The outcome is unknown**: every other ending of an add. These are
   `Internal` (a write that failed, or an add left ahead of the running
   device, which the client cannot tell apart, D1); any other error,
@@ -1508,7 +1530,7 @@ pass before it lands.
     `IdentityAddUnknown` with the daemon down, the key file and the
     pending-add record stay until a list that answers. Needs D1.
 
-    Add's kept key, fifteen more runs, each observed from the daemon
+    Add's kept key, sixteen more runs, each observed from the daemon
     (`admin.endpoints.list`), `endpoint-keys/` and the store:
     (c) an add left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): `IdentityAddUnknown`
@@ -1548,7 +1570,13 @@ pass before it lands.
     `IdentityAddUnknown`. (m) An add left ahead as in (c), the entry's
     alias then changed from the command line, and Create chosen: the
     list lacks the id, the add answers `exists`, and the list read after
-    it still lacks the id, so `IdentityAddUnknown` shows. In a variant
+    it still lacks the id, so `IdentityAddUnknown` shows. Create is
+    then chosen a second time, with no restart: the add carries the
+    first add's alias again and answers `exists`, the list still lacks
+    the id, and `IdentityAddUnknown` shows again, focused; no card is
+    written and the record stays. The daemon is then restarted and
+    Create chosen a third time: its list read finds the id as Found,
+    sends no add, deletes the record and writes the card. In a variant
     of (m), the daemon is restarted between that add and the list read
     after it, and the restart loads the entry: the list reads the id as
     Found and the card is written. (n) A pending-add record whose id is
@@ -1582,7 +1610,17 @@ pass before it lands.
     remove. The id is
     then an identity: its row is named by its alias, with
     `IdentityCardNotSaved` under it, and its page shows `KeyDamaged`
-    (identity-key §3) with Remove (§7). Needs
+    (identity-key §3) with Remove (§7). (r) A first add answered
+    `exists`, with no earlier add of the form's key: after the key is
+    sealed and before the add is sent, the key file is added from the
+    command line with another alias, and the list read after the
+    form's add is made to fail. `IdentityAddUnknown` shows, focused,
+    never `IdentityAddFailed`. Then Back: the key file and the record
+    are kept on Back, and no remove is sent then. The settle that
+    runs when Your identities opens finds the id listed with its key
+    file at its key path and deletes the record. The id is then an
+    identity, named by the command line's alias, with
+    `IdentityCardNotSaved` under its row. Needs
     D1 and ADR-0061 decision 7 (A 2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
