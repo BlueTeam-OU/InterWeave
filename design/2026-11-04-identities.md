@@ -1356,8 +1356,11 @@ pass before it lands.
     key and the record are deleted on Back, with no remove sent. (j) As
     (c) up to `IdentityAddUnknown`, then the key file moved aside and
     Create chosen, refused `key_missing`: `IdentityAddUnknown` shows,
-    never `IdentityAddFailed`; Back keeps the key and the record, and
-    the settle then ends as in (d). (k) The record's write made to fail:
+    never `IdentityAddFailed`. Back deletes nothing: the record stays,
+    and the moved key file is left where it was moved. The settle then
+    finds the key path empty, empties the platform key, and sends the
+    remove, which answers `removed`; the record is deleted, and after
+    the daemon is restarted the list lacks the id. (k) The record's write made to fail:
     `IdentityAddFailed`, no key file sealed, no add sent; a second
     Create, with the write no longer made to fail, writes the record
     before its add. (l) A first add answered `BackendUnavailable`:
