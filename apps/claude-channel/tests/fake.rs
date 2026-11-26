@@ -2412,6 +2412,14 @@ async fn status_reads_the_sessions_ingress_refusals_and_never_lowers_them() {
         );
     };
     assert!(sent > 32, "the burst of 32 was admitted first: {first}");
+    // A read with no send between: the fake counts a refusal when the
+    // send is made, so a bridge that reported only what is new since its
+    // last read would answer zero here.
+    assert_eq!(
+        w.status().await["broadcast_loss"],
+        first,
+        "a second read lowers nothing"
+    );
     let refused = first["ingress_refused"].as_u64().expect("a count");
     assert_eq!(
         first["queue_overflow"],
