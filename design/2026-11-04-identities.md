@@ -702,11 +702,13 @@ Outcomes other than Done, each with nothing half-made shown as made:
   it, and Back enabled. Create there reads the list first. When that
   read is Found, or finds the form's key gone, the client goes on as
   it does after the first list read. Otherwise (not Found, or the read
-  fails), Create calls the add again with the same key, alias and
-  kinds (step 2; after the reading of "Created, not finished" that
-  finds the id not listed, with the alias that item gives), and the add's answer is then handled
-  as this section says for any add, so an add that had landed answers
-  `unchanged` and is Found. A failed read never ends a Create by
+  fails), Create calls the add again with the same key and kinds
+  (step 2). Its alias is also the same, with one exception: the next
+  add after the not-listed reading of "Created, not finished" takes
+  its alias as that item says, and that alias can be a new one. The
+  answer of the add that Create sends is then handled as this section
+  says for any add, so an add that had landed answers `unchanged` and
+  is Found. A failed read never ends a Create by
   itself: the add is safe to send, since it can only make the same
   EndpointId. **Alternative named:** try the add again at once, with a
   new key. Rejected: a second key would make a second identity if the
@@ -845,10 +847,11 @@ Outcomes other than Done, each with nothing half-made shown as made:
     example) removed the endpoint of that id before the record's delete
     succeeded
     (acceptance 11a (e)). Until that delete, the id was no identity
-    (§16 Q11), so nothing the person used is lost. The form may last have shown
-    `IdentityAddUnknown` (it could not check whether the identity was
-    created) or `IdentityAddNotFinished` (the identity was created and
-    not set up). What `IdentityAddNotFinished` says stops being true
+    (§16 Q11), so nothing the person used is lost. Among the lines
+    that the form may have shown last are `IdentityAddUnknown` (it
+    could not check whether the identity was created) and
+    `IdentityAddNotFinished` (the identity was created and not set
+    up). What `IdentityAddNotFinished` says stops being true
     when the endpoint is removed, by an act
     outside the client that the client is not told of.
   Nothing is shown for a settle. The person has left the form, and an
