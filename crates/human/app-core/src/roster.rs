@@ -42,11 +42,18 @@
 //! Turns and commands run one identity after another, each awaited before
 //! the next begins: a trust or address act opens its own short admin
 //! connection, so one client at a time asks
-//! (`TransportClient::without_status`'s note).
+//! (`TransportClient::without_status`'s note). Each identity's client is
+//! a graphical one (`TransportClient::new`), which asserts its endpoint
+//! unadvertised before every lease; that assertion is polled at each of
+//! its turns and never awaited, so one the daemon does not answer holds
+//! no other identity's turn (transport-client's
+//! `an_assertion_that_blocks_takes_no_lease_until_it_answers`).
 
 use interweave_human_client_api::ClientEvent;
 use interweave_human_store::{HumanStore, StoreError};
-use interweave_human_transport_client::{ClientConfig, SessionBinding, TransportClient};
+use interweave_human_transport_client::{
+    AssertingBinding, ClientConfig, SessionBinding, TransportClient,
+};
 use interweave_human_ui_model::IDENTITY_CAP;
 use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::{ChannelId, EndpointId};
@@ -149,6 +156,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         now: u64,
     ) -> Result<Self, RosterError>
     where
+        A: AssertingBinding,
         W: Fn() -> u64 + Clone + Send + Sync + 'static,
     {
         let first = store.identity().clone();
