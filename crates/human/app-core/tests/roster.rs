@@ -1118,6 +1118,46 @@ async fn the_held_identities_are_told_at_start_and_on_change_alone() {
     );
 }
 
+/// An added identity with an alias and no chosen name is held under its
+/// alias after its own card page was read: the page read makes the store
+/// write a card named by the identity's `EndpointId`, and that placeholder
+/// is no name (identities §6.1). A card with a chosen name still wins over
+/// the alias. Mutation: `chosen_card_name` returning every card's name --
+/// the added identity is named by its `EndpointId`.
+#[tokio::test]
+async fn an_added_identity_is_named_by_its_alias_after_its_card_page_was_read() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second(), third()]), node(&[human()]));
+    let spy = Spy::new(a);
+    let mut store = memory();
+    card(&mut store, &third(), 10);
+    let mut config = config(vec![second(), third()], None);
+    config.aliases.insert(second(), "work".to_owned());
+    config.aliases.insert(third(), "home".to_owned());
+    let mut roster = build(&spy, store, config);
+    let (_dir, paths) = key_paths();
+    for e in [human(), second(), third()] {
+        roster
+            .side_mut(&e)
+            .expect("held")
+            .set_key_source(KeySource::new(
+                paths.clone(),
+                e.clone(),
+                Box::new(FilesystemCustody),
+            ));
+    }
+    for e in [second(), third()] {
+        let start = roster.side_mut(&e).expect("held").start().expect("start");
+        assert!(start.identity.is_some(), "the premise: the page was read");
+    }
+    roster.execute(&human(), Command::Reopen, 1).await;
+    let held = roster.held_if_changed().expect("told");
+    let work = told(&held, &second());
+    assert_eq!(work.name(), "work", "the alias, not the EndpointId");
+    assert_ne!(work.name(), second().as_str());
+    let home = told(&held, &third());
+    assert_eq!(home.name(), "x", "a chosen name wins over the alias");
+}
+
 /// Try again re-opens the identity it names and no other: refused, it
 /// re-opens told `Starting` after a Try again, and stays so through
 /// attempts that time out, unanswered, until one is answered (identities

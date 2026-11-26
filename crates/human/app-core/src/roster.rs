@@ -513,11 +513,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 .as_ref()
                 .and_then(|told| told.iter().find(|h| h.key == key));
             let card_name = match self.store.own_card(endpoint) {
-                Ok(card) => card.map(|card| {
-                    card.surname
-                        .as_ref()
-                        .map_or_else(|| card.name.clone(), |s| format!("{} {s}", card.name))
-                }),
+                Ok(card) => card.as_ref().and_then(crate::cards::chosen_card_name),
                 Err(_) => before.and_then(|h| h.card_name.clone()),
             };
             let unread = match self
