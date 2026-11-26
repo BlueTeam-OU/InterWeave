@@ -9,6 +9,7 @@ use interweave_human_app_core::{ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_transport_client::{ClientEvent, SessionState};
 use interweave_human_ui_model::{UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::View;
+use interweave_transport_api::EndpointId;
 
 use crate::facade_thread::{FacadeThread, FromFacade};
 
@@ -176,9 +177,17 @@ impl<S: Surface, O: Opener> App<S, O> {
             self.turned = true;
             log(&format!("first turn at {} ms", self.elapsed_ms()));
         }
-        for message in facade.take() {
+        let messages = facade.take();
+        // Named before the updates are applied: the facade sets what it
+        // holds before it sends anything.
+        if self.side.front().is_none()
+            && let Some(held) = facade.held()
+        {
+            self.side.hold(&held.held, &held.front);
+        }
+        for message in messages {
             match message {
-                FromFacade::Update(update) => {
+                FromFacade::Update(identity, update) => {
                     if let Update::Client(ClientEvent::Session(state)) = &*update {
                         log(&format!(
                             "session {} at {} ms",
@@ -186,7 +195,9 @@ impl<S: Surface, O: Opener> App<S, O> {
                             self.elapsed_ms()
                         ));
                     }
-                    self.side.apply(*update);
+                    // Each identity's update to its own model; only the
+                    // front's is drawn.
+                    self.side.apply_as(&identity, *update);
                 }
                 FromFacade::Daemon(present) => self.side.daemon_seen(present),
                 FromFacade::ListingFailed => {
@@ -199,12 +210,40 @@ impl<S: Surface, O: Opener> App<S, O> {
                 FromFacade::Closed => {}
             }
         }
+        // The front's, by name once the facade said what it holds: before
+        // that the one model is the front's, whichever it is.
+        let front = self.side.front().cloned();
         for command in self.side.turn() {
-            if !facade.command(command) {
+            if !facade.command(front.clone(), command) {
                 log("the transport side has stopped");
                 break;
             }
         }
+        self.log_problems();
+    }
+
+    /// Bring `to` in front: the model side drains the old front's acts and
+    /// sends them as its own, then the switch, all to the facade thread in
+    /// that order (`ModelSide::switch`). False, and nothing done, when `to`
+    /// is in front or not held.
+    pub fn switch(&mut self, to: &EndpointId) -> bool {
+        let Some(facade) = &self.facade else {
+            return false;
+        };
+        let log = self.log;
+        let mut stopped = false;
+        let switched = self.side.switch(to, |crossing| {
+            if !stopped && !facade.cross(crossing) {
+                stopped = true;
+                log("the transport side has stopped");
+            }
+        });
+        self.log_problems();
+        switched
+    }
+
+    fn log_problems(&mut self) {
+        let log = self.log;
         for problem in self.side.take_problems() {
             match problem {
                 Problem::Command { command, why } => {

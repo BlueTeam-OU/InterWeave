@@ -1,15 +1,19 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The facade side over the desktop IPC binding: the data socket for the
-//! session, the admin socket -- a separate connection, a separate
-//! authority (ADR-0040) -- for the facade's status reads.
+//! The roster over the desktop IPC binding: the data socket for each
+//! identity's session, the admin socket -- a separate connection, a
+//! separate authority (ADR-0040) -- for the status reads.
+//!
+//! The roster holds the first identity alone in this batch (plan §30,
+//! architect-cto's ruling (b) of 2026-11-25): the desktop leases as
+//! `main` did with one facade side, and a roster of one answers as that
+//! side did (app-core's `a_roster_of_one_behaves_as_its_facade_side`).
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use interweave_human_app_core::{FacadeSide, KeySource};
+use interweave_human_app_core::{KeySource, Roster, RosterConfig, RosterError};
 use interweave_human_store::HumanStore;
 use interweave_human_store::identity_key::FilesystemCustody;
-use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_ipc_client::{IpcBinding, SocketPaths};
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
@@ -22,14 +26,16 @@ fn wall_ms() -> u64 {
         .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
-/// What builds the facade side for `profile` over the IPC binding, on the
+/// What builds the roster for `profile` over the IPC binding, on the
 /// facade's own thread. Building opens nothing: the first turn opens the
-/// session, so a daemon that is not running yet is a reconnecting
-/// session, not a failure to start.
+/// sessions, so a daemon that is not running yet is a reconnecting
+/// session, not a failure to start. The identity in front at start is the
+/// one the store last remembered, else the profile's default, else the
+/// first (`Roster::new`).
 pub fn facade_over_ipc(
     profile: &Profile,
     store: HumanStore,
-) -> impl FnOnce() -> Result<FacadeSide<IpcBinding, IpcBinding>, interweave_human_store::StoreError>
+) -> impl FnOnce() -> Result<Roster<IpcBinding, IpcBinding>, interweave_human_store::StoreError>
 + Send
 + 'static {
     let binding = IpcBinding::new(
@@ -46,31 +52,40 @@ pub fn facade_over_ipc(
             Box::new(FilesystemCustody),
         )
     });
-    let config = ClientConfig {
+    let config = RosterConfig {
         client_kind: CLIENT_KIND.to_owned(),
         endpoints: profile.endpoints.clone(),
         channels: profile.channels.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
+        // The first identity alone: Add is not reachable in this batch.
+        others: Vec::new(),
+        default: profile.default.clone(),
     };
     move || {
-        let client = TransportClient::new(
-            binding.clone(),
-            binding,
-            store,
+        let mut roster = Roster::new(
             config,
-            Box::new(wall_ms),
+            store,
+            |_| (binding.clone(), binding.clone()),
+            wall_ms,
             0,
-        )?;
-        let mut facade = FacadeSide::new(client, wall_ms);
+        )
+        .map_err(|e| match e {
+            RosterError::Store(e) => e,
+            // One identity is never past the bound.
+            RosterError::OverBound => interweave_human_store::StoreError::Degraded,
+        })?;
         // The identity in front's own key, by app-core's rule: a file this
         // build refuses is named on stderr by its kind, never its content,
         // and the identity's page says so and offers what it can.
-        if let Some(source) = source {
+        let first = roster.first().clone();
+        if let Some(source) = source
+            && let Some(facade) = roster.side_mut(&first)
+        {
             facade.set_key_source(source);
             if let Some(problem) = facade.key_problem() {
                 eprintln!("human-desktop: the identity's key is not usable: {problem:?}");
             }
         }
-        Ok(facade)
+        Ok(roster)
     }
 }

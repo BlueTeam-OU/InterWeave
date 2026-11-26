@@ -216,6 +216,7 @@ fn over_the_real_binding_with_no_daemon_the_window_says_so() {
     let paths = ProfilePaths::resolve("desk", &roots).expect("paths");
     let profile = Profile {
         endpoints: vec![human()],
+        default: None,
         channels: vec![],
         data_socket: paths.data_socket().expect("data socket"),
         admin_socket: paths.admin_socket().expect("admin socket"),
@@ -554,7 +555,7 @@ fn a_window_that_stops_taking_holds_the_facade_to_its_bound() {
     while received.len() < SENT {
         wait.check_showing(|| format!("{} of {SENT} reached it", received.len()));
         for message in alice.take() {
-            if let FromFacade::Update(update) = message
+            if let FromFacade::Update(_, update) = message
                 && let Update::Received(r) = *update
             {
                 received.push(r.envelope.text);
