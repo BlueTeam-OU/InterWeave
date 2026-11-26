@@ -2740,10 +2740,10 @@ landscape:
     layout change, the mode is unchanged, nothing is typed or
     announced; with focus on the delete key, it is on the delete key
     after the layout change, and with focus on the clear key, it is on
-    the clear key after the layout change; with focus on a chip, the grid button or
-    the primary action, focus is unchanged. Run as a host test on the
-    headless backend, and on the Pixel 9a resized live with `wm size`,
-    as item 13 resizes it.
+    the clear key after the layout change; with focus on a chip, the
+    grid button or the primary action, focus is unchanged. Run as a host
+    test on the headless backend, and on the Pixel 9a resized live with
+    `wm size`, as item 13 resizes it.
 
 Items 13 and 15 assume that the Android build follows the system font
 scale and takes hardware-keyboard input. rust-ui-dev measures both
