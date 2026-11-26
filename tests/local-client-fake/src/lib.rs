@@ -331,7 +331,11 @@ impl FakeNode {
     /// Give `endpoint` its own set as written, replacing any it had --
     /// the two members apart, as an overlay written by hand may hold
     /// them (LOCAL-IPC.md, the endpoint dimension). Not a port call:
-    /// how a test sets up the state a client meets.
+    /// how a test sets up the state a client meets. It checks no bound:
+    /// a test must keep the state inside the runtime's start-time bounds
+    /// (an admission set of at most 4096 peers, own rows at most 4 x
+    /// 4096), the pair's other node counting as admitted, or the fake
+    /// answers from a state no runtime holds.
     pub fn give_own_set(
         &self,
         endpoint: EndpointId,
@@ -2180,7 +2184,8 @@ mod tests {
         let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
         a.give_own_set(
             endpoint_id("human"),
-            (0..super::MAX_ALLOWED_PEERS).map(peer_n),
+            // One short of the bound: the pair's other node is the 4096th.
+            (0..super::MAX_ALLOWED_PEERS - 1).map(peer_n),
             [],
         );
         assert_eq!(
@@ -2235,13 +2240,118 @@ mod tests {
             Ok(TrustChange::Set),
             "another endpoint is another key"
         );
-        // The bound before superseded: both hold for this write.
-        a.give_own_set(agent, (0..super::MAX_ALLOWED_PEERS).map(peer_n), []);
+        // The bound before superseded: both hold for this write. The
+        // admission set is exactly full (b is the 4096th), so the
+        // setup stays inside the bound and only the write crosses it.
         assert_eq!(
-            now(early.set_endpoint_trust(human.clone(), b.peer().clone(), true)),
+            now(late.set_endpoint_trust(human.clone(), other(), false)),
+            Ok(TrustChange::Set)
+        );
+        a.give_own_set(agent, (0..super::MAX_ALLOWED_PEERS - 1).map(peer_n), []);
+        assert_eq!(
+            now(early.set_endpoint_trust(human.clone(), other(), true)),
             Err(TransportError::InvalidArgument)
         );
-        assert!(peers(&a, &human, TrustDirection::Inbound).is_empty());
+        assert!(!peers(&a, &human, TrustDirection::Inbound).contains(&other().as_str().to_owned()));
+    }
+
+    /// Three endpoints, so own rows can reach their bound with the
+    /// admission set inside its own: two endpoints hold 4 x 4096 rows
+    /// only by holding every admitted peer in every member.
+    fn three_endpoints() -> (FakeNode, FakeNode) {
+        let with_third = |peer: &str| {
+            let mut c = config(peer);
+            c.endpoints
+                .push(FakeEndpoint::open(endpoint_id("third"), false));
+            c
+        };
+        FakeNetwork::pair(
+            with_third("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN"),
+            with_third("QmYyQSo1c1Ym7orWxLYvCrM2EmxFTANf8wXmmE7DWjhx5N"),
+        )
+    }
+
+    /// `agent` and `third` each hold peers 0..4095 in both members:
+    /// 16380 own rows, and with the pair's other node an admission set of
+    /// exactly 4096. `human` has no set.
+    fn fill_two_sets(a: &FakeNode) {
+        for name in ["agent", "third"] {
+            a.give_own_set(
+                endpoint_id(name),
+                (0..super::MAX_ALLOWED_PEERS - 1).map(peer_n),
+                (0..super::MAX_ALLOWED_PEERS - 1).map(peer_n),
+            );
+        }
+    }
+
+    /// The own rows are bounded at 4 x 4096, both members counted: the
+    /// write that lands on exactly the bound is answered, the next, which
+    /// admits no new peer, is refused and writes nothing.
+    #[test]
+    fn an_endpoint_write_is_bounded_by_the_own_rows() {
+        let (a, _b) = three_endpoints();
+        let human = endpoint_id("human");
+        fill_two_sets(&a);
+        let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        // human's copy of the operator's list (1 peer) plus peer 5, in
+        // both members: 16380 + 4 rows, the bound exactly.
+        assert_eq!(
+            now(admin.set_endpoint_trust(human.clone(), peer_n(5), true)),
+            Ok(TrustChange::Set)
+        );
+        assert_eq!(peers(&a, &human, TrustDirection::Inbound).len(), 2);
+        assert_eq!(
+            now(admin.set_endpoint_trust(human.clone(), peer_n(6), true)),
+            Err(TransportError::InvalidArgument)
+        );
+        assert_eq!(peers(&a, &human, TrustDirection::Inbound).len(), 2);
+    }
+
+    /// The seed's copy counts against the same own-row bound: the
+    /// operator's list copied twice must fit, to the row, and a refused
+    /// seed leaves the endpoint without a set.
+    #[test]
+    fn a_seed_is_bounded_by_the_own_rows() {
+        let (a, _b) = three_endpoints();
+        let human = endpoint_id("human");
+        fill_two_sets(&a);
+        let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        // Peers the other sets already admit: the operator's list grows
+        // to three, 16380 + 2 x 3 rows, over the bound.
+        for n in [0, 1] {
+            assert_eq!(now(admin.set_trust(peer_n(n), true)), Ok(TrustChange::Set));
+        }
+        assert_eq!(
+            now(admin.seed_endpoint_trust(human.clone())),
+            Err(TransportError::InvalidArgument)
+        );
+        assert!(a.seeds().is_empty());
+        let view = now(admin.endpoint_trust(human.clone(), TrustDirection::Inbound)).expect("read");
+        assert_eq!(view.set, EndpointSetKind::Inherited);
+        // Two peers: 16380 + 4, the bound exactly, is seeded.
+        assert_eq!(now(admin.set_trust(peer_n(1), false)), Ok(TrustChange::Set));
+        assert_eq!(now(admin.seed_endpoint_trust(human)), Ok(TrustSeed::Seeded));
+    }
+
+    /// The local peer is refused whatever the direction, before any
+    /// bound is looked at and with nothing written: with the sets full, a
+    /// removal of it is refused, not answered as the no-op it would be
+    /// inside the bounds.
+    #[test]
+    fn the_local_peer_is_refused_before_the_bounds() {
+        let (a, _b) = three_endpoints();
+        let human = endpoint_id("human");
+        fill_two_sets(&a);
+        let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        for allowed in [false, true] {
+            assert_eq!(
+                now(admin.set_endpoint_trust(human.clone(), a.peer().clone(), allowed)),
+                Err(TransportError::InvalidArgument),
+                "allowed {allowed}"
+            );
+        }
+        let view = now(admin.endpoint_trust(human, TrustDirection::Inbound)).expect("read");
+        assert_eq!(view.set, EndpointSetKind::Inherited);
     }
 
     /// An endpoint write that takes the paired node out of the last set
