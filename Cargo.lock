@@ -4012,6 +4012,7 @@ version = "0.4.0"
 dependencies = [
  "interweave-local-client-api",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
 ]
 

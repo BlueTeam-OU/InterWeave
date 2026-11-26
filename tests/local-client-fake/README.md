@@ -36,14 +36,24 @@ something conformance has proved.
   peer's to it `PeerUnreachable`, and no broadcast crosses in either
   direction. There is no connection to close: what a revocation does to
   the network itself is the runtime's (`tests/local-client-conformance`).
+  The endpoint dimension (ADR-0067 decision 6) is kept too: an
+  endpoint's own set, made by `seed_endpoint_trust` or by its first
+  `set_endpoint_trust` from the operator's list, decides that endpoint's
+  route -- a send from it to a peer its outbound set lacks is
+  `UnauthorizedPeer`, a direct to it from a peer its inbound set lacks
+  `RemoteEndpointUnavailable` -- and a revoke closes the pair only when
+  it takes the peer out of the last set holding it. The probes
+  `operator_trust_calls`, `operator_list`, `seeds`, `trust_log` and
+  `give_own_set` let a client's test see which list it touched.
 - **The network's own outcomes.** The fake does not produce `Timeout`
-  itself, nor `UnauthorizedPeer` except for a peer revoked by
-  `set_trust`; a client sees them otherwise when TOLD via
+  itself, nor `UnauthorizedPeer` except for a peer revoked as above;
+  a client sees them otherwise when TOLD via
   `FakeNode::inject_send`.
   Two the fake produces itself, from its own state:
   `PeerUnreachable` when the other node is dropped or stopped, and
   `RemoteEndpointUnavailable` when the destination is unknown,
-  disabled or unleased, or no default is configured.
+  disabled, unleased or closed to the sender by its inbound set, or no
+  default is configured.
 
 So a client's handling of every outcome is proved TOTAL over
 `TransportError`, not REACHABLE: which outcomes the network actually
