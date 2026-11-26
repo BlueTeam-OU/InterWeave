@@ -358,15 +358,13 @@ impl ServiceHost {
     fn facade_note(&self) -> impl Fn(FacadeNote) + Send + 'static {
         let notes = Arc::clone(&self.facade_notes);
         move |note| {
-            let mut notes = notes.lock().unwrap_or_else(PoisonError::into_inner);
-            if !notes.contains(&note) {
-                notes.push(note);
-            }
+            note.keep_in(&mut notes.lock().unwrap_or_else(PoisonError::into_inner));
         }
     }
 
     /// What the facade said for the platform log since the last take, by
-    /// class and never content, each once: the app logs them after a
+    /// class and never content, each once ([`FacadeNote::keep_in`]; facade
+    /// `a_note_is_a_class_and_is_kept_once`): the app logs them after a
     /// start, as it logs [`Self::identity_key_refused`].
     #[must_use]
     pub fn take_facade_notes(&self) -> Vec<FacadeNote> {

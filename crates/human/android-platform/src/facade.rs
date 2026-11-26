@@ -96,7 +96,9 @@ impl From<RosterError> for SpawnError {
 }
 
 /// What the facade says for the platform log: a class, never what the
-/// store holds, since a row names an identity.
+/// store holds, since a row names an identity. A variant that carried a
+/// value would make the type larger than a byte, which the assertion
+/// below refuses to build (`a_note_is_a_class_and_is_kept_once`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FacadeNote {
     /// The row naming the identity last in front could not be read: the
@@ -105,6 +107,22 @@ pub enum FacadeNote {
     /// The identity in front changed, and the row remembering it could not
     /// be written: the next start is in front of what the row said before.
     FrontUnremembered,
+}
+
+const _: () = assert!(
+    std::mem::size_of::<FacadeNote>() == 1,
+    "a FacadeNote is a class: no variant carries content"
+);
+
+impl FacadeNote {
+    /// Keep `self` in `notes` unless that class is there already, so a
+    /// class said again before the app takes them is logged once
+    /// (`a_note_is_a_class_and_is_kept_once`).
+    pub fn keep_in(self, notes: &mut Vec<Self>) {
+        if !notes.contains(&self) {
+            notes.push(self);
+        }
+    }
 }
 
 /// Carry out `message` on `facade`: a command as the identity it names,
@@ -432,12 +450,13 @@ impl FacadeLoop {
 
 #[cfg(test)]
 mod closing_tests {
-    use super::{FacadeNote, carry, closing};
+    use super::{FacadeLoop, FacadeNote, HeldState, carry, closing};
     use crate::hub::{Held, Hub, ToFacade};
     use interweave_human_app_core::{Command, Facade, Routed, Start, SwitchOutcome, Update};
     use interweave_human_store::StoreError;
     use interweave_transport_api::EndpointId;
     use std::cell::RefCell;
+    use std::sync::{Arc, Mutex};
 
     fn me() -> EndpointId {
         interweave_test_support::endpoint_keys::endpoint_id("human")
@@ -461,6 +480,8 @@ mod closing_tests {
     struct Recorder {
         held: Vec<EndpointId>,
         front: EndpointId,
+        /// Whether the last-front row was unreadable at start.
+        unread: bool,
         /// Whether a switch's row write fails.
         unwritable: bool,
         ran: Vec<(EndpointId, Command)>,
@@ -472,6 +493,7 @@ mod closing_tests {
             Self {
                 held,
                 front,
+                unread: false,
                 unwritable: false,
                 ran: Vec::new(),
                 fronted: Vec::new(),
@@ -520,6 +542,69 @@ mod closing_tests {
         }
         fn close(&mut self) -> impl Future<Output = ()> {
             std::future::ready(())
+        }
+        fn front_unread(&self) -> bool {
+            self.unread
+        }
+    }
+
+    impl HeldState for Recorder {
+        fn state_now(&self, _identity: &EndpointId) -> Vec<Update> {
+            Vec::new()
+        }
+    }
+
+    /// A class said twice before the take is kept once, and the type
+    /// holds no content (its size, checked where it is declared, is the
+    /// build's half). Mutation: `keep_in` pushing whatever it is given
+    /// fails the "kept once" assert.
+    #[test]
+    fn a_note_is_a_class_and_is_kept_once() {
+        let mut notes = Vec::new();
+        FacadeNote::FrontUnread.keep_in(&mut notes);
+        FacadeNote::FrontUnremembered.keep_in(&mut notes);
+        FacadeNote::FrontUnread.keep_in(&mut notes);
+        assert_eq!(
+            notes,
+            vec![FacadeNote::FrontUnread, FacadeNote::FrontUnremembered],
+            "kept once"
+        );
+        assert_eq!(std::mem::size_of::<FacadeNote>(), 1);
+    }
+
+    /// A facade whose last-front row was unreadable says so once, by
+    /// class, before `spawn` returns; one whose row was read says
+    /// nothing. Mutation: dropping the `front_unread` check in `spawn`
+    /// fails the "said at spawn" assert.
+    #[test]
+    fn an_unread_front_is_said_at_spawn() {
+        for unread in [true, false] {
+            let executor = tokio::runtime::Builder::new_current_thread()
+                .enable_time()
+                .build()
+                .expect("a runtime");
+            let hub = Arc::new(Hub::new());
+            let said = Arc::new(Mutex::new(Vec::new()));
+            let into = Arc::clone(&said);
+            let facade = FacadeLoop::spawn(
+                executor.handle().clone(),
+                move || {
+                    let mut recorder = Recorder::new(vec![me()], me());
+                    recorder.unread = unread;
+                    Ok(recorder)
+                },
+                &hub,
+                move |n| into.lock().expect("unpoisoned").push(n),
+            )
+            .expect("spawned");
+            let notes = said.lock().expect("unpoisoned").clone();
+            let expected = if unread {
+                vec![FacadeNote::FrontUnread]
+            } else {
+                Vec::new()
+            };
+            assert_eq!(notes, expected, "said at spawn (unread: {unread})");
+            let _ = facade.close(std::time::Duration::from_secs(5));
         }
     }
 
