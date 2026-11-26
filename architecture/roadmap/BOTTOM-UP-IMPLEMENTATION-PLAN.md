@@ -8568,7 +8568,12 @@ notice and the added entries held are one batch.
 
 - **What the desktop holds.** The first authored entry admitting
   `human-client`, then every entry of the overlay's `added` member
-  admitting it, in the overlay's order; each is asserted unadvertised
+  admitting it, ordered by their own card's creation with the
+  EndpointId breaking a tie, an identity with no card after those
+  with one (`human-client-ui.md` §13, the held list's order; as this
+  note was first written it said "in the overlay's order", which is
+  the order the profile is read in and not the held list's); each is
+  asserted unadvertised
   and then leased. A later authored `human-client` entry is a route
   and is not held, and an added entry of another client kind is not
   held (ADR-0061 decisions 1 and 2; `human-client-ui.md` §13). The
