@@ -546,6 +546,21 @@ the administrative remove of an identity's Remove, whose failed or lost
 answer is an outcome the client does not know, and says that the add is
 settled the other way from a replacement's add.
 
+**An id a record still names.** The 2026-11-26 note deleted the
+pending-add record when the add answered `added` or `unchanged` and did
+not say what a failed delete left (ux-designer's question on
+`design/2026-11-04-identities.md` §16 Q11, carried from the reviews of
+the design change). As that text stood, the record then named a live
+identity, and if its key path later emptied the settlement's "key path
+already empty, listed or not" case removed it and the clean-up rule
+deleted its rows with nothing shown. The id is therefore no identity to
+the client until the record is deleted: no data session, no lease,
+nothing admitted, the delete tried again at every settlement. A test in
+the settlement on whether the id has rows was the alternative, and was
+not taken: it would make a discard depend on what the store holds for
+an id its record says is not yet an identity. What the form says when
+its add succeeded and the delete failed is the design's.
+
 Still not decided, and not verified, as the 2026-11-26 note left it:
 how the daemon orders an add applied late against a discard's remove.
 `LOCAL-IPC.md` says of the endpoint methods that none is ordered by
