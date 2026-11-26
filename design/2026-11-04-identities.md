@@ -922,9 +922,11 @@ Outcomes other than Done, each with nothing half-made shown as made:
   the endpoint list still holds the id. Until the daemon's next start
   the id is then an identity whose key is missing, named by its alias
   (identity-key §4.1). It leaves Your identities at the first list
-  that lacks it after that start; §7's clean-up rule then finds no
-  rows of it to delete, since none were written while the record
-  stood (step 2).
+  that lacks it after that start. Until then it is an identity like
+  any whose key is missing, so a message can be admitted to it (§7,
+  acceptance 13); §7's clean-up rule then deletes whatever rows it
+  has by then, none having been written while the record stood
+  (step 2).
   The settle reaches only keys a pending-add record names, so a key
   that Replace minted is never reached: Replace writes its replaces
   record before it seals that key (identity-key §5.3 step 1; ADR-0061
@@ -1571,7 +1573,7 @@ pass before it lands.
     `IdentityAddUnknown` with the daemon down, the key file and the
     pending-add record stay until a list that answers. Needs D1.
 
-    Add's kept key, sixteen more runs, each observed from the daemon
+    Add's kept key, seventeen more runs, each observed from the daemon
     (`admin.endpoints.list`), `endpoint-keys/` and the store:
     (c) an add left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): `IdentityAddUnknown`
@@ -1667,7 +1669,18 @@ pass before it lands.
     the record. The id is then an identity, named by the alias given
     on the command line, with
     `IdentityCardNotSaved` under its row. Needs
-    D1 and ADR-0061 decision 7 (A 2026-11-26).
+    D1 and ADR-0061 decision 7 (A 2026-11-26). (s) As (n), with the
+    settle's remove left ahead of the running device (its publish and
+    restore made to fail, answered `Internal`): the record stays, and
+    then the failure is no longer made. At the next opening of Your
+    identities the remove answers `EndpointUnknown` while the list still
+    holds the id, and the record is deleted. Your identities then shows
+    the id as an identity whose key is missing, named by its alias, with
+    nothing announced. A message sent to it is admitted. After the
+    daemon is restarted, the list lacks the id, the row is gone, and
+    the store holds no row of it, not even that message's. Needs D1,
+    the seam of acceptance 13's left-ahead run and ADR-0061 decision 7
+    (A 2026-11-26 (ii)).
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 11a. Add with the record's delete made to fail after the add answers
