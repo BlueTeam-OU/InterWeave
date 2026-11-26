@@ -984,69 +984,14 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
     }
 
-    /// The profile's trust allowlist (`human-client-ui.md` §8), read over
-    /// an administrative connection of its own that holds `admin.trust`
-    /// alone and closes with the call: the standing status connection
-    /// never holds trust authority, and nothing holds it between a
-    /// person's settings actions.
-    ///
-    /// # Errors
-    /// The failure's class.
-    pub async fn trust(&self) -> Result<TrustList, TrustProblem> {
-        let admin = self.trust_port().await?;
-        let view = admin.trust().await.map_err(classify_trust)?;
-        Ok(TrustList {
-            local_peer: view.local_peer,
-            allowed: view.allowed.into_iter().map(trust_row).collect(),
-        })
-    }
-
-    /// Allow `peer`, or revoke it, then read the allowlist back -- what the
-    /// daemon holds afterwards, not what was asked -- on one such
-    /// connection. Revoking closes the peer's connections and each
-    /// session is told `PeerDisconnected` (`LOCAL-CLIENT.md` §7 item 11).
-    ///
-    /// # Errors
-    /// Whether the change was made, and why the answer is not the list:
-    /// not made when the connection or the set failed before anything
-    /// left; unconfirmed when the set failed after it may have reached the
-    /// daemon (`TRANSPORT.md`'s outcome-unknown class, `may_have_reached`);
-    /// made when only the read-back failed.
-    pub async fn set_trust(
-        &self,
-        peer: TransportIdentity,
-        allowed: bool,
-    ) -> Result<TrustList, TrustSetFailure> {
-        let admin = self.trust_port().await.map_err(TrustSetFailure::NotMade)?;
-        let change = admin.set_trust(peer, allowed).await.map_err(|error| {
-            if may_have_reached(error) {
-                TrustSetFailure::Unconfirmed(classify_trust(error))
-            } else {
-                TrustSetFailure::NotMade(classify_trust(error))
-            }
-        })?;
-        // A refusal wrote nothing: no list is read back as this change's
-        // (`a_trust_failure_says_whether_the_change_was_made`).
-        match change {
-            TrustChange::Set => {}
-            TrustChange::Refused(TrustRefusal::Superseded) => {
-                return Err(TrustSetFailure::Superseded);
-            }
-        }
-        let view = admin
-            .trust()
-            .await
-            .map_err(|error| TrustSetFailure::MadeNotReadBack(classify_trust(error)))?;
-        Ok(TrustList {
-            local_peer: view.local_peer,
-            allowed: view.allowed.into_iter().map(trust_row).collect(),
-        })
-    }
-
     /// The trust of the identity this client speaks as (`human-client-ui.md`
     /// §8): the peers both members of its own set hold, read on an
     /// administrative connection of its own holding `admin.trust` alone
-    /// and closing with the call, never the operator's list. With
+    /// and closing with the call -- the standing status connection never
+    /// holds trust authority, and nothing holds it between a person's
+    /// settings actions -- never the operator's list, which no call of
+    /// this facade reads or writes
+    /// (`no_trust_call_reads_or_writes_the_operators_list`). With
     /// [`seeding`](Self::seeding), the first identity's seed is asked on
     /// that connection before the read.
     ///
@@ -1088,6 +1033,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
                 TrustSetFailure::NotMade(classify_trust(error))
             }
         })?;
+        // A refusal wrote nothing: no list is read back as this change's
+        // (`a_trust_failure_says_whether_the_change_was_made`).
         match change {
             TrustChange::Set => {}
             TrustChange::Refused(TrustRefusal::Superseded) => {
@@ -1120,13 +1067,6 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         }
     }
 
-    async fn trust_port(&self) -> Result<A::Admin, TrustProblem> {
-        self.admin_binding
-            .admin(BTreeSet::from([AdminCapability::Trust]))
-            .await
-            .map_err(classify_trust)
-    }
-
     /// The addresses this device holds for reaching peers (ADR-0062,
     /// `admin.peers.list_addresses`), over an administrative connection of
     /// its own holding `admin.peers` alone and closing with the call, as
@@ -1144,7 +1084,8 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     /// the method's, and a refusal is an answer. Adding grants no trust.
     ///
     /// # Errors
-    /// Whether the change was made, as [`Self::set_trust`] says it.
+    /// Whether the change was made, as [`Self::set_identity_trust`] says
+    /// it.
     pub async fn add_address(
         &self,
         address: String,
