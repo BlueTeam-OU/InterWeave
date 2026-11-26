@@ -19,7 +19,7 @@ use interweave_human_app_core::{
 use interweave_human_store::at_rest;
 use interweave_human_store::key_custody::{CipherFailure, Custody, KeyCipher};
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
-use interweave_profile_config::endpoint_overlay::EndpointOverlayError;
+use interweave_profile_config::endpoint_overlay::{EndpointOverlay, EndpointOverlayError};
 pub use interweave_profile_config::runtime::AvailabilityMode;
 pub use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
@@ -1248,10 +1248,21 @@ fn held_identities(
     config: &ProfileConfig,
     first: interweave_transport_api::EndpointId,
 ) -> Result<Held, EmbeddedRefused> {
-    let list = held_list(paths, config).map_err(|e| match e {
+    let refused = |e: EndpointOverlayError| match e {
         EndpointOverlayError::NotPrivate { .. } => EmbeddedRefused::DirectoryRefused(e.to_string()),
         _ => EmbeddedRefused::ProfileInvalid(e.to_string()),
-    })?;
+    };
+    let list = held_list(paths, config).map_err(refused)?;
+    // `held_list` filters the default against its own list, whose first is
+    // the first authored entry, so an Android service named for a later
+    // authored entry would lose its default there: the overlay's effective
+    // default is read again, unfiltered, and held against Android's list.
+    let (overlay, _normalised) = EndpointOverlay::read_within(
+        &EndpointOverlay::path_for(paths),
+        &config.endpoints,
+        paths.boundary(),
+    )
+    .map_err(refused)?;
     let alias = config
         .endpoints
         .entries
@@ -1264,12 +1275,18 @@ fn held_identities(
             endpoint: first,
             alias,
         },
+        overlay.effective(&config.endpoints).default,
     ))
 }
 
 /// [`held_identities`]' rule on a list already read, `first` being
-/// Android's first identity with its entry's alias.
-fn android_held(list: HeldList, first: HeldEntry) -> Held {
+/// Android's first identity with its entry's alias and `default` the
+/// overlay's effective default, not yet held against any list.
+fn android_held(
+    list: HeldList,
+    first: HeldEntry,
+    default: Option<interweave_transport_api::EndpointId>,
+) -> Held {
     let mut held = vec![first];
     // `held_list`'s own first is an authored entry, never an added one.
     for entry in list.held.into_iter().skip(1) {
@@ -1277,9 +1294,7 @@ fn android_held(list: HeldList, first: HeldEntry) -> Held {
             held.push(entry);
         }
     }
-    let default = list
-        .default
-        .filter(|d| held.iter().any(|h| &h.endpoint == d));
+    let default = default.filter(|d| held.iter().any(|h| &h.endpoint == d));
     Held { held, default }
 }
 
@@ -1553,7 +1568,7 @@ mod tests {
             ],
             default: Some(id("work")),
         };
-        let held = android_held(list, entry("android"));
+        let held = android_held(list, entry("android"), Some(id("work")));
         assert_eq!(ids(&held), [id("android"), id("work"), id("home")]);
         assert_eq!(held.held[1].alias.as_deref(), Some("work"));
         assert_eq!(held.default, Some(id("work")));
@@ -1561,8 +1576,67 @@ mod tests {
             held: vec![entry("authored"), entry("work")],
             default: Some(id("authored")),
         };
-        let held = android_held(list, entry("android"));
+        let held = android_held(list, entry("android"), Some(id("authored")));
         assert_eq!(ids(&held), [id("android"), id("work")]);
         assert_eq!(held.default, None, "the default Android does not hold");
+    }
+
+    /// A profile of two authored human-client entries, `first` and
+    /// `second`, whose default is `second`, and whose Android service is
+    /// named for `second` (`runtime.android.endpoint`).
+    fn two_authored_android_second() -> ProfileConfig {
+        let text = format!(
+            "schema_version: 2
+profile:
+  name: test
+runtime:
+  deployment: embedded-android
+  android:
+    endpoint: {second}
+ipc:
+  enabled: false
+transport:
+  listen:
+    addresses: [\"/ip4/0.0.0.0/tcp/0\"]
+trust:
+  policy: static-allowlist
+  allowed_peers: []
+endpoints:
+  registration_policy: configured-only
+  default_direct_endpoint: {second}
+  entries:
+    - {{ key: {first}.key, alias: first, enabled: true, advertise: true, allowed_client_kinds: [human-client] }}
+    - {{ key: {second}.key, alias: second, enabled: true, advertise: true, allowed_client_kinds: [human-client] }}
+channels: {{ desired: [] }}
+",
+            first = id("first").as_str(),
+            second = id("second").as_str(),
+        );
+        ProfileConfig::parse_yaml(&text).expect("parses")
+    }
+
+    /// The effective default is Android's when Android's first is a later
+    /// authored entry: `held_list` filters the default against a list
+    /// whose first is the first authored entry, so the default naming
+    /// Android's own first would be lost there. Mutation: the default
+    /// taken from `held_list`'s answer rather than the overlay's, which
+    /// answers `None` here (the overlay's default replaced by `None`) --
+    /// the final assert fails.
+    #[test]
+    fn a_default_naming_androids_later_authored_first_is_kept() {
+        use std::os::unix::fs::PermissionsExt as _;
+
+        let dir = tempfile::tempdir().expect("tempdir");
+        std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700))
+            .expect("chmod");
+        let paths = ProfilePaths::resolve_embedded(
+            "default",
+            TrustBoundary::new(dir.path()).expect("a boundary"),
+        )
+        .expect("paths");
+        let config = two_authored_android_second();
+        let held = held_identities(&paths, &config, id("second")).expect("reads");
+        assert_eq!(ids(&held), [id("second")]);
+        assert_eq!(held.default, Some(id("second")));
     }
 }
