@@ -1549,6 +1549,13 @@ pub async fn endpoint_trust_is_the_endpoints_own<B: DataSessionBinding + AdminBi
         "the endpoint's outbound set lacks the peer"
     );
     assert_eq!(
+        send_to(&at_other, remote, other, 5).await.as_ref(),
+        Ok(other),
+        "the control: the other endpoint's outbound set still holds the peer"
+    );
+    // Drained before send 4: the remote's queue bound is small in process.
+    let _ = take_all(&from_b).await;
+    assert_eq!(
         send_to(&from_b, local, endpoint, 2).await,
         Err(TransportError::RemoteEndpointUnavailable),
         "the endpoint's inbound set lacks the sender"
@@ -1578,6 +1585,43 @@ pub async fn endpoint_trust_is_the_endpoints_own<B: DataSessionBinding + AdminBi
         Ok(other),
         "the route again"
     );
+    // The directory lists what the querier may send to: an advertised,
+    // leased endpoint whose own inbound set lacks the querier is left out.
+    // (`other` is the runners' advertised endpoint; `endpoint` is not.)
+    // Asked once, after the revoke: a requester caches an answer, so a
+    // before-and-after pair would read the first from its cache.
+    let querier = b
+        .open(
+            SessionRequest::new("conformance", None, [DataCapability::EndpointsQuery])
+                .expect("in bounds"),
+        )
+        .await
+        .expect("opens");
+    let listed = || async {
+        querier
+            .query_endpoints(local.clone())
+            .await
+            .expect("a trusted peer answers")
+            .endpoints
+    };
+    assert_eq!(
+        admin
+            .set_endpoint_trust(other.clone(), remote.clone(), false)
+            .await,
+        Ok(TrustChange::Set),
+        "the querier leaves the other endpoint's sets"
+    );
+    assert!(
+        !listed().await.contains(other),
+        "the endpoint's inbound set lacks the querier"
+    );
+    assert_eq!(
+        admin
+            .set_endpoint_trust(other.clone(), remote.clone(), true)
+            .await,
+        Ok(TrustChange::Set)
+    );
+    querier.close().await.expect("closes");
     let ghost = EndpointId::from_ed25519_public(&[7; 32]);
     assert_eq!(
         admin
