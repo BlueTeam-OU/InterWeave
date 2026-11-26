@@ -39,7 +39,10 @@ pub const TO_VIEW: usize = 256;
 pub struct Held {
     /// In held order.
     pub held: Vec<EndpointId>,
-    /// In front at start.
+    /// In front now: the identity in front at the start, then the last
+    /// one a facade took a switch to ([`Hub::cross`]), so a view attached
+    /// later is told the one the roster and the store show
+    /// (`an_accepted_switch_is_what_a_later_attach_is_told`).
     pub front: EndpointId,
 }
 
@@ -544,12 +547,31 @@ impl Hub {
             Crossing::Command { identity, command } => self
                 .command(Some(identity.clone()), command)
                 .map_err(|command| Crossing::Command { identity, command }),
-            Crossing::Front(to) => match self.to_facade(ToFacade::Front(to)) {
-                Ok(()) => Ok(()),
-                Err(ToFacade::Front(to)) => Err(Crossing::Front(to)),
-                Err(ToFacade::Command { .. }) => unreachable!("handed back as it was sent"),
-            },
+            Crossing::Front(to) => self.cross_front(to),
         }
+    }
+
+    /// The switch to `to`, sent to the facade that takes commands; once it
+    /// is taken, the held list a view attached later is told names `to` in
+    /// front. The commands lock is held across both, as `ended` and
+    /// `started` hold it around the slot, so a stop or a start cannot fall
+    /// between the send and the record.
+    fn cross_front(&self, to: EndpointId) -> Result<(), Crossing> {
+        let commands = self.commands();
+        let Some(sender) = commands.sender.as_ref() else {
+            return Err(Crossing::Front(to));
+        };
+        if let Err(back) = sender.send(ToFacade::Front(to.clone())) {
+            return match back.0 {
+                ToFacade::Front(to) => Err(Crossing::Front(to)),
+                ToFacade::Command { .. } => unreachable!("handed back as it was sent"),
+            };
+        }
+        if let Some(held) = self.slot().held.as_mut() {
+            held.front = to;
+        }
+        drop(commands);
+        Ok(())
     }
 
     /// Send `message` to the facade that takes commands, or hand it back.
@@ -1233,6 +1255,59 @@ mod tests {
             !stopped.iter().any(|m| matches!(m, ToView::Held(_))),
             "nothing runs, nothing named: {stopped:?}"
         );
+    }
+
+    /// A switch the facade took is what a view attached afterwards is told
+    /// is in front, not the identity the start named; one handed back --
+    /// no facade takes it -- changes nothing. Mutations: `cross_front` not
+    /// recording the front -- the attach is told the start's; recording it
+    /// before the send is known to be taken -- the handed-back case names
+    /// `other`.
+    #[test]
+    fn an_accepted_switch_is_what_a_later_attach_is_told() {
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let other = interweave_test_support::endpoint_keys::endpoint_id("other");
+        let both = Held {
+            held: vec![me(), other.clone()],
+            front: me(),
+        };
+        let (commands, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands, both.clone());
+        assert!(hub.cross(Crossing::Front(other.clone())).is_ok());
+        assert_eq!(rx.try_recv().ok(), Some(ToFacade::Front(other.clone())));
+        let told = |hub: &Hub| {
+            hub.attach(Arc::clone(&wake))
+                .take()
+                .into_iter()
+                .find_map(|m| match m {
+                    ToView::Held(h) => Some(h),
+                    _ => None,
+                })
+        };
+        assert_eq!(
+            told(&hub),
+            Some(Held {
+                front: other.clone(),
+                ..both.clone()
+            }),
+            "the switched front, the held list as it was"
+        );
+
+        hub.retire(g);
+        let (commands, rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands, both.clone());
+        drop(rx);
+        assert!(
+            hub.cross(Crossing::Front(other)).is_err(),
+            "handed back: the facade's receiver is gone"
+        );
+        assert_eq!(
+            told(&hub),
+            Some(both),
+            "a handed-back switch changes nothing"
+        );
+        hub.retire(g);
     }
 
     /// Rows for the identities `names`, the first first.

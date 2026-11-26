@@ -340,7 +340,20 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     /// sent, when `to` is in front or not held -- with one identity held,
     /// always (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`).
     pub fn switch(&mut self, to: &EndpointId, send: impl FnMut(Crossing)) -> bool {
-        self.side.switch(to, send)
+        let switched = self.side.switch(to, send);
+        if switched {
+            self.fronted(to);
+        }
+        switched
+    }
+
+    /// The identity in front is `to`: a model made again is named with it
+    /// ([`Self::made`]) and not with the one the start named
+    /// (`a_model_made_after_a_switch_is_named_with_the_new_front`).
+    fn fronted(&mut self, to: &EndpointId) {
+        if let Some(held) = self.held.as_mut() {
+            held.front = to.clone();
+        }
     }
 
     /// What the person did to the identities, before the model's turn,
@@ -360,19 +373,34 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     ) -> bool {
         let mut stopped = false;
         let mut failed: Vec<(EndpointId, Command)> = Vec::new();
+        let mut fronted = None;
         self.side.take_identity_acts(|crossing| {
+            let front = match &crossing {
+                Crossing::Front(to) => Some(to.clone()),
+                Crossing::Command { .. } => None,
+            };
             let back = if stopped {
                 Err(crossing)
             } else {
                 cross(crossing)
             };
-            if let Err(crossing) = back {
-                stopped = true;
-                if let Crossing::Command { identity, command } = crossing {
-                    failed.push((identity, command));
+            match back {
+                Ok(()) => {
+                    if front.is_some() {
+                        fronted = front;
+                    }
+                }
+                Err(crossing) => {
+                    stopped = true;
+                    if let Crossing::Command { identity, command } = crossing {
+                        failed.push((identity, command));
+                    }
                 }
             }
         });
+        if let Some(to) = fronted {
+            self.fronted(&to);
+        }
         for (identity, command) in failed {
             let _ = self.side.apply_as(
                 &identity,
@@ -562,6 +590,11 @@ mod tests {
             "the switch crossed"
         );
         assert_eq!(two.side().front(), Some(&other()));
+        // `switch` names the new front for the model made next too, as
+        // `take_identity_acts` does. Mutation: `switch` not recording it
+        // -- the model made at the stop is named with `me`.
+        two.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(two.side().front(), Some(&other()), "named with the new");
     }
 
     #[test]
@@ -1438,6 +1471,57 @@ mod tests {
         fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
             std::mem::take(&mut *self.intents.borrow_mut())
         }
+    }
+
+    /// A model made after a switch is named with the identity switched
+    /// to, not the one in front at the start: the facade took the switch,
+    /// so a stop's model, and the next start's, show it. A switch handed
+    /// back -- no facade takes it -- leaves the naming as it was.
+    /// Mutation: `take_identity_acts` not recording the front taken --
+    /// the first assert names `me`.
+    #[test]
+    fn a_model_made_after_a_switch_is_named_with_the_new_front() {
+        let hub = crate::Hub::new();
+        let (commands, rx) = tokio::sync::mpsc::unbounded_channel();
+        let both = Held {
+            held: vec![me(), other()],
+            front: me(),
+        };
+        let generation = hub.started(commands, both.clone());
+        let intents = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let pressed = std::rc::Rc::clone(&intents);
+        let mut side = ViewSide::new(move || {
+            ModelSide::new(
+                Pressing {
+                    events: Vec::new(),
+                    intents: std::rc::Rc::clone(&pressed),
+                },
+                Blank,
+            )
+        });
+        side.apply(ToView::Held(both)).expect("applied");
+        side.apply(ToView::Identities(rows(&[
+            (me(), "mine"),
+            (other(), "work"),
+        ])))
+        .expect("applied");
+        let choose = |id: &EndpointId| {
+            [
+                IdentityIntent::OpenSwitcher,
+                IdentityIntent::Choose(interweave_human_ui_model::IdentityKey::new(id.as_str())),
+            ]
+        };
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(side.side().front(), Some(&other()), "named with the new");
+
+        hub.retire(generation);
+        drop(rx);
+        intents.borrow_mut().extend(choose(&me()));
+        assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(side.side().front(), Some(&other()), "a handed-back switch");
     }
 
     /// A choice in the switcher reaches the facade through the hub as the
