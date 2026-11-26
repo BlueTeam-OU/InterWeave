@@ -916,8 +916,10 @@ blocked, not passed, until it is answered. A cut "at a point" in
 items 24 and 31 is a test seam that ends the process there, and so is
 item 39's end between the add and the card; rust-ui-dev is to provide
 these seams beside item 26's holding seam. Items 36 and 37 need seams on
-the add's and the remove's answers, item 36 (c) needs one that keeps
-a written overlay from the running daemon, and item 37's last run
+the add's and the remove's answers, item 36 (c) and item 24's last
+run need one that keeps a written overlay from the running daemon,
+item 28's runs need ones that fail the seal, the platform key and the
+unlink of the new key, and item 37's last run
 needs one that fails the unlink of the new key; until each exists,
 the runs that need it are blocked.
 
