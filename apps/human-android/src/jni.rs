@@ -328,8 +328,8 @@ fn start_without_network(env: &mut Env<'_>, app_data_dir: &str) -> jint {
 /// desktop prints it: the person-facing state is the card page's. And
 /// what the facade said for the log, by class only, as the desktop's
 /// facade thread prints it: the last-front row names an identity
-/// (`FacadeNote` is a unit-only enum, the build's check where it is
-/// declared; each class once, android-platform service
+/// (no `FacadeNote` variant carries a field, the build's check where it
+/// is declared; each class once, android-platform service
 /// `a_class_said_twice_is_taken_once`).
 fn log_start_notes(host: &ServiceHost) {
     if let Some(why) = host.identity_key_refused() {
