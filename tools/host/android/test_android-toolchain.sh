@@ -465,10 +465,14 @@ arc="$(ls "$SANDBOX"/st/android-toolchain-*.tar.gz 2>/dev/null | head -1)"
 [[ "$out" == *"--install $arc"* ]] && pass "  and the install line is printed" || fail "the next step is missing" "$out"
 # The listing is read whole before it is matched: tar piped into grep -q
 # under pipefail is killed by SIGPIPE when entries follow the match. tar's
-# own status still counts, so an archive it cannot read fails here.
-listing=""
-[[ -n "$arc" ]] && listing="$(tar -tvzf "$arc" 2>&1)" && grep -qE '^l.* \./platforms/android-37 -> android-37\.0$' <<<"$listing" \
-    && pass "  the archive carries the link, relative" || fail "the staged archive has no relative platforms/android-37 link" "$(grep android-37 <<<"$listing")"
+# own status still counts, so an archive it cannot read fails here, named
+# as that and not as a missing link.
+listing="" tar_rc=0
+[[ -n "$arc" ]] && { listing="$(tar -tvzf "$arc" 2>&1)"; tar_rc=$?; }
+if [[ -z "$arc" ]]; then fail "no staged archive to list"
+elif [[ $tar_rc -ne 0 ]]; then fail "tar cannot read the staged archive (exit $tar_rc)" "$(tail -5 <<<"$listing")"
+elif grep -qE '^l.* \./platforms/android-37 -> android-37\.0$' <<<"$listing"; then pass "  the archive carries the link, relative"
+else fail "the staged archive has no relative platforms/android-37 link" "$(grep android-37 <<<"$listing")"; fi
 FAKE_EXTRA_DIR=platforms/android-37 run bash "$UNDER_TEST" --stage --dest "$SANDBOX/st"
 expect "a directory where a link goes fails the stage, named" 2 "platforms/android-37 exists and is not a link"
 sed -i 's/^platforms;android-30@3$/platforms;android-30@4/' "$REVS"
