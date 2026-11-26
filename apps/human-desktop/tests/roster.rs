@@ -3,8 +3,8 @@
 //! The roster on the facade thread, headless (plan §30): the window is
 //! told the identities held before any update, and a switch crosses to
 //! the facade thread, which brings the identity in front and remembers
-//! it. The desktop composes the first identity alone in this batch; two
-//! are held here to see the crossing work.
+//! it. Two are held here over the fake node, composed by hand; what the
+//! desktop holds is the profile's held list (`ipc.rs`).
 //!
 //! What this does NOT prove: a switch a person makes (nothing reaches one
 //! in this batch), a real daemon, a real window.
@@ -62,7 +62,9 @@ impl Opener for NoLinks {
 /// facade thread, the model shown so far becoming the front's; a switch
 /// it makes reaches the roster, which writes the last-front row, and the
 /// model of the identity left is kept. A switch to the identity in front
-/// sends nothing. Mutations: the facade thread not handling the switch
+/// sends nothing. The held identities' rows reach every model.
+/// Mutations: `App::pump` dropping `FromFacade::Held` -- the models hold
+/// none; the facade thread not handling the switch
 /// (`ToFacade::Front` ignored) -- the row is never written; the held
 /// identities never set (`FacadeThread::held`) -- the window never
 /// names a front.
@@ -84,6 +86,7 @@ fn the_window_is_told_the_identities_and_a_switch_reaches_the_roster() {
                     max_payload_bytes: 49_152,
                     others: vec![second()],
                     default: None,
+                    aliases: std::collections::BTreeMap::new(),
                 },
                 store,
                 |_| (node.clone(), node.clone()),
@@ -107,6 +110,26 @@ fn the_window_is_told_the_identities_and_a_switch_reaches_the_roster() {
     }
     assert_eq!(app.side().front(), Some(&human()));
     assert!(app.side().model_of(&second()).is_some(), "its own model");
+    // The rows the facade thread reads reach every model, each in front
+    // of its own.
+    let wait = common::Wait::on("the held identities told");
+    let told = |app: &App<SlintSurface, NoLinks>, e: &EndpointId| {
+        app.side()
+            .model_of(e)
+            .map_or(0, |m| m.identities().held().len())
+    };
+    while told(&app, &human()) < 2 || told(&app, &second()) < 2 {
+        wait.check();
+        app.pump();
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let shown = app.side().model_of(&second()).expect("held").identities();
+    assert_eq!(
+        shown
+            .front()
+            .map(interweave_human_ui_model::IdentityKey::as_str),
+        Some(second().as_str())
+    );
 
     assert!(!app.switch(&human()), "in front already");
     assert!(app.switch(&second()));
@@ -161,6 +184,7 @@ fn an_unreadable_last_front_row_is_reported_once_by_class() {
                         max_payload_bytes: 49_152,
                         others: vec![],
                         default: None,
+                        aliases: std::collections::BTreeMap::new(),
                     },
                     store,
                     |_| (a.clone(), a.clone()),

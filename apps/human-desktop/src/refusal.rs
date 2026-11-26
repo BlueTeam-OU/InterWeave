@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use interweave_human_store::at_rest::{ConfirmedDiscard, DiscardPlan, DiscardScope};
 use interweave_human_ui_model::{DiscardKind, StoreRecovery, StoreScreen, UiText};
 use interweave_human_ui_slint::{RefusalPage, RefusalView};
+use interweave_profile_config::endpoint_overlay::EndpointOverlayError;
 use interweave_profile_config::profile_format::{self, ProfileFormatError};
 use interweave_profile_config::{LoadError, PersistError};
 
@@ -45,6 +46,19 @@ impl Refusal {
     #[must_use]
     pub const fn code(&self) -> u8 {
         match self {
+            // The overlay others can reach is a privacy refusal, as the
+            // store's and the lock's are; first, so `Profile(_)` below
+            // does not take it.
+            Self::Profile(StartError::IdentitiesUnreadable {
+                error: EndpointOverlayError::NotPrivate { .. },
+                ..
+            })
+            | Self::Lock {
+                error:
+                    PersistError::DirectoryNotPrivate { .. } | PersistError::FileNotPrivate { .. },
+                ..
+            }
+            | Self::Store(Blocked::NotPrivate { .. }) => EX_NOPERM,
             Self::Profile(_) => EX_CONFIG,
             Self::AlreadyOpen => EX_TEMPFAIL,
             Self::Lock {
@@ -52,12 +66,6 @@ impl Refusal {
                 ..
             } => EX_UNAVAILABLE,
             Self::Store(Blocked::Recovery { .. }) => EX_DATAERR,
-            Self::Lock {
-                error:
-                    PersistError::DirectoryNotPrivate { .. } | PersistError::FileNotPrivate { .. },
-                ..
-            }
-            | Self::Store(Blocked::NotPrivate { .. }) => EX_NOPERM,
             Self::Lock { .. } | Self::Store(Blocked::Unavailable { .. }) => EX_IOERR,
         }
     }
@@ -147,6 +155,14 @@ fn profile_reason(error: &StartError) -> (UiText, Option<PathBuf>) {
         StartError::NoHumanEndpoint { paths } => {
             (UiText::RefusalProfileSettings, Some(paths.config_file()))
         }
+        // Named by the overlay's path; one others can reach reads as any
+        // file of the profile that is not private (identities §6.1).
+        StartError::IdentitiesUnreadable { error, path } => match error {
+            EndpointOverlayError::NotPrivate { .. } => {
+                (UiText::RefusalNotPrivate, Some(path.clone()))
+            }
+            _ => (UiText::RefusalIdentitiesUnreadable, Some(path.clone())),
+        },
         // An error that names a path is a privacy refusal, and reads as
         // one with the folder shown; the rest name no folder to show.
         StartError::Directories(e) | StartError::Paths(e) | StartError::Sockets(e) => {
@@ -637,6 +653,38 @@ mod tests {
         );
         assert!(lock(PersistError::UnsupportedPlatform).page().is_none());
     }
+    fn overlay(error: EndpointOverlayError) -> Refusal {
+        Refusal::Profile(StartError::IdentitiesUnreadable {
+            error,
+            path: PathBuf::from("/x/state/endpoint-overlay.json"),
+        })
+    }
+
+    /// An endpoint overlay that cannot be read refuses the start with
+    /// its own reason and the overlay's path, `EX_CONFIG`; one that is
+    /// not private reads as any file of the profile that is not,
+    /// `EX_NOPERM`. Neither offers Try again (identities §6.1).
+    /// Mutations: `code` giving the not-private overlay `EX_CONFIG`;
+    /// `profile_reason` giving it `RefusalIdentitiesUnreadable`.
+    #[test]
+    fn an_unreadable_overlay_is_refused_with_its_own_reason_and_class() {
+        let path = Some("/x/state/endpoint-overlay.json".to_owned());
+        let unreadable = overlay(EndpointOverlayError::Parse("x".to_owned()));
+        assert_eq!(unreadable.code(), EX_CONFIG);
+        assert_eq!(
+            shown(&unreadable),
+            (UiText::RefusalIdentitiesUnreadable, path.clone(), false)
+        );
+        let too_large = overlay(EndpointOverlayError::TooLarge);
+        assert_eq!(too_large.code(), EX_CONFIG);
+        assert_eq!(shown(&too_large).0, UiText::RefusalIdentitiesUnreadable);
+        let open = overlay(EndpointOverlayError::NotPrivate {
+            detail: "mode 0644".to_owned(),
+        });
+        assert_eq!(open.code(), EX_NOPERM);
+        assert_eq!(shown(&open), (UiText::RefusalNotPrivate, path, false));
+    }
+
     #[test]
     fn a_press_after_success_runs_nothing() {
         let opened = std::cell::RefCell::new(None);

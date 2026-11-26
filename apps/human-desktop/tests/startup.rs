@@ -213,6 +213,46 @@ fn every_endpoint_open_to_this_client_is_offered_whatever_the_file_says_of_enabl
     assert_eq!(profile.endpoints, in_file);
 }
 
+/// Plant `text` as the profile's endpoint overlay, under a private state
+/// directory, at `mode`.
+fn plant_overlay(home: &Home, text: &str, mode: u32) -> PathBuf {
+    use interweave_profile_config::endpoint_overlay::EndpointOverlay;
+    let file = EndpointOverlay::path_for(&home.paths());
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(file.parent().expect("a state dir"))
+        .expect("state dir");
+    std::fs::write(&file, text).expect("overlay");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(mode)).expect("mode");
+    file
+}
+
+/// A present endpoint overlay that cannot be read refuses the start
+/// before the store, `EX_CONFIG` with the overlay named; one others can
+/// read, `EX_NOPERM`. Neither is read as "no added identity": no store
+/// is created, nothing of the file is changed (identities §6.1).
+/// Mutation: `resolve` reading a failed overlay as none -- the run gets
+/// as far as the window.
+#[test]
+fn an_endpoint_overlay_that_cannot_be_read_refuses_the_start() {
+    let home = Home::new();
+    home.write_config("human-client");
+    let file = plant_overlay(&home, "{ not json", 0o600);
+    let (code, message) = code_and_message(&home.run(&["--profile", PROFILE]));
+    assert_eq!(code, i32::from(EX_CONFIG), "{message}");
+    assert!(message.contains(&file.display().to_string()), "{message}");
+    assert!(!home.store().exists(), "no store is created");
+    assert_eq!(std::fs::read(&file).expect("kept"), b"{ not json");
+
+    let home = Home::new();
+    home.write_config("human-client");
+    plant_overlay(&home, "{}", 0o644);
+    let (code, message) = code_and_message(&home.run(&["--profile", PROFILE]));
+    assert_eq!(code, i32::from(EX_NOPERM), "{message}");
+    assert!(!home.store().exists(), "no store is created");
+}
+
 #[test]
 fn a_good_profile_gets_as_far_as_the_window_with_its_store_made_private() {
     let home = Home::new();

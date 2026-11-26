@@ -4,9 +4,10 @@
 //! identity's session, the admin socket -- a separate connection, a
 //! separate authority (ADR-0040) -- for the status reads.
 //!
-//! The roster holds the first identity alone in this batch (plan §30,
-//! architect-cto's ruling (b) of 2026-11-25): the desktop leases as
-//! `main` did with one facade side, and a roster of one answers as that
+//! The roster holds every identity of the profile (app-core's
+//! `held_list`, architect-cto's REPLY 01a216b6): the first, then each
+//! entry the endpoint overlay added for this client's kind, each with
+//! its own key source. A roster of one answers as `main`'s one facade
 //! side did (app-core's `a_roster_of_one_behaves_as_its_facade_side`).
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -44,21 +45,34 @@ pub fn facade_over_ipc(
         },
         CLIENT_KIND,
     );
-    let source = profile.endpoints.first().map(|endpoint| {
-        KeySource::new(
-            profile.paths.clone(),
-            endpoint.clone(),
-            Box::new(FilesystemCustody),
-        )
-    });
+    // Each identity's own key, by app-core's rule: an added identity
+    // whose key is missing or refused is held and never leased
+    // (`FacadeSide::lease_only_with_key`), and no key is made for it.
+    let sources: Vec<KeySource> = profile
+        .held
+        .iter()
+        .map(|held| {
+            KeySource::new(
+                profile.paths.clone(),
+                held.endpoint.clone(),
+                Box::new(FilesystemCustody),
+            )
+        })
+        .collect();
+    let held: Vec<_> = profile.held.iter().map(|h| h.endpoint.clone()).collect();
     let config = RosterConfig {
         client_kind: CLIENT_KIND.to_owned(),
-        endpoints: profile.endpoints.clone(),
+        // Every identity held, so each client's lease target is in it.
+        endpoints: held.clone(),
         channels: profile.channels.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
-        // The first identity alone: Add is not reachable in this batch.
-        others: Vec::new(),
+        others: held.into_iter().skip(1).collect(),
         default: profile.default.clone(),
+        aliases: profile
+            .held
+            .iter()
+            .filter_map(|h| Some((h.endpoint.clone(), h.alias.clone()?)))
+            .collect(),
     };
     move || {
         let mut roster = Roster::new(
@@ -69,16 +83,16 @@ pub fn facade_over_ipc(
             0,
         )
         .map_err(FacadeFault::from)?;
-        // The identity in front's own key, by app-core's rule: a file this
-        // build refuses is named on stderr by its kind, never its content,
-        // and the identity's page says so and offers what it can.
-        let first = roster.first().clone();
-        if let Some(source) = source
-            && let Some(facade) = roster.side_mut(&first)
-        {
-            facade.set_key_source(source);
-            if let Some(problem) = facade.key_problem() {
-                eprintln!("human-desktop: the identity's key is not usable: {problem:?}");
+        // A file this build refuses is named on stderr by its kind, never
+        // its content, and the identity's page says so and offers what it
+        // can.
+        for source in sources {
+            let endpoint = source.endpoint().clone();
+            if let Some(facade) = roster.side_mut(&endpoint) {
+                facade.set_key_source(source);
+                if let Some(problem) = facade.key_problem() {
+                    eprintln!("human-desktop: the identity's key is not usable: {problem:?}");
+                }
             }
         }
         Ok(roster)

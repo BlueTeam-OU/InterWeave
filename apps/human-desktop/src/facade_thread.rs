@@ -20,6 +20,7 @@ use interweave_human_app_core::{
 };
 use interweave_human_store::StoreError;
 use interweave_human_transport_client::SessionBinding;
+use interweave_human_ui_model::HeldIdentity;
 use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::EndpointId;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
@@ -52,6 +53,12 @@ pub trait Facade {
     /// read, so the start fell back to another: said once, by class.
     fn front_unread(&self) -> bool {
         false
+    }
+    /// The held identities as the view is told them, when they changed
+    /// since last told; `None` otherwise, and from a facade that names
+    /// none.
+    fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
+        None
     }
 }
 
@@ -90,6 +97,9 @@ impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
     }
     fn front_unread(&self) -> bool {
         Roster::front_unread(self).is_some()
+    }
+    fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
+        Roster::held_if_changed(self)
     }
 }
 
@@ -219,6 +229,10 @@ pub enum FromFacade {
     /// The facade could not be built, for the class it carries. Nothing
     /// is sent or received this session.
     FacadeFailed(FacadeFault),
+    /// The held identities as their rows read them, sent at start and
+    /// when they change, never at a turn that changed nothing
+    /// (`Roster::held_if_changed`).
+    Held(Vec<HeldIdentity>),
     /// The session is closed and the thread is ending.
     Closed,
 }
@@ -351,6 +365,9 @@ impl FacadeThread {
                             Err(_) => out(FromFacade::ListingFailed),
                         }
                     }
+                    if let Some(held) = side.held_identities() {
+                        out(FromFacade::Held(held));
+                    }
                     let routed = |routed: Routed| {
                         for (identity, updates) in routed {
                             for update in updates {
@@ -410,6 +427,11 @@ impl FacadeThread {
                             break;
                         }
                         routed(side.turn(now()).await);
+                        // After the commands and the turn: either may
+                        // change what an identity's row says.
+                        if let Some(held) = side.held_identities() {
+                            out(FromFacade::Held(held));
+                        }
                         if probed.is_none_or(|at| at.elapsed() >= DAEMON_PROBE) {
                             probed = Some(Instant::now());
                             let answer = daemon_present();
