@@ -125,8 +125,8 @@ if [[ -n "${WITH_DISPLAY_INNER:-}" && -d "$WITH_DISPLAY_INNER" ]]; then
         echo "$me: the session bus cannot start the AT-SPI launcher ($(grep -o 'Error.Spawn[A-Za-z.]*' "$inner/a11y.err" | head -1)); starting it directly" >&2
         "$launcher" >"$inner/launcher.log" 2>&1 &
         for ((i = 0; i < READY_SECONDS * 10; i++)); do
-            gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
-                --method org.freedesktop.DBus.NameHasOwner org.a11y.Bus 2>/dev/null | grep -q true && break
+            grep -q true <<<"$(gdbus call --session --dest org.freedesktop.DBus --object-path /org/freedesktop/DBus \
+                --method org.freedesktop.DBus.NameHasOwner org.a11y.Bus 2>/dev/null)" && break
             sleep 0.1
         done
         a11y_on || { cat "$inner/a11y.err" "$inner/launcher.log" >&2; die "cannot switch accessibility on with the AT-SPI launcher started directly"; }
