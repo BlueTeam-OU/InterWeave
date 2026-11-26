@@ -31,7 +31,8 @@ pub mod start_rules;
 pub mod view_side;
 
 pub use hub::{
-    Hub, StoreAnswer, StoreGeneration, StoreRefusal, TO_VIEW, ToView, UnlockSaid, ViewLink,
+    Held, Hub, StoreAnswer, StoreGeneration, StoreRefusal, TO_VIEW, ToFacade, ToView, UnlockSaid,
+    ViewLink,
 };
 pub use identity::{
     Expected, FirstRun, IdentityRefused, ResealFailure, Resealed, RestoreRefused, Started,

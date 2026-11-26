@@ -19,9 +19,10 @@ use interweave_human_app_core::{Command, FacadeSide, Update};
 use interweave_human_store::StoreError;
 use interweave_human_transport_client::ClientEvent;
 use interweave_local_client_api::AdminBinding;
+use interweave_transport_api::EndpointId;
 use tokio::sync::{mpsc, oneshot};
 
-use crate::hub::{Hub, ToView};
+use crate::hub::{Hub, ToFacade, ToView};
 
 /// How long the loop waits for a command before it turns anyway.
 const POLL: Duration = Duration::from_millis(100);
@@ -58,10 +59,25 @@ pub enum SpawnError {
     Store(StoreError),
 }
 
+/// What the one facade side carries out of `message`, for the identity
+/// it speaks as: a command as that identity, or as the one in front,
+/// which it always is. A command as any other identity is not carried
+/// out, as the desktop's facade side alone answers it (its `Facade for
+/// FacadeSide`), and a switch to the one identity held changes nothing
+/// (`only_the_sides_own_commands_are_carried_out`).
+fn carried(message: ToFacade, speaks_as: &EndpointId) -> Option<Command> {
+    match message {
+        ToFacade::Command { identity, command } => {
+            identity.is_none_or(|i| &i == speaks_as).then_some(command)
+        }
+        ToFacade::Front(_) => None,
+    }
+}
+
 /// Why the loop woke.
 enum Woke {
-    /// A command arrived.
-    Command(Command),
+    /// A command or a switch arrived.
+    Message(ToFacade),
     /// The loop is asked to close, or nothing can command it any more.
     Closed,
     /// Nothing arrived within [`POLL`]: a turn is due anyway.
@@ -76,8 +92,8 @@ enum Woke {
 fn closing(
     hub: &Hub,
     generation: u64,
-    waiting: &mut mpsc::UnboundedReceiver<Command>,
-) -> Vec<Command> {
+    waiting: &mut mpsc::UnboundedReceiver<ToFacade>,
+) -> Vec<ToFacade> {
     hub.withdraw(generation);
     let mut accepted = Vec::new();
     while let Ok(command) = waiting.try_recv() {
@@ -145,7 +161,8 @@ impl FacadeLoop {
         // tests/root.rs
         // `a_second_send_while_one_is_in_flight_is_not_sent_twice`). What can
         // wait is at most one per action and per unread row the model
-        // holds: rows the store holds, bounded by its quota. The loop below
+        // holds: rows the store holds, bounded by its quota; and a switch,
+        // one per the person's choice in the switcher. The loop below
         // takes every waiting command each turn, which is latency, not the
         // bound. The other direction is bounded (hub.rs `TO_VIEW`).
         let (commands, mut waiting) = mpsc::unbounded_channel();
@@ -163,7 +180,16 @@ impl FacadeLoop {
                         return;
                     }
                 };
-                let generation = hub.started(commands);
+                // Named before the hub says the facade runs, so a view
+                // hears whose updates follow before the first of them.
+                let speaks_as = side.speaks_as().clone();
+                let generation = hub.started(
+                    commands,
+                    crate::hub::Held {
+                        held: vec![speaks_as.clone()],
+                        front: speaks_as.clone(),
+                    },
+                );
                 let mut held = Held {
                     side,
                     _ends: Ends {
@@ -175,6 +201,9 @@ impl FacadeLoop {
                 let _ = report.send(Ok(generation));
                 let start = Instant::now();
                 let now = || u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
+                // Every update the side makes is its own identity's: one tag for
+                // every path, the listing's snapshot, a command's answer, a turn.
+                let publish = |update| hub.update(generation, &speaks_as, update);
                 executor.block_on(async {
                     loop {
                         if let Some(relists) = hub.wants_listing(generation) {
@@ -188,9 +217,10 @@ impl FacadeLoop {
                                 generation,
                                 relists,
                                 match side.start() {
-                                    Ok(start) => {
-                                        ToView::Update(Box::new(Update::Started(Box::new(start))))
-                                    }
+                                    Ok(start) => ToView::Update(
+                                        speaks_as.clone(),
+                                        Box::new(Update::Started(Box::new(start))),
+                                    ),
                                     Err(_) => ToView::ListingFailed,
                                 },
                             );
@@ -205,7 +235,7 @@ impl FacadeLoop {
                             // until the path next changes (carried to the
                             // Android client's batch 2).
                             for update in snapshot(side) {
-                                hub.update(generation, update);
+                                publish(update);
                             }
                         }
                         // A close is taken first when both are ready: what
@@ -214,7 +244,7 @@ impl FacadeLoop {
                         let woke = tokio::select! {
                             biased;
                             _ = &mut closed => Woke::Closed,
-                            command = waiting.recv() => command.map_or(Woke::Closed, Woke::Command),
+                            message = waiting.recv() => message.map_or(Woke::Closed, Woke::Message),
                             () = tokio::time::sleep(POLL) => Woke::Poll,
                         };
                         // Every command waiting now rather than one per
@@ -226,31 +256,36 @@ impl FacadeLoop {
                                 // is carried out, never dropped (owner's
                                 // finding P2-2); past the stop's grace its
                                 // answer is refused at the retired hub.
-                                for command in closing(&hub, generation, &mut waiting) {
+                                let accepted = closing(&hub, generation, &mut waiting);
+                                for command in
+                                    accepted.into_iter().filter_map(|m| carried(m, &speaks_as))
+                                {
                                     hub.before_command();
                                     for update in side.execute(command, now()).await {
-                                        hub.update(generation, update);
+                                        publish(update);
                                     }
                                 }
                                 break;
                             }
-                            Woke::Command(command) => vec![command],
+                            Woke::Message(message) => vec![message],
                             Woke::Poll => Vec::new(),
                         };
                         while let Ok(more) = waiting.try_recv() {
                             batch.push(more);
                         }
-                        for command in batch {
+                        // In the order sent: a switch's commands of the old
+                        // front come before the switch itself.
+                        for command in batch.into_iter().filter_map(|m| carried(m, &speaks_as)) {
                             hub.before_command();
                             for update in side.execute(command, now()).await {
-                                hub.update(generation, update);
+                                publish(update);
                             }
                         }
                         if hub.turns_held() {
                             continue;
                         }
                         for update in side.turn(now()).await {
-                            hub.update(generation, update);
+                            publish(update);
                         }
                     }
                     side.close().await;
@@ -319,9 +354,41 @@ impl FacadeLoop {
 
 #[cfg(test)]
 mod closing_tests {
-    use super::closing;
-    use crate::hub::Hub;
+    use super::{carried, closing};
+    use crate::hub::{Held, Hub, ToFacade};
     use interweave_human_app_core::Command;
+    use interweave_transport_api::EndpointId;
+
+    fn me() -> EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id("human")
+    }
+
+    fn held() -> Held {
+        Held {
+            held: vec![me()],
+            front: me(),
+        }
+    }
+
+    /// The one side carries out its own commands, named or sent before
+    /// the view was told whose they are; a command naming another
+    /// identity is not carried out, and a switch is none. Mutations:
+    /// carrying out every command whatever it names fails the third
+    /// assert; a switch read as a command cannot build, and one carried
+    /// as `Reopen` fails the last.
+    #[test]
+    fn only_the_sides_own_commands_are_carried_out() {
+        let command = |identity| ToFacade::Command {
+            identity,
+            command: Command::Reopen,
+        };
+        assert_eq!(carried(command(Some(me())), &me()), Some(Command::Reopen));
+        assert_eq!(carried(command(None), &me()), Some(Command::Reopen));
+        let other = interweave_test_support::endpoint_keys::endpoint_id("other");
+        assert_eq!(carried(command(Some(other.clone())), &me()), None);
+        assert_eq!(carried(ToFacade::Front(me()), &me()), None);
+        assert_eq!(carried(ToFacade::Front(other), &me()), None);
+    }
 
     /// Every command the hub accepted before the close is handed to the
     /// loop to carry out, and none is accepted after it. Mutation: the
@@ -330,13 +397,22 @@ mod closing_tests {
     fn closing_hands_back_every_command_accepted_before_it() {
         let hub = Hub::new();
         let (sender, mut waiting) = tokio::sync::mpsc::unbounded_channel();
-        let generation = hub.started(sender);
+        let generation = hub.started(sender, held());
         for _ in 0..3 {
-            assert_eq!(hub.command(Command::Reopen), Ok(()));
+            assert_eq!(hub.command(None, Command::Reopen), Ok(()));
         }
         let accepted = closing(&hub, generation, &mut waiting);
-        assert_eq!(accepted, vec![Command::Reopen; 3]);
-        assert_eq!(hub.command(Command::Reopen), Err(Command::Reopen));
+        assert_eq!(
+            accepted,
+            vec![
+                ToFacade::Command {
+                    identity: None,
+                    command: Command::Reopen
+                };
+                3
+            ]
+        );
+        assert_eq!(hub.command(None, Command::Reopen), Err(Command::Reopen));
     }
 
     /// #495 review F3: the side drops while the facade still counts as
@@ -359,7 +435,7 @@ mod closing_tests {
         for unwind in [false, true] {
             let hub = Arc::new(Hub::new());
             let (sender, _waiting) = tokio::sync::mpsc::unbounded_channel();
-            let generation = hub.started(sender);
+            let generation = hub.started(sender, held());
             let seen = Arc::new(AtomicBool::new(false));
             let held = super::Held {
                 side: Probe {
