@@ -1069,7 +1069,10 @@ mod tests {
         hub.listed(
             generation,
             relists,
-            ToView::Update(me(), Box::new(Update::Diagnostics(Diagnostics::default()))),
+            [ToView::Update(
+                me(),
+                Box::new(Update::Diagnostics(Diagnostics::default())),
+            )],
         );
         for _ in 0..crate::hub::TO_VIEW {
             hub.update(

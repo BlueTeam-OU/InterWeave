@@ -923,12 +923,18 @@ impl Hub {
         .then_some(commands.relists)
     }
 
-    /// Facade `generation` hands the listing (or its failure) to the view
-    /// that waits for it, read once `wants_listing` answered `relists`;
-    /// refused, the view untouched, unless it is the hub's current facade.
-    /// A late end counted since that answer leaves a listing still owed:
-    /// this one may predate what the old facade last wrote.
-    pub(crate) fn listed(&self, generation: u64, relists: u64, listing: ToView) {
+    /// Facade `generation` hands the listing to the view that waits for
+    /// it -- each held identity's start, or its failure, in held order --
+    /// read once `wants_listing` answered `relists`; refused, the view
+    /// untouched, unless it is the hub's current facade. A late end
+    /// counted since that answer leaves a listing still owed: this one may
+    /// predate what the old facade last wrote.
+    pub(crate) fn listed(
+        &self,
+        generation: u64,
+        relists: u64,
+        listing: impl IntoIterator<Item = ToView>,
+    ) {
         let commands = self.commands();
         if !commands.current(generation) {
             return;
@@ -937,7 +943,7 @@ impl Hub {
         if let Some(viewer) = slot.viewer.as_mut() {
             viewer.listed = true;
             viewer.listed_at = relists;
-            if !viewer.send(listing) {
+            if !listing.into_iter().all(|start| viewer.send(start)) {
                 slot.viewer = None;
             }
         }
@@ -1076,7 +1082,7 @@ mod tests {
         assert!(hub.wants_listing(g).is_some());
         // An update before the listing never reaches the view.
         hub.update(g, &me(), Update::Diagnostics(Diagnostics::default()));
-        hub.listed(g, hub.wants_listing(g).unwrap_or(0), listed());
+        hub.listed(g, hub.wants_listing(g).unwrap_or(0), [listed()]);
         hub.update(g, &me(), Update::Diagnostics(Diagnostics::default()));
         let taken = link.take();
         assert!(
@@ -1151,7 +1157,7 @@ mod tests {
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
         let g = hub.started(commands, held());
         let mut late = hub.attach(Arc::clone(&wake));
-        hub.listed(g, hub.wants_listing(g).unwrap_or(0), listed());
+        hub.listed(g, hub.wants_listing(g).unwrap_or(0), [listed()]);
         let taken = late.take();
         assert!(
             matches!(
@@ -1293,7 +1299,7 @@ mod tests {
         let mut link = hub.attach(wake);
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
         let g = hub.started(commands, held());
-        hub.listed(g, hub.wants_listing(g).unwrap_or(0), listed());
+        hub.listed(g, hub.wants_listing(g).unwrap_or(0), [listed()]);
         assert_eq!(
             woken.load(Ordering::SeqCst),
             1,
@@ -1312,7 +1318,7 @@ mod tests {
         let mut link = hub.attach(wake);
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
         let g = hub.started(commands, held());
-        hub.listed(g, hub.wants_listing(g).unwrap_or(0), listed());
+        hub.listed(g, hub.wants_listing(g).unwrap_or(0), [listed()]);
         // Running(false), Running(true) and the listing are queued already.
         for _ in 0..TO_VIEW {
             hub.update(g, &me(), Update::Diagnostics(Diagnostics::default()));
@@ -1599,7 +1605,7 @@ mod tests {
         let mut link = hub.attach(wake);
         let (first, _rx1) = tokio::sync::mpsc::unbounded_channel();
         let old = hub.started(first, held());
-        hub.listed(old, hub.wants_listing(old).unwrap_or(0), listed());
+        hub.listed(old, hub.wants_listing(old).unwrap_or(0), [listed()]);
         let _ = link.take();
 
         hub.retire(old);
@@ -1609,7 +1615,7 @@ mod tests {
             hub.wants_listing(old).is_none(),
             "not asked to list for no facade"
         );
-        hub.listed(old, hub.wants_listing(old).unwrap_or(0), listed());
+        hub.listed(old, hub.wants_listing(old).unwrap_or(0), [listed()]);
         hub.update(old, &me(), Update::Diagnostics(Diagnostics::default()));
         assert!(link.take().is_empty(), "nor heard before the next start");
 
@@ -1620,12 +1626,12 @@ mod tests {
             hub.wants_listing(old).is_none(),
             "nor for the new facade's view"
         );
-        hub.listed(old, hub.wants_listing(old).unwrap_or(0), listed());
+        hub.listed(old, hub.wants_listing(old).unwrap_or(0), [listed()]);
         hub.update(old, &me(), Update::Diagnostics(Diagnostics::default()));
         assert!(link.take().is_empty(), "the old facade reaches no view");
         assert!(hub.wants_listing(new).is_some(), "nor marks it listed");
 
-        hub.listed(new, hub.wants_listing(new).unwrap_or(0), listed());
+        hub.listed(new, hub.wants_listing(new).unwrap_or(0), [listed()]);
         assert!(the_listing(&link.take()), "control: the new one lists");
         hub.update(old, &me(), Update::Diagnostics(Diagnostics::default()));
         hub.update(old, &me(), arrival());
@@ -1656,7 +1662,7 @@ mod tests {
         assert!(hub.facade_alive(), "retired, its thread still runs");
         let (second, _rx2) = tokio::sync::mpsc::unbounded_channel();
         let new = hub.started(second, held());
-        hub.listed(new, hub.wants_listing(new).unwrap_or(0), listed());
+        hub.listed(new, hub.wants_listing(new).unwrap_or(0), [listed()]);
         assert!(hub.wants_listing(new).is_none());
 
         hub.ended(old);
@@ -1676,7 +1682,7 @@ mod tests {
         hub.ended(before);
         let (fourth, _rx4) = tokio::sync::mpsc::unbounded_channel();
         let after = hub.started(fourth, held());
-        hub.listed(after, hub.wants_listing(after).unwrap_or(0), listed());
+        hub.listed(after, hub.wants_listing(after).unwrap_or(0), [listed()]);
         assert!(
             hub.wants_listing(after).is_none(),
             "nothing ended since its listing"
@@ -1698,7 +1704,7 @@ mod tests {
         let (second, _rx2) = tokio::sync::mpsc::unbounded_channel();
         let new = hub.started(second, held());
         let owed = hub.wants_listing(new).expect("the first listing");
-        hub.listed(new, owed, listed());
+        hub.listed(new, owed, [listed()]);
         let _ = link.take();
 
         hub.ended(old);
@@ -1730,10 +1736,10 @@ mod tests {
         let new = hub.started(second, held());
         let before = hub.wants_listing(new).expect("the first listing");
         hub.ended(old);
-        hub.listed(new, before, listed());
+        hub.listed(new, before, [listed()]);
         let after = hub.wants_listing(new).expect("still owed");
         assert_ne!(before, after);
-        hub.listed(new, after, listed());
+        hub.listed(new, after, [listed()]);
         assert!(hub.wants_listing(new).is_none(), "paid by the later one");
     }
 

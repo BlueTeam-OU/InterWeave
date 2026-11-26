@@ -13,11 +13,10 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use interweave_human_app_core::KeyProblem;
-use interweave_human_app_core::{FacadeSide, KeySource};
+use interweave_human_app_core::{KeySource, Roster, RosterConfig, RosterError};
 use interweave_human_store::at_rest;
 use interweave_human_store::key_custody::KeyCipher;
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
-use interweave_human_transport_client::{ClientConfig, TransportClient};
 pub use interweave_profile_config::runtime::AvailabilityMode;
 pub use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
@@ -27,7 +26,7 @@ use interweave_transport_embedded::{
     EmbeddedHost, EmbeddedLaunch, EmbeddedRefused, Ended as HostEnded, StayReachable,
 };
 
-use crate::facade::{FacadeLoop, SpawnError};
+use crate::facade::{FacadeLoop, FacadeNote, SpawnError};
 use crate::first_identity::FirstIdentityRefused;
 use crate::hub::{Hub, StoreAnswer, StoreGeneration, StoreRefusal};
 use crate::identity::UnlockStatus;
@@ -188,6 +187,10 @@ pub struct ServiceHost {
     /// Why the last start's identity key was not opened or made, if it
     /// was not: the app logs its class, as the desktop prints it (#414 F3).
     key_refused: Arc<Mutex<Option<KeyProblem>>>,
+    /// What the facade said for the platform log and the app has not
+    /// taken yet ([`Self::take_facade_notes`]): each class once, however
+    /// often it was said before the take.
+    facade_notes: Arc<Mutex<Vec<FacadeNote>>>,
     /// The last start's unlock status: set by a start that ran, never by
     /// one redelivered to a running client, whose reseal found the profile
     /// held and so says nothing of the record.
@@ -241,6 +244,7 @@ impl ServiceHost {
             running: Mutex::new(None),
             network: Mutex::new(NetworkSlot::default()),
             key_refused: Arc::new(Mutex::new(None)),
+            facade_notes: Arc::new(Mutex::new(Vec::new())),
             unlock: Mutex::new(None),
             unlock_starts: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "dev-stand-ins")]
@@ -317,30 +321,61 @@ impl ServiceHost {
         HOST.get_or_init(Self::new)
     }
 
-    /// The facade made by `make`, given the identity's key from its file
-    /// under the Keystore at the identity's own alias (ADR-0063 decision 2,
-    /// app-core's `KeySource`): opened, or made the first time before any
-    /// share of its card. The store's cipher is the same bridge, each
-    /// secret under its own alias namespace. A file this build refuses, or
-    /// one gone after a share, is left as it is: the identity's page says
-    /// so and offers what it can, and its kind is kept for
-    /// [`Self::identity_key_refused`].
+    /// The roster made by `make`, its first identity given its key from
+    /// its file under the Keystore at the identity's own alias (ADR-0063
+    /// decision 2, app-core's `KeySource`): opened, or made the first time
+    /// before any share of its card. The store's cipher is the same
+    /// bridge, each secret under its own alias namespace. A file this
+    /// build refuses, or one gone after a share, is left as it is: the
+    /// identity's page says so and offers what it can, and its kind is
+    /// kept for [`Self::identity_key_refused`].
     fn with_key_source<B, A>(
         &self,
-        make: impl FnOnce() -> Result<FacadeSide<B, A>, StoreError> + Send + 'static,
+        make: impl FnOnce() -> Result<Roster<B, A>, RosterError> + Send + 'static,
         source: KeySource,
-    ) -> impl FnOnce() -> Result<FacadeSide<B, A>, StoreError> + Send + 'static
+    ) -> impl FnOnce() -> Result<Roster<B, A>, RosterError> + Send + 'static
     where
         B: interweave_human_transport_client::SessionBinding,
         A: interweave_local_client_api::AdminBinding,
     {
         let refused = Arc::clone(&self.key_refused);
         move || {
-            let mut facade = make()?;
-            facade.set_key_source(source);
-            *refused.lock().unwrap_or_else(PoisonError::into_inner) = facade.key_problem().cloned();
-            Ok(facade)
+            let mut roster = make()?;
+            // `source` names the store's identity, which is the roster's
+            // first: always held, so its side is always there.
+            let first = roster.first().clone();
+            let problem = roster.side_mut(&first).and_then(|side| {
+                side.set_key_source(source);
+                side.key_problem().cloned()
+            });
+            *refused.lock().unwrap_or_else(PoisonError::into_inner) = problem;
+            Ok(roster)
         }
+    }
+
+    /// Where the facade says what the platform log names, by class: kept
+    /// until the app takes it ([`Self::take_facade_notes`]).
+    fn facade_note(&self) -> impl Fn(FacadeNote) + Send + 'static {
+        let notes = Arc::clone(&self.facade_notes);
+        move |note| {
+            let mut notes = notes.lock().unwrap_or_else(PoisonError::into_inner);
+            if !notes.contains(&note) {
+                notes.push(note);
+            }
+        }
+    }
+
+    /// What the facade said for the platform log since the last take, by
+    /// class and never content, each once: the app logs them after a
+    /// start, as it logs [`Self::identity_key_refused`].
+    #[must_use]
+    pub fn take_facade_notes(&self) -> Vec<FacadeNote> {
+        std::mem::take(
+            &mut *self
+                .facade_notes
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+        )
     }
 
     /// Why the last start ran with no identity key, if it did: a class for
@@ -673,7 +708,7 @@ impl ServiceHost {
         data: impl FnOnce(&EmbeddedHost) -> B,
     ) -> Result<(), StartRefused>
     where
-        B: interweave_human_transport_client::SessionBinding + Send + 'static,
+        B: interweave_human_transport_client::SessionBinding + Clone + Send + 'static,
     {
         let mut running = self.lock();
         if running.is_some() {
@@ -731,7 +766,7 @@ impl ServiceHost {
         data: impl FnOnce(&EmbeddedHost) -> B,
     ) -> Result<(), StartRefused>
     where
-        B: interweave_human_transport_client::SessionBinding + Send + 'static,
+        B: interweave_human_transport_client::SessionBinding + Clone + Send + 'static,
     {
         first_identity(&launch)?;
         let host = EmbeddedHost::start(EmbeddedLaunch {
@@ -766,19 +801,22 @@ impl ServiceHost {
         };
         let source = KeySource::new(host.paths().clone(), endpoint.clone(), launch.store_cipher);
         let (data, admin) = (data(&host), host.binding());
-        let client_config = client_config(&config, endpoint);
+        let roster_config = roster_config(&config, endpoint);
         let make = self.with_key_source(
             move || {
-                let client =
-                    TransportClient::new(data, admin, store, client_config, Box::new(wall_ms), 0)?;
-                Ok(FacadeSide::new(client, wall_ms))
+                Roster::new(
+                    roster_config,
+                    store,
+                    move |_| (data.clone(), admin.clone()),
+                    wall_ms,
+                    0,
+                )
             },
             source,
         );
-        let facade = match FacadeLoop::spawn(host.runtime(), make, &self.hub) {
+        let facade = match FacadeLoop::spawn(host.runtime(), make, &self.hub, self.facade_note()) {
             Ok(facade) => facade,
-            Err(SpawnError::Store(e)) => return refuse(host, classify(&e)),
-            Err(SpawnError::Thread(e)) => return refuse(host, StartRefused::Thread(e.to_string())),
+            Err(e) => return refuse(host, spawn_refused(e)),
         };
         self.hub.set_network_access(true);
         let host = Arc::new(host);
@@ -855,29 +893,29 @@ impl ServiceHost {
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
         let source = KeySource::new(paths.clone(), endpoint.clone(), Box::new(store_cipher));
-        let client_config = client_config(&config, endpoint);
+        let roster_config = roster_config(&config, endpoint);
         let make = self.with_key_source(
             move || {
-                let client = TransportClient::new(
-                    offline_embedded(),
-                    offline_embedded(),
+                Roster::new(
+                    roster_config,
                     store,
-                    client_config,
-                    Box::new(wall_ms),
+                    |_| (offline_embedded(), offline_embedded()),
+                    wall_ms,
                     0,
-                )?;
-                Ok(FacadeSide::new(client, wall_ms))
+                )
             },
             source,
         );
         // Said before the facade runs, so a view never shows this posture
         // as a service that can send.
         self.hub.set_network_access(false);
-        let facade = match FacadeLoop::spawn(executor.handle().clone(), make, &self.hub) {
-            Ok(facade) => facade,
-            Err(SpawnError::Store(e)) => return Err(classify(&e)),
-            Err(SpawnError::Thread(e)) => return Err(StartRefused::Thread(e.to_string())),
-        };
+        let facade = FacadeLoop::spawn(
+            executor.handle().clone(),
+            make,
+            &self.hub,
+            self.facade_note(),
+        )
+        .map_err(spawn_refused)?;
         *running = Some(Running {
             host: None,
             executor: Some(executor),
@@ -1112,15 +1150,35 @@ fn human_endpoint(config: &ProfileConfig) -> Option<interweave_transport_api::En
     })
 }
 
-fn client_config(
+/// The roster of the first identity alone (plan section 30, the note of
+/// 2026-11-25): `endpoint`, the one the store speaks as, and no other.
+/// The profile's default direct endpoint is passed as the desktop passes
+/// it; with the first identity the only one held it puts nothing else in
+/// front.
+fn roster_config(
     config: &ProfileConfig,
     endpoint: interweave_transport_api::EndpointId,
-) -> ClientConfig {
-    ClientConfig {
+) -> RosterConfig {
+    RosterConfig {
         client_kind: CLIENT_KIND.to_owned(),
         endpoints: vec![endpoint],
         channels: config.channels.desired.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
+        others: Vec::new(),
+        default: config.endpoints.default_direct_endpoint.clone(),
+    }
+}
+
+/// A facade that did not start, as the start's refusal. More identities
+/// than a client holds cannot come of a roster of one; were it to, it is
+/// refused as a store that cannot be opened now, the detail for the log.
+fn spawn_refused(error: SpawnError) -> StartRefused {
+    match error {
+        SpawnError::Store(e) => classify(&e),
+        SpawnError::Thread(e) => StartRefused::Thread(e.to_string()),
+        SpawnError::OverBound => {
+            StartRefused::StoreUnavailable(format!("{:?}", RosterError::OverBound))
+        }
     }
 }
 

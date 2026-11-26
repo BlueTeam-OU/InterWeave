@@ -108,8 +108,8 @@ fn is_ready(message: &ToView) -> bool {
 
 /// A view attached to a running service is told the one identity its
 /// facade holds before anything of the start, then the listing and a
-/// Ready session, every update naming that identity: the facade side's,
-/// in front. Mutation: the facade loop tagging an update with any other
+/// Ready session, every update naming that identity: the roster's first,
+/// held alone and in front. Mutation: the facade loop tagging an update with any other
 /// identity fails the `named` assert.
 #[test]
 fn a_started_service_gives_a_view_its_listing_then_a_ready_session() {
@@ -1888,4 +1888,93 @@ fn a_start_without_network_finishes_m3_beside_one_sealed_key() {
         embedded_identity_document(PROFILE, &id),
         "form 2 names the key's id"
     );
+}
+
+/// The Service holds a roster of the first identity alone (plan section
+/// 30, the note of 2026-11-25), which behaves as `main`'s lone facade
+/// did: a command naming no identity runs as the one in front and is
+/// answered under it; one naming an identity not held is not run, and
+/// answers nothing; a switch to the identity in front changes nothing,
+/// writes no last-front row and says nothing for the log. Mutations: an
+/// unheld command run as the front fails the `stranger` assert; a switch
+/// to the front writing the row (app-core `Roster::set_front` without its
+/// unchanged check) fails the last-front assert.
+#[test]
+fn the_first_identity_alone_runs_as_the_front_and_a_switch_to_it_writes_nothing() {
+    use interweave_human_app_core::Crossing;
+    use interweave_human_ui_model::RowId;
+
+    let app = app();
+    common::provision_first_identity(&app.dir, PROFILE);
+    let service = ServiceHost::new();
+    service
+        .start_without_network(
+            &app.dir,
+            PROFILE,
+            Arc::new(interweave_human_store::key_custody::FilesystemCustody),
+        )
+        .expect("the posture starts");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    let mut said = None;
+    until(&mut link, &mut held, "the identities held", |m| {
+        if let ToView::Held(h) = m {
+            said = Some(h.clone());
+            return true;
+        }
+        false
+    });
+    let said = said.expect("held");
+    assert_eq!(said.held, vec![said.front.clone()], "the first alone");
+    let front = said.front;
+    until(&mut link, &mut held, "the listing", is_listing);
+
+    let stranger = interweave_test_support::endpoint_keys::endpoint_id("stranger");
+    let (unheld, asked) = (RowId::from_stored(2_000), RowId::from_stored(1_000));
+    assert!(
+        service
+            .hub()
+            .command(Some(stranger), Command::MarkRead(unheld))
+            .is_ok()
+    );
+    assert!(service.hub().cross(Crossing::Front(front.clone())).is_ok());
+    assert!(
+        service
+            .hub()
+            .command(None, Command::MarkRead(asked))
+            .is_ok()
+    );
+    let answered = |message: &ToView| match message {
+        ToView::Update(identity, update) => match &**update {
+            Update::Done(Command::MarkRead(row))
+            | Update::Failed {
+                command: Command::MarkRead(row),
+                ..
+            } => Some((identity.clone(), *row)),
+            _ => None,
+        },
+        _ => None,
+    };
+    let mut seen = Vec::new();
+    until(&mut link, &mut held, "the front's answer", |m| {
+        let one = answered(m);
+        seen.extend(one.clone());
+        one.is_some_and(|(_, row)| row == asked)
+    });
+    // Carried out in the order sent: the unheld command, had it run,
+    // was answered before this one.
+    assert_eq!(seen, vec![(front.clone(), asked)], "stranger: not run");
+    service.stop(GRACE).expect("it ran");
+
+    assert!(service.take_facade_notes().is_empty(), "nothing said");
+    let paths = ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+        .expect("paths");
+    let store = interweave_human_store::HumanStore::open_profile(
+        &paths,
+        &interweave_human_store::key_custody::FilesystemCustody,
+        &front,
+        interweave_human_store::StoreOptions::default(),
+    )
+    .expect("the store");
+    assert_eq!(store.last_front().expect("read"), None, "no row written");
 }
