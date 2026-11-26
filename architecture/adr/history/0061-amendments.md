@@ -626,3 +626,48 @@ identity stands as before, and with the key sealed it ends as written
 there. Neither
 record is built (`STATE.md` §Logical tables), so no build did
 otherwise.
+
+### Amendment 2026-11-26 — A write of a pending-add record refused at the bound settles the other records and is made once more (iii)
+
+One thing, from the design of the add form
+(`design/2026-11-04-identities.md` §6.2, its answer to a review finding
+on its own text). The (ii) note bounded the pending-add records at 64
+and said "a write past the bound being a record that cannot be written",
+and decision 7 settled a record at two moments, "at the client's start
+and whenever the list of identities opens". The two together left a form
+that stays open with nothing that frees a row: where 64 records stood,
+left by forms whose adds ended unknown while the daemon was stopped, a
+Create was refused for the bound, the form's "try again" wrote against
+the same 64 rows, and it stayed refused after the daemon answered again,
+until the person left the form and the list's opening settled them.
+
+Decision 7 now names a third settlement. A form whose write of its own
+record is refused at the bound settles every other record, as the
+list's opening does, and makes the write once more; only a write
+refused again is a record that cannot be written, and then nothing is
+sealed and no add is sent, as before. The settlement skips the record
+of an open form and no other, and a form that has not yet written holds
+none, so this one reaches every row in the store. It is the same
+settlement in every branch: a list that fails keeps each record, so with
+the daemon stopped the second write is refused as the first was, and
+with it answering the records it ends are deleted and the write finds
+room. Each Create settles once and writes at most twice, so nothing
+repeats without the person.
+
+No row is evicted by this: a record ends by its own settlement, its key
+path and platform key emptied and its remove answered, never to make
+room for another, which is what the (ii) note refused and still does.
+
+**Alternative named and not taken:** leave the two moments and have the
+form's message send the person back to the list. That makes the bound's
+refusal a different refusal from every other "nothing created" one,
+whose retry is Create, for a state the client can end itself.
+
+The settlement skips the record of a form open in this process; what a
+second process of the client holds open is not known to it, here as at
+the list's opening, and is not changed by this note.
+
+Propagation: decision 7, both sentences; this note; the log row; the
+digest entry's pending-add bullet; `STATE.md` §Logical tables, the
+pending-add record. Neither the record nor the form is built
+(`STATE.md` §Logical tables), so no build did otherwise.
