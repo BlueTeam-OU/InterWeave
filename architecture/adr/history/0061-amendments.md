@@ -600,8 +600,9 @@ of the runtime, its overlay write installed and its publish and restore
 failed, is another residue and stands as the contract's remove bullet
 has it: the remove sent again answers `EndpointUnknown`, the record is
 deleted, and the list holds the id with its key gone until the daemon's
-next start. `LOCAL-IPC.md` now says that the endpoint set's writing methods are
-answered one at a time, `admin.endpoints.list` being the runtime's view
+next start. `LOCAL-IPC.md` now says that the endpoint set's writing methods, and
+the two trust methods that write an endpoint's own set into the same
+overlay, are answered one at a time, `admin.endpoints.list` being the runtime's view
 and ordering nothing. No test sends an add and a remove together or
 asserts the one-at-a-time answering, so a daemon change that answered
 requests concurrently would fail nothing as this is written; the
