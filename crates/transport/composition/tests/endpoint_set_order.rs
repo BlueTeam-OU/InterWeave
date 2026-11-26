@@ -5,15 +5,18 @@
 //! read, its overlay write and its publish are one answer of the driver,
 //! the key file read in that answer's turn and not when the request is
 //! accepted, so an add and a remove of one id never overlap, whichever
-//! admin connection each came on.
+//! admin connection each came on. `admin.trust.set` with an endpoint is
+//! one of the same writes: it and a remove of its endpoint never overlap
+//! either, in both orders.
 //!
 //! What would break it compiles and passes every other endpoint suite: an
 //! answer run beside another (a driver that spawned `answer` per request,
 //! or polled the request channel while an answer awaited its publish), or
 //! the key read moved to where the request is accepted. Each test here
-//! holds an add's publish open (`ComposedRuntime::hold_next_add_publish`)
-//! and puts the other requests in the driver's channel meanwhile, each
-//! from its own admin port.
+//! holds one write's publish open
+//! (`ComposedRuntime::hold_next_endpoint_publish`) and puts the other
+//! requests in the driver's channel meanwhile, each from its own admin
+//! port.
 
 #![cfg(unix)]
 #![allow(clippy::expect_used, clippy::panic)]
@@ -24,7 +27,7 @@ use std::task::{Context, Poll, Waker};
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AdminPort, EndpointAddChange, EndpointAddRefusal, EndpointRemoveChange,
+    AdminPort, EndpointAddChange, EndpointAddRefusal, EndpointRemoveChange, TrustChange,
 };
 use interweave_profile_config::endpoint_key;
 use interweave_transport_api::TransportError;
@@ -32,9 +35,11 @@ use interweave_transport_composition::ComposedRuntime;
 
 mod endpoint_set_common;
 
-use endpoint_set_common::{Profile, admin, bytes, id, mint, options, paths, profile, row_of};
+use endpoint_set_common::{
+    Profile, add_minted, admin, bytes, id, mint, options, paths, profile, row_of,
+};
 
-/// How long a request queued behind a held add is watched for an answer
+/// How long a request queued behind a held write is watched for an answer
 /// it must not give. The hold is not timed -- the driver waits on it --
 /// so this bounds only how long the test gives a broken driver to answer.
 const QUEUED: Duration = Duration::from_millis(500);
@@ -77,7 +82,7 @@ async fn a_remove_beside_a_held_add_answers_removed_after_the_add() {
     let removing = admin(&runtime).await;
     let (work, key) = mint(&p);
 
-    let mut hold = runtime.hold_next_add_publish().await.expect("held");
+    let mut hold = runtime.hold_next_endpoint_publish().await.expect("held");
     let mut add = Box::pin(adding.add_endpoint(key, "work".to_owned(), vec![]));
     assert!(poll_once(&mut add).is_pending(), "the add is queued");
     within(hold.reached())
@@ -156,7 +161,7 @@ async fn an_add_answered_after_its_key_path_was_emptied_is_key_missing() {
     let (first, first_key) = mint(&p);
     let (gone, gone_key) = mint(&p);
 
-    let mut hold = runtime.hold_next_add_publish().await.expect("held");
+    let mut hold = runtime.hold_next_endpoint_publish().await.expect("held");
     let mut add_first = Box::pin(first_port.add_endpoint(first_key, "first".to_owned(), vec![]));
     assert!(poll_once(&mut add_first).is_pending());
     within(hold.reached()).await.expect("the first add is held");
@@ -203,5 +208,103 @@ async fn an_add_answered_after_its_key_path_was_emptied_is_key_missing() {
     assert!(row_of(&first_port, &gone).await.is_none());
     drop((add_first, early, remove, late));
     drop((first_port, early_port, removing, late_port));
+    runtime.stop().await.expect("stops");
+}
+
+/// The overlay file's text, empty when there is none.
+fn overlay_text(p: &Profile) -> String {
+    bytes(p).map_or_else(String::new, |b| String::from_utf8(b).expect("text"))
+}
+
+/// A remove queued while `admin.trust.set` on its endpoint is in its
+/// publish waits for the set's answer and then answers `removed`, taking
+/// the set's member with the entry. The set's `Set` is the positive
+/// control: the same set, with the endpoint there, is written.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_remove_beside_a_held_endpoint_trust_set_answers_after_it() {
+    let p = paths();
+    let runtime = start(&p).await;
+    let setting = admin(&runtime).await;
+    let removing = admin(&runtime).await;
+    let work = add_minted(&p, &setting, "work").await;
+    let (_, peer) = id();
+
+    let mut hold = runtime.hold_next_endpoint_publish().await.expect("held");
+    let mut set = Box::pin(setting.set_endpoint_trust(work.clone(), peer.clone(), true));
+    assert!(poll_once(&mut set).is_pending(), "the set is queued");
+    within(hold.reached())
+        .await
+        .expect("the set reached its publish");
+    assert!(
+        overlay_text(&p).contains(peer.as_str()),
+        "the set is written"
+    );
+
+    let mut remove = Box::pin(removing.remove_endpoint(work.clone()));
+    assert!(poll_once(&mut remove).is_pending(), "the remove is queued");
+    assert!(
+        tokio::time::timeout(QUEUED, &mut remove).await.is_err(),
+        "the remove answered while the set was in flight"
+    );
+
+    hold.release();
+    assert_eq!(within(&mut set).await, Ok(TrustChange::Set));
+    match within(&mut remove).await {
+        Ok(EndpointRemoveChange::Removed { .. }) => {}
+        other => panic!("not removed: {other:?}"),
+    }
+    let overlay = overlay_text(&p);
+    assert!(!overlay.contains(work.as_str()), "the entry is gone");
+    assert!(
+        !overlay.contains(peer.as_str()),
+        "and the set's member with it"
+    );
+    drop((set, remove));
+    drop((setting, removing));
+    runtime.stop().await.expect("stops");
+}
+
+/// The other order: `admin.trust.set` on an endpoint queued while that
+/// endpoint's remove is in its publish answers after the remove, with
+/// `EndpointUnknown`, and writes nothing back: no member of the removed
+/// id is left in the overlay.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_endpoint_trust_set_behind_a_held_remove_is_endpoint_unknown() {
+    let p = paths();
+    let runtime = start(&p).await;
+    let setting = admin(&runtime).await;
+    let removing = admin(&runtime).await;
+    let work = add_minted(&p, &setting, "work").await;
+    let (_, peer) = id();
+
+    let mut hold = runtime.hold_next_endpoint_publish().await.expect("held");
+    let mut remove = Box::pin(removing.remove_endpoint(work.clone()));
+    assert!(poll_once(&mut remove).is_pending(), "the remove is queued");
+    within(hold.reached())
+        .await
+        .expect("the remove reached its publish");
+    assert!(
+        !overlay_text(&p).contains(work.as_str()),
+        "the remove is written"
+    );
+
+    let mut set = Box::pin(setting.set_endpoint_trust(work.clone(), peer.clone(), true));
+    assert!(poll_once(&mut set).is_pending(), "the set is queued");
+    assert!(
+        tokio::time::timeout(QUEUED, &mut set).await.is_err(),
+        "the set answered while the remove was in flight"
+    );
+
+    hold.release();
+    match within(&mut remove).await {
+        Ok(EndpointRemoveChange::Removed { .. }) => {}
+        other => panic!("not removed: {other:?}"),
+    }
+    assert_eq!(within(&mut set).await, Err(TransportError::EndpointUnknown));
+    let overlay = overlay_text(&p);
+    assert!(!overlay.contains(work.as_str()), "nothing of the id");
+    assert!(!overlay.contains(peer.as_str()), "nothing of the set");
+    drop((set, remove));
+    drop((setting, removing));
     runtime.stop().await.expect("stops");
 }

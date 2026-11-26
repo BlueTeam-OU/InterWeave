@@ -192,16 +192,9 @@ impl Driver {
         let sources = self.sources(self.trust.clone(), overlay)?;
         let registered = DirectEndpoints::registered(&entry, EndpointSource::Added);
         let fault = self.take_publish_fault();
-        #[cfg(feature = "test-hooks")]
-        let hold = self.add_publish_hold.take();
         let commander = self.swarm.commander();
         let id = endpoint.clone();
         Ok(async move {
-            #[cfg(feature = "test-hooks")]
-            if let Some((reached, release)) = hold {
-                let _ = reached.send(());
-                let _ = release.await;
-            }
             if fault {
                 return Err(TransportError::BackendUnavailable);
             }

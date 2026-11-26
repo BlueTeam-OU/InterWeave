@@ -327,10 +327,11 @@ pub(crate) enum Request {
     /// were gone. Test builds only.
     #[cfg(feature = "test-hooks")]
     FailPublishes(usize, oneshot::Sender<()>),
-    /// The next add's publish waits, after telling the first sender it
-    /// started, until the receiver resolves. Test builds only.
+    /// The next endpoint-set write's publish waits, after telling the
+    /// first sender it started, until the receiver resolves. Test builds
+    /// only.
     #[cfg(feature = "test-hooks")]
-    HoldAddPublish(
+    HoldEndpointPublish(
         oneshot::Sender<()>,
         oneshot::Receiver<()>,
         oneshot::Sender<()>,
@@ -356,8 +357,9 @@ pub(crate) enum Request {
     EndDriver(oneshot::Sender<()>),
 }
 
-/// An add's publish held open (`ComposedRuntime::hold_next_add_publish`).
-/// Dropping it releases the publish as [`Self::release`] does.
+/// An endpoint-set write's publish held open
+/// (`ComposedRuntime::hold_next_endpoint_publish`). Dropping it releases
+/// the publish as [`Self::release`] does.
 #[cfg(feature = "test-hooks")]
 #[derive(Debug)]
 pub struct PublishHold {
@@ -367,12 +369,13 @@ pub struct PublishHold {
 
 #[cfg(feature = "test-hooks")]
 impl PublishHold {
-    /// Resolves once the held add has reached its publish: the driver
-    /// is inside that add's answer, and waits there.
+    /// Resolves once the held write has reached its publish: the driver
+    /// is inside that write's answer, its overlay written, and waits
+    /// there.
     ///
     /// # Errors
     /// `BackendUnavailable` when the hold was dropped unreached (the
-    /// driver ended, or the add was refused before its publish).
+    /// driver ended).
     pub async fn reached(&mut self) -> Result<(), TransportError> {
         (&mut self.reached)
             .await
@@ -734,7 +737,7 @@ impl ComposedRuntime {
             #[cfg(feature = "test-hooks")]
             publish_faults: 0,
             #[cfg(feature = "test-hooks")]
-            add_publish_hold: None,
+            endpoint_publish_hold: None,
             #[cfg(feature = "test-hooks")]
             kept_forgets: 0,
             outcomes: LastOutcomes::default(),
@@ -997,19 +1000,23 @@ impl ComposedRuntime {
         self.ask(|reply| Request::FailPublishes(count, reply)).await
     }
 
-    /// Hold the next `admin.endpoints.add`'s substrate publish open --
-    /// its key read and its overlay written, its answer not yet sent --
-    /// until the returned [`PublishHold`] is released or dropped: how a
-    /// test puts another request beside an add in flight. TEST BUILDS
-    /// ONLY.
+    /// Hold the substrate publish of the next write to the endpoint
+    /// overlay open -- the eight that go through
+    /// `Driver::set_endpoints_noting`: `admin.endpoints.add`, `remove`,
+    /// `set_enabled`, `set_default`, `set_advertise`, `set_alias`, and
+    /// `admin.trust.set` with an endpoint and `admin.trust.seed` -- once
+    /// its overlay is written and before its answer, until the returned
+    /// [`PublishHold`] is released or dropped: how a test puts another
+    /// request beside a write in flight. A move refused before its write
+    /// does not take the hold. TEST BUILDS ONLY.
     ///
     /// # Errors
     /// `BackendUnavailable` once the runtime has stopped.
     #[cfg(feature = "test-hooks")]
-    pub async fn hold_next_add_publish(&self) -> Result<PublishHold, TransportError> {
+    pub async fn hold_next_endpoint_publish(&self) -> Result<PublishHold, TransportError> {
         let (reached_tx, reached) = oneshot::channel();
         let (release, release_rx) = oneshot::channel();
-        self.ask(|reply| Request::HoldAddPublish(reached_tx, release_rx, reply))
+        self.ask(|reply| Request::HoldEndpointPublish(reached_tx, release_rx, reply))
             .await?;
         Ok(PublishHold { reached, release })
     }
@@ -1118,9 +1125,10 @@ struct Driver {
     /// (test builds).
     #[cfg(feature = "test-hooks")]
     publish_faults: usize,
-    /// The hold the next add's publish waits on (test builds).
+    /// The hold the next endpoint-set write's publish waits on (test
+    /// builds).
     #[cfg(feature = "test-hooks")]
-    add_publish_hold: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>,
+    endpoint_publish_hold: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>,
     /// How many of the next book removals answer "kept" (test builds).
     #[cfg(feature = "test-hooks")]
     kept_forgets: usize,
@@ -1587,8 +1595,8 @@ impl Driver {
                 let _ = reply.send(());
             }
             #[cfg(feature = "test-hooks")]
-            Request::HoldAddPublish(reached, release, reply) => {
-                self.add_publish_hold = Some((reached, release));
+            Request::HoldEndpointPublish(reached, release, reply) => {
+                self.endpoint_publish_hold = Some((reached, release));
                 let _ = reply.send(());
             }
             #[cfg(feature = "test-hooks")]
@@ -1785,6 +1793,20 @@ impl Driver {
         let published = if written.is_some() {
             Err(TransportError::Internal)
         } else {
+            // The test hold waits INSIDE the publish, as the substrate's
+            // own step does, so a driver that answered beside a write in
+            // flight would answer beside a held one too.
+            #[cfg(feature = "test-hooks")]
+            let publish = {
+                let hold = self.endpoint_publish_hold.take();
+                async move {
+                    if let Some((reached, release)) = hold {
+                        let _ = reached.send(());
+                        let _ = release.await;
+                    }
+                    publish.await
+                }
+            };
             publish.await
         };
         // A write that failed before its rename left the previous file:
