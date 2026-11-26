@@ -414,7 +414,7 @@ impl TrustList {
 }
 
 /// One allowed peer. Whether it survives a restart is not carried: over
-/// IPC 2.3 `ipc-client` refuses a row that is not persisted, so every row
+/// IPC 3.0 `ipc-client` refuses a row that is not persisted, so every row
 /// the desktop client reads is.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TrustRow {
@@ -471,11 +471,11 @@ pub enum TrustProblem {
     Refused,
     /// The daemon and this client do not speak a common version of what
     /// trust needs: a mixed install, where the daemon is not the app's own
-    /// release (older, below IPC 2.3, or of another major). Bringing both
+    /// release (older, below IPC 3.0, or of another major). Bringing both
     /// to one release is what helps.
     Incompatible,
-    /// Anything else -- an identity no entry of the daemon holds among
-    /// it, or an answer that is not one direction of one identity's set.
+    /// Anything else -- an identity no entry of the daemon holds, or an
+    /// answer that is not one direction of one identity's set.
     Internal,
 }
 
