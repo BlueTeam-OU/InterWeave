@@ -14,9 +14,8 @@
 //! profile does not trust the desktop, so every send of its is refused
 //! until the case itself trusts it through the admin port, in the `human`
 //! endpoint's own set (the app's person administers that set, not the
-//! operator's list), once the
-//! facade holds its `human` lease and the baseline is read. The desktop
-//! retries until accepted. Without that gate, a payload accepted before
+//! operator's list), once the facade holds its `human` lease and the
+//! baseline is read. The desktop retries until accepted. Without that gate, a payload accepted before
 //! the baseline could be acted on before it, and a revoke would be read
 //! as the baseline's own lease epoch.
 //!
@@ -28,9 +27,10 @@
 //! - Read afterwards through this side's own admin port, the endpoint
 //!   leases and the bootstrap addresses are as they were at the
 //!   baseline, and the `human` endpoint's own trust set differs only by
-//!   the desktop the case trusted (the operator's list not at all). So a revoke shows as the `human` lease gone or under a new
-//!   epoch. The stranger is neither trusted nor addressed, and the
-//!   runtime still answers.
+//!   the desktop the case trusted (the operator's list not at all). So a
+//!   revoke shows as the `human` lease gone or under a new epoch. The
+//!   stranger is neither trusted nor addressed, and the runtime still
+//!   answers.
 //! - The positive controls: the same reads see each kind of change made
 //!   through the admin port itself, the stranger trusted and untrusted,
 //!   its address added and removed, and last the `human` lease revoked.

@@ -2079,9 +2079,9 @@ fn read_trust(service: &ServiceHost, link: &mut ViewLink, held: &mut Vec<ToView>
 /// ADR-0067 decision 6 on the phone: the Service's first trust read finds
 /// the first identity's own set, seeded from the operator's list by the
 /// seed that ran before it, observed from the profile's files and not
-/// from the client's claim. Mutation: app-core `Roster::new` giving its
-/// clients no `FirstSeed` (the `client.seeding(seed.clone())` line)
-/// leaves no set after the read and fails the first assert.
+/// from the client's claim. Mutation: transport-client's `open` never
+/// asking the seed (`seed.filter(|_| false)`) leaves no set after the
+/// read and fails the `own_sets` expect.
 #[test]
 fn the_first_start_gives_the_first_identity_its_own_trust_set_before_its_first_read() {
     let app = app();
@@ -2108,9 +2108,10 @@ fn the_first_start_gives_the_first_identity_its_own_trust_set_before_its_first_r
 /// A later start's seed answers present and writes nothing: the endpoint
 /// overlay is the same bytes and the same file after a second start and
 /// trust read, though the operator's list has changed since the seed
-/// copied it. Mutation: the seed overwriting an existing set (an
-/// `AlreadyPresent` answer replaced by a copy) puts the operator's new
-/// peer in the set and fails the bytes assert.
+/// copied it. Mutations: profile-config's `seed_sets` answering `Created`
+/// where it answers `AlreadyPresent` rewrites the overlay (the same
+/// bytes, written atomically) and fails the mtime assert; no seed at all
+/// leaves no overlay for the first start and fails its expect.
 #[test]
 fn a_later_start_seeds_nothing_and_writes_no_trust() {
     let app = app();
