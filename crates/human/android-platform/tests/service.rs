@@ -1890,8 +1890,8 @@ fn a_start_without_network_finishes_m3_beside_one_sealed_key() {
     );
 }
 
-/// The Service holds a roster of the first identity alone (plan section
-/// 30, the note of 2026-11-25), which behaves as `main`'s lone facade
+/// With no endpoint overlay the Service holds a roster of the first
+/// identity alone (plan section 30 step 3), which behaves as `main`'s lone facade
 /// did: a command naming no identity runs as the one in front and is
 /// answered under it; one naming an identity not held is not run, and
 /// answers nothing; a switch to the identity in front changes nothing,

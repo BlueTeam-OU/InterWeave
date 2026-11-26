@@ -22,7 +22,7 @@ use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use interweave_human_app_core::{Command, Crossing, Update};
-use interweave_human_ui_model::{StartBusy, UnlockFacts};
+use interweave_human_ui_model::{HeldIdentity, StartBusy, UnlockFacts};
 use interweave_transport_api::EndpointId;
 
 use crate::notice::Notices;
@@ -74,6 +74,12 @@ pub enum ToView {
     /// facade comes and goes with the service, and a take may hold one
     /// start's messages after another's, each start's naming in its order.
     Held(Held),
+    /// The held identities as their rows read now -- name, alias, state,
+    /// unread -- told by the facade at its start and after a turn that
+    /// changed them (app-core's `Facade::held_identities`), and to a view
+    /// that attaches while it runs, the last told (the hub keeps it as it
+    /// keeps [`Self::Held`]; `a_view_attached_late_is_told_the_identities_last_told`).
+    Identities(Vec<HeldIdentity>),
     /// The hub's count of the start whose [`ToView::Running`]`(true)`
     /// follows: sent just before it, at a start and at an attach while one
     /// runs, so a view that attaches again -- or a window made again --
@@ -219,6 +225,10 @@ struct Slot {
     start: u64,
     /// The identities the facade that runs holds, while one does.
     held: Option<Held>,
+    /// The held identities the facade that runs last told, while one
+    /// runs and once it has told them: at most a client's identity cap
+    /// of rows, replaced whole.
+    identities: Option<Vec<HeldIdentity>>,
     /// Whether the platform gives this app network access, as the
     /// Service last said; access is assumed until it says otherwise.
     network: bool,
@@ -243,6 +253,7 @@ impl Default for Slot {
             running: false,
             start: 0,
             held: None,
+            identities: None,
             network: true,
             authentication: false,
             store: None,
@@ -451,6 +462,11 @@ impl Hub {
             viewer.send(ToView::Start(slot.start));
         }
         viewer.send(ToView::Running(slot.running));
+        // After the running state, as a start tells them: the model that
+        // state makes is the one told. Kept only while a facade runs.
+        if let Some(identities) = slot.identities.clone() {
+            viewer.send(ToView::Identities(identities));
+        }
         viewer.send(ToView::NetworkAccess(slot.network));
         viewer.send(ToView::AuthenticationNeeded(slot.authentication));
         if let Some(answer) = slot.store {
@@ -721,6 +737,8 @@ impl Hub {
         if start.is_none() {
             slot.held = None;
         }
+        // A facade that starts tells its own; one that stopped holds none.
+        slot.identities = None;
         if let Some(viewer) = slot.viewer.as_mut() {
             // Listed again from the new facade's first turn: rows the
             // last one showed may have changed while none ran.
@@ -732,6 +750,24 @@ impl Hub {
             if !said {
                 slot.viewer = None;
             }
+        }
+    }
+
+    /// Facade `generation` tells the held identities as their rows read
+    /// now: kept for a view that attaches later and said to the one
+    /// attached; refused, nothing kept, unless it is the hub's current
+    /// facade.
+    pub(crate) fn identities(&self, generation: u64, identities: Vec<HeldIdentity>) {
+        let commands = self.commands();
+        if !commands.current(generation) {
+            return;
+        }
+        let mut slot = self.slot();
+        slot.identities = Some(identities.clone());
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::Identities(identities))
+        {
+            slot.viewer = None;
         }
     }
 
@@ -1197,6 +1233,83 @@ mod tests {
             !stopped.iter().any(|m| matches!(m, ToView::Held(_))),
             "nothing runs, nothing named: {stopped:?}"
         );
+    }
+
+    /// Rows for the identities `names`, the first first.
+    fn rows(names: &[&str]) -> Vec<HeldIdentity> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| HeldIdentity {
+                key: interweave_human_ui_model::IdentityKey::new(*name),
+                card_name: None,
+                alias: (*name).to_owned(),
+                state: interweave_human_ui_model::IdentityState::Ready,
+                is_first: i == 0,
+                is_default: false,
+                unread: 0,
+                not_sent: false,
+            })
+            .collect()
+    }
+
+    fn identities_in(taken: &[ToView]) -> Vec<Vec<HeldIdentity>> {
+        taken
+            .iter()
+            .filter_map(|m| match m {
+                ToView::Identities(rows) => Some(rows.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The identities a facade tells reach the view attached, and a view
+    /// that attaches later is told the last told, after the running
+    /// state; a retired facade's are refused and a stop forgets them, and
+    /// a later start's facade tells its own. Mutations: `attach` not
+    /// sending the kept list -- the late view hears none; `identities`
+    /// not keeping it -- the same; the generation not checked -- the
+    /// retired facade's reach the view; `say_running` not forgetting them
+    /// -- the view attached after the stop hears them.
+    #[test]
+    fn a_view_attached_late_is_told_the_identities_last_told() {
+        let hub = Hub::new();
+        let (_, wake) = counting();
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands, held());
+        let mut early = hub.attach(Arc::clone(&wake));
+        let _ = early.take();
+        hub.identities(g, rows(&["a"]));
+        hub.identities(g, rows(&["a", "b"]));
+        assert_eq!(
+            identities_in(&early.take()),
+            [rows(&["a"]), rows(&["a", "b"])],
+            "each told to the view attached"
+        );
+
+        let taken = hub.attach(Arc::clone(&wake)).take();
+        assert_eq!(identities_in(&taken), [rows(&["a", "b"])], "the last told");
+        let running = taken
+            .iter()
+            .position(|m| matches!(m, ToView::Running(true)))
+            .expect("running");
+        let told = taken
+            .iter()
+            .position(|m| matches!(m, ToView::Identities(_)))
+            .expect("told");
+        assert!(running < told, "after the running state: {taken:?}");
+
+        hub.retire(g);
+        let mut after_stop = hub.attach(Arc::clone(&wake));
+        hub.identities(g, rows(&["late"]));
+        assert!(
+            identities_in(&after_stop.take()).is_empty(),
+            "a stop forgets them and a retired facade's are refused"
+        );
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let later = hub.started(commands, held());
+        hub.identities(later, rows(&["c"]));
+        assert_eq!(identities_in(&after_stop.take()), [rows(&["c"])]);
     }
 
     /// What the model side sends across reaches the facade naming the

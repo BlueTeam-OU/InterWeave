@@ -13,10 +13,13 @@ use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use interweave_human_app_core::KeyProblem;
-use interweave_human_app_core::{KeySource, Roster, RosterConfig, RosterError};
+use interweave_human_app_core::{
+    HeldEntry, HeldList, KeySource, Roster, RosterConfig, RosterError, held_list,
+};
 use interweave_human_store::at_rest;
-use interweave_human_store::key_custody::KeyCipher;
+use interweave_human_store::key_custody::{CipherFailure, Custody, KeyCipher};
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
+use interweave_profile_config::endpoint_overlay::EndpointOverlayError;
 pub use interweave_profile_config::runtime::AvailabilityMode;
 pub use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfileConfig, ProfilePaths, TrustBoundary};
@@ -187,6 +190,10 @@ pub struct ServiceHost {
     /// Why the last start's identity key was not opened or made, if it
     /// was not: the app logs its class, as the desktop prints it (#414 F3).
     key_refused: Arc<Mutex<Option<KeyProblem>>>,
+    /// Each identity other than the first whose key was not opened at the
+    /// last start, by the problem's kind alone, never a path: the app logs
+    /// them as it logs [`Self::identity_key_refused`].
+    others_key_refused: Arc<Mutex<Vec<&'static str>>>,
     /// What the facade said for the platform log and the app has not
     /// taken yet ([`Self::take_facade_notes`]): each class once, however
     /// often it was said before the take
@@ -245,6 +252,7 @@ impl ServiceHost {
             running: Mutex::new(None),
             network: Mutex::new(NetworkSlot::default()),
             key_refused: Arc::new(Mutex::new(None)),
+            others_key_refused: Arc::new(Mutex::new(Vec::new())),
             facade_notes: Arc::new(Mutex::new(Vec::new())),
             unlock: Mutex::new(None),
             unlock_starts: std::sync::atomic::AtomicU64::new(0),
@@ -322,34 +330,50 @@ impl ServiceHost {
         HOST.get_or_init(Self::new)
     }
 
-    /// The roster made by `make`, its first identity given its key from
-    /// its file under the Keystore at the identity's own alias (ADR-0063
-    /// decision 2, app-core's `KeySource`): opened, or made the first time
-    /// before any share of its card. The store's cipher is the same
-    /// bridge, each secret under its own alias namespace. A file this
-    /// build refuses, or one gone after a share, is left as it is: the
-    /// identity's page says so and offers what it can, and its kind is
-    /// kept for [`Self::identity_key_refused`].
-    fn with_key_source<B, A>(
+    /// The roster made by `make`, each held identity given its key from
+    /// its own file under the Keystore at that identity's own alias
+    /// (ADR-0063 decision 2, app-core's `KeySource`), one source per
+    /// identity (`each_held_identity_opens_its_own_key`): opened, or made
+    /// the first time before any share of its card. The store's cipher is
+    /// the same bridge, each secret under its own alias namespace. A file
+    /// this build refuses, or one gone after a share, is left as it is:
+    /// the identity's page says so and offers what it can, and its
+    /// identity holds its lease all the same (ADR-0067 decisions 3 and 5).
+    /// The first identity's problem is kept for
+    /// [`Self::identity_key_refused`]; another's, by kind alone, for
+    /// [`Self::other_identity_keys_refused`].
+    fn with_key_sources<B, A>(
         &self,
         make: impl FnOnce() -> Result<Roster<B, A>, RosterError> + Send + 'static,
-        source: KeySource,
+        sources: Vec<KeySource>,
     ) -> impl FnOnce() -> Result<Roster<B, A>, RosterError> + Send + 'static
     where
         B: interweave_human_transport_client::SessionBinding,
         A: interweave_local_client_api::AdminBinding,
     {
         let refused = Arc::clone(&self.key_refused);
+        let others = Arc::clone(&self.others_key_refused);
         move || {
             let mut roster = make()?;
-            // `source` names the store's identity, which is the roster's
-            // first: always held, so its side is always there.
             let first = roster.first().clone();
-            let problem = roster.side_mut(&first).and_then(|side| {
-                side.set_key_source(source);
-                side.key_problem().cloned()
-            });
-            *refused.lock().unwrap_or_else(PoisonError::into_inner) = problem;
+            let mut first_problem = None;
+            let mut other_problems = Vec::new();
+            for source in sources {
+                let endpoint = source.endpoint().clone();
+                // Every source names a held identity: the roster holds
+                // what the sources were made from.
+                let problem = roster.side_mut(&endpoint).and_then(|side| {
+                    side.set_key_source(source);
+                    side.key_problem().cloned()
+                });
+                if endpoint == first {
+                    first_problem = problem;
+                } else if let Some(problem) = problem {
+                    other_problems.push(key_problem_kind(&problem));
+                }
+            }
+            *refused.lock().unwrap_or_else(PoisonError::into_inner) = first_problem;
+            *others.lock().unwrap_or_else(PoisonError::into_inner) = other_problems;
             Ok(roster)
         }
     }
@@ -385,6 +409,17 @@ impl ServiceHost {
     #[must_use]
     pub fn identity_key_refused(&self) -> Option<KeyProblem> {
         self.key_refused
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// The kind of each problem the last start met opening the key of an
+    /// identity other than the first, in held order: a class for the
+    /// platform log, never the key and never a path.
+    #[must_use]
+    pub fn other_identity_keys_refused(&self) -> Vec<&'static str> {
+        self.others_key_refused
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone()
@@ -797,14 +832,20 @@ impl ServiceHost {
         let Some(endpoint) = human_endpoint(&config) else {
             return refuse(host, StartRefused::NoHumanEndpoint);
         };
+        // Read before the store opens: a refusal opens nothing.
+        let held = match held_identities(host.paths(), &config, endpoint.clone()) {
+            Ok(held) => held,
+            Err(why) => return refuse(host, StartRefused::Runtime(why)),
+        };
         let store = match self.open_store(host.paths(), &endpoint, &*launch.store_cipher) {
             Ok(store) => store,
             Err(why) => return refuse(host, why),
         };
-        let source = KeySource::new(host.paths().clone(), endpoint.clone(), launch.store_cipher);
+        let cipher = SharedCipher::new(launch.store_cipher);
+        let sources = key_sources(host.paths(), &held, || Box::new(cipher.clone()));
         let (data, admin) = (data(&host), host.binding());
-        let roster_config = roster_config(&config, endpoint);
-        let make = self.with_key_source(
+        let roster_config = roster_config(&config, &held);
+        let make = self.with_key_sources(
             move || {
                 Roster::new(
                     roster_config,
@@ -814,7 +855,7 @@ impl ServiceHost {
                     0,
                 )
             },
-            source,
+            sources,
         );
         let facade = match FacadeLoop::spawn(host.runtime(), make, &self.hub, self.facade_note()) {
             Ok(facade) => facade,
@@ -887,6 +928,8 @@ impl ServiceHost {
         }
         let config = ProfileConfig::load(&paths).map_err(|e| refused(e.into()))?;
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
+        // Read before the store opens, as a start with network reads it.
+        let held = held_identities(&paths, &config, endpoint.clone()).map_err(refused)?;
         let store = self.open_store(&paths, &endpoint, &*store_cipher)?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
@@ -894,9 +937,9 @@ impl ServiceHost {
             .enable_time()
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
-        let source = KeySource::new(paths.clone(), endpoint.clone(), Box::new(store_cipher));
-        let roster_config = roster_config(&config, endpoint);
-        let make = self.with_key_source(
+        let sources = key_sources(&paths, &held, move || Box::new(Arc::clone(&store_cipher)));
+        let roster_config = roster_config(&config, &held);
+        let make = self.with_key_sources(
             move || {
                 Roster::new(
                     roster_config,
@@ -906,7 +949,7 @@ impl ServiceHost {
                     0,
                 )
             },
-            source,
+            sources,
         );
         // Said before the facade runs, so a view never shows this posture
         // as a service that can send.
@@ -1152,32 +1195,166 @@ fn human_endpoint(config: &ProfileConfig) -> Option<interweave_transport_api::En
     })
 }
 
-/// The roster of the first identity alone (plan section 30, the note of
-/// 2026-11-25): `endpoint`, the one the store speaks as, and no other.
-/// The profile's default direct endpoint is passed as the desktop passes
-/// it; with the first identity the only one held it puts nothing else in
-/// front.
-fn roster_config(
+/// The identities the Android client holds (plan section 30 step 3; the
+/// note of 2026-11-26 (ii)): the endpoint its profile names for the
+/// service first, then every entry the endpoint overlay added that admits
+/// this client's kind, in app-core's [`held_list`] order, each with its
+/// entry's alias; and the overlay's effective default when it is held.
+struct Held {
+    /// The first first; never empty.
+    held: Vec<HeldEntry>,
+    default: Option<interweave_transport_api::EndpointId>,
+}
+
+/// [`Held`] for `config` under `paths`, `first` being
+/// [`human_endpoint`]'s answer, which stays the first whatever app-core's
+/// first is: [`held_list`] takes the first AUTHORED entry admitting the
+/// kind, and an Android profile may name another for its service
+/// (`runtime.android.endpoint`). Only the added entries are taken from
+/// it (`androids_first_stays_first_and_only_the_added_follow`).
+///
+/// # Errors
+/// A present overlay that cannot be read: reachable by another user, a
+/// directory refused, as the runtime refuses one at its own start; else
+/// the profile invalid (the runtime's start answers a parse as internal:
+/// either is a runtime refusal, the same code to the Service and the
+/// same notice). Never read as "no added entries", since the client would then show a held list the file may
+/// contradict (`tests/held.rs`,
+/// `an_overlay_that_does_not_read_refuses_the_start_without_network`).
+fn held_identities(
+    paths: &ProfilePaths,
     config: &ProfileConfig,
-    endpoint: interweave_transport_api::EndpointId,
-) -> RosterConfig {
+    first: interweave_transport_api::EndpointId,
+) -> Result<Held, EmbeddedRefused> {
+    let list = held_list(paths, config).map_err(|e| match e {
+        EndpointOverlayError::NotPrivate { .. } => EmbeddedRefused::DirectoryRefused(e.to_string()),
+        _ => EmbeddedRefused::ProfileInvalid(e.to_string()),
+    })?;
+    let alias = config
+        .endpoints
+        .entries
+        .iter()
+        .find(|e| e.id == first)
+        .and_then(|e| e.alias.as_ref().map(ToString::to_string));
+    Ok(android_held(
+        list,
+        HeldEntry {
+            endpoint: first,
+            alias,
+        },
+    ))
+}
+
+/// [`held_identities`]' rule on a list already read, `first` being
+/// Android's first identity with its entry's alias.
+fn android_held(list: HeldList, first: HeldEntry) -> Held {
+    let mut held = vec![first];
+    // `held_list`'s own first is an authored entry, never an added one.
+    for entry in list.held.into_iter().skip(1) {
+        if !held.iter().any(|h| h.endpoint == entry.endpoint) {
+            held.push(entry);
+        }
+    }
+    let default = list
+        .default
+        .filter(|d| held.iter().any(|h| &h.endpoint == d));
+    Held { held, default }
+}
+
+/// One key source per held identity, each with its own cipher from
+/// `cipher`: a source owns its cipher, and every one is the same bridge.
+fn key_sources(
+    paths: &ProfilePaths,
+    held: &Held,
+    mut cipher: impl FnMut() -> Box<dyn KeyCipher + Send>,
+) -> Vec<KeySource> {
+    held.held
+        .iter()
+        .map(|h| KeySource::new(paths.clone(), h.endpoint.clone(), cipher()))
+        .collect()
+}
+
+/// The launch's one store cipher shared by every key source: the start
+/// is given one box, and each source owns a cipher of its own.
+#[derive(Clone)]
+struct SharedCipher(Arc<Mutex<Box<dyn KeyCipher + Send>>>);
+
+impl SharedCipher {
+    fn new(cipher: Box<dyn KeyCipher + Send>) -> Self {
+        Self(Arc::new(Mutex::new(cipher)))
+    }
+
+    fn cipher(&self) -> std::sync::MutexGuard<'_, Box<dyn KeyCipher + Send>> {
+        // A cipher call leaves nothing half-written for the next.
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+impl KeyCipher for SharedCipher {
+    fn custody(&self) -> Custody {
+        self.cipher().custody()
+    }
+
+    fn seal(&self, alias: &str, aad: &[u8], secret: &[u8; 32]) -> Result<Vec<u8>, CipherFailure> {
+        self.cipher().seal(alias, aad, secret)
+    }
+
+    fn open(
+        &self,
+        alias: &str,
+        aad: &[u8],
+        sealed: &[u8],
+    ) -> Result<zeroize::Zeroizing<[u8; 32]>, CipherFailure> {
+        self.cipher().open(alias, aad, sealed)
+    }
+
+    fn retire(&self, alias: &str) -> Result<(), CipherFailure> {
+        self.cipher().retire(alias)
+    }
+}
+
+/// A key problem's kind, for the platform log: never the folder a
+/// [`KeyProblem::DirUnsafe`] names.
+const fn key_problem_kind(problem: &KeyProblem) -> &'static str {
+    match problem {
+        KeyProblem::LostOnDevice => "lost on device",
+        KeyProblem::BelowDevice => "below device",
+        KeyProblem::OtherDevice => "other device",
+        KeyProblem::NewerVersion => "newer version",
+        KeyProblem::Damaged => "damaged",
+        KeyProblem::Exposed => "exposed",
+        KeyProblem::DirUnsafe { .. } => "folder unsafe",
+        KeyProblem::NotNow => "not now",
+        KeyProblem::Missing => "missing",
+    }
+}
+
+/// The roster of the identities `held` names: the first, whose store
+/// this is, then the others, each with its alias where its entry has one
+/// (`Roster::held_if_changed` tells them), the default the overlay's
+/// effective one when held.
+fn roster_config(config: &ProfileConfig, held: &Held) -> RosterConfig {
+    let endpoints: Vec<_> = held.held.iter().map(|h| h.endpoint.clone()).collect();
     RosterConfig {
         client_kind: CLIENT_KIND.to_owned(),
-        endpoints: vec![endpoint],
+        // Every identity held, so each client's lease target is in it.
+        endpoints: endpoints.clone(),
         channels: config.channels.desired.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
-        others: Vec::new(),
-        default: config.endpoints.default_direct_endpoint.clone(),
-        // The roster's aliases name the rows of its held identities
-        // (`Roster::held_if_changed`), which this Service does not read:
-        // its view is told the identity through `ToView::Held`.
-        aliases: std::collections::BTreeMap::new(),
+        others: endpoints.into_iter().skip(1).collect(),
+        default: held.default.clone(),
+        aliases: held
+            .held
+            .iter()
+            .filter_map(|h| Some((h.endpoint.clone(), h.alias.clone()?)))
+            .collect(),
     }
 }
 
 /// A facade that did not start, as the start's refusal. More identities
-/// than a client holds cannot come of a roster of one; were it to, it is
-/// refused as a store that cannot be opened now, the detail for the log.
+/// than a client holds -- an overlay that added more human-client entries
+/// than the identity cap leaves room for -- is refused as a store that
+/// cannot be opened now, the detail for the log.
 fn spawn_refused(error: SpawnError) -> StartRefused {
     match error {
         SpawnError::Store(e) => classify(&e),
@@ -1319,5 +1496,51 @@ mod tests {
             store_answer(&StartRefused::StoreNeedsRecovery),
             Some(StoreAnswer::Refused(StoreRefusal::Recovery))
         );
+    }
+
+    fn id(name: &str) -> interweave_transport_api::EndpointId {
+        interweave_test_support::endpoint_keys::endpoint_id(name)
+    }
+
+    fn entry(name: &str) -> HeldEntry {
+        HeldEntry {
+            endpoint: id(name),
+            alias: Some(name.to_owned()),
+        }
+    }
+
+    fn ids(held: &Held) -> Vec<interweave_transport_api::EndpointId> {
+        held.held.iter().map(|h| h.endpoint.clone()).collect()
+    }
+
+    /// Android's first identity stays first, whichever entry app-core's
+    /// `held_list` put first, and only the list's added entries follow it,
+    /// in its order, Android's first not twice; the default is the list's
+    /// when Android holds it, else none. Mutations: the list's own first
+    /// kept (`skip(1)` dropped) -- `authored` is held; the duplicate check
+    /// dropped -- `android` is held twice; the default left unfiltered --
+    /// `authored` is the default.
+    #[test]
+    fn androids_first_stays_first_and_only_the_added_follow() {
+        let list = HeldList {
+            held: vec![
+                entry("authored"),
+                entry("work"),
+                entry("android"),
+                entry("home"),
+            ],
+            default: Some(id("work")),
+        };
+        let held = android_held(list, entry("android"));
+        assert_eq!(ids(&held), [id("android"), id("work"), id("home")]);
+        assert_eq!(held.held[1].alias.as_deref(), Some("work"));
+        assert_eq!(held.default, Some(id("work")));
+        let list = HeldList {
+            held: vec![entry("authored"), entry("work")],
+            default: Some(id("authored")),
+        };
+        let held = android_held(list, entry("android"));
+        assert_eq!(ids(&held), [id("android"), id("work")]);
+        assert_eq!(held.default, None, "the default Android does not hold");
     }
 }
