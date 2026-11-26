@@ -384,13 +384,22 @@ The step, in this order:
    Add an identity chooses one, and a card with the old card's name
    and photo, not yet shared with anyone. The record that the new
    identity replaces the old one (Q-link, the store's) is written
-   **before** the administrative add, not with it: the client mints
-   the key, so it knows the new EndpointId first, and a kill between
-   the add and a later write would leave an added identity with no
-   record, which the next Replace would turn into a third identity.
-   The order is: the key minted and sealed at the new identity's key
-   path, the record, the add, then the card (Add's Create, too,
-   writes the card after the add, identities §6.2). The add's answer
+   **before** the key is sealed and before the administrative add:
+   the client generates the key pair, so it knows the new EndpointId
+   first. A kill between the add and a later write would leave an
+   added identity with no record, and a kill between the seal and a
+   later write a key file no record names; in both, the next Replace
+   would mint another key and make a third identity (ADR-0061
+   decision 7, A 2026-11-26 (ii)). The order is: the key pair
+   generated, the record, the key sealed at the new identity's key
+   path, the platform key made (on Android), the add, then the card
+   (Add's Create, too, writes the card after the add, identities
+   §6.2). If the record cannot be written, nothing is sealed and no
+   add is sent: the step ends as failed (§5.4), the old identity
+   unchanged. The add names the key, takes the alias the client
+   chooses for a new identity of the old card's name, and the client
+   kinds of an identity; the record holds none of these, only the two
+   ids (`STATE.md`). The add's answer
    decides what follows, as a settled record's does (below). On
    `added` or `unchanged`, the step goes on. On `refused`, the record
    is settled as below: it is discarded and the step ends as failed
@@ -472,7 +481,17 @@ already knows**:
   the client reads nothing from such a list: it **settles** the record by
   sending the same add again, with the key at the new identity's key
   path, at the app's next open and whenever Replace is pressed on the
-  old identity. Replace then opens no dialog and mints no second key
+  old identity. The add sent again makes its alias again, as step 1
+  made it, from the old identity's card name as it is then, since the
+  record holds no alias (ADR-0061 decision 7, A 2026-11-26 (ii)).
+  Two cases end in the `refused` item below, which discards the
+  record: a key that was never sealed (the step was cut between the
+  record and the seal), refused `key_missing`; and an entry left
+  ahead of the running device that holds another alias, refused
+  `exists`. The second follows a rename of the old identity between
+  the cut and the settle, which then changes the alias. The person
+  never saw that replacement finish: the old identity stands with
+  `KeyReplaceFailed`, and Replace makes a new one. Replace then opens no dialog and mints no second key
   while a record names the old identity. While the client settles
   the record, the old identity's block shows `KeyReplacing` with its
   progress line in place of its actions, and Remove and Turn off are
@@ -924,7 +943,12 @@ the runs that need it are blocked.
     old identity in this state, unchanged (its card rows not
     withdrawn), with no new identity, no `KeyReplaceUnfinished`, and
     Replace, which then makes exactly one new identity; after the
-    record is written but before the administrative add, the next
+    record is written but before the key is sealed, the next start
+    settles the record (§5.3): the add is sent once and refused
+    `key_missing`, the record is discarded, and the old identity
+    stands as before, with `KeyReplaceFailed` under its actions and
+    Replace, which then makes exactly one new identity; after the key
+    is sealed but before the administrative add, the next
     start settles the record (§5.3): the add is sent once with the key
     the cut step minted, and the old identity's page shows
     `KeyReplaceUnfinished` and Finish replacing, which completes the
@@ -932,7 +956,14 @@ the runs that need it are blocked.
     before the old one is removed or turned off (inside step 2
     included), the old identity's page shows `KeyReplaceUnfinished`
     and Finish replacing, which completes the replacement and makes no
-    third identity (Q-link); after, as item 23.
+    third identity (Q-link); after, as item 23. In the cut between the
+    record and the seal, no key file is at the new id's key path before
+    that settle. One more run: the add left ahead of the running device
+    (its publish and restore made to fail, answered `Internal`), then
+    the old identity renamed, the failure no longer made, and the app
+    restarted. The settle's add
+    is refused `exists`, the record is discarded, and the old identity
+    stands with `KeyReplaceFailed` and Replace, as in the second case.
 25. After 23, A's row opens a conversation of the new identity with
     A's route and the share sheet; Share sends the new card, and A's
     counterparty's client shows it as a card of an identity it does
@@ -1243,7 +1274,8 @@ batch. As read here:
 
 - **Q-link**: yes, the store's. Written **before** the administrative
   add, since the client mints the key and knows the new EndpointId
-  first (§5.3 step 1). Kept until step 5 for an added identity and
+  first (§5.3 step 1); since ADR-0061 decision 7, A 2026-11-26 (ii),
+  also before the key is sealed. Kept until step 5 for an added identity and
   deleted with its Remove, so no record of a removal survives; kept
   while both exist for the first identity, and gone if the new one is
   ever removed (§5.4). After an added identity's step 5 nothing stored
