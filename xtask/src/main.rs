@@ -198,6 +198,11 @@ fn tree_checks() -> Vec<Task> {
             &["tools/checks/check_shell_scripts.sh"],
         ),
         Task::new(
+            "no shell script ends a pipeline in a quiet grep under pipefail",
+            "bash",
+            &["tools/checks/check_no_grep_q_pipe.sh"],
+        ),
+        Task::new(
             "every third-party action is pinned by commit SHA, its release beside it",
             "bash",
             &["tools/checks/check_actions_pinned_by_sha.sh"],

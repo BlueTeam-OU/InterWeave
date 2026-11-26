@@ -101,7 +101,7 @@ fi
 # Tell an unreachable advisory database apart from a real violation. The
 # first is a bad afternoon on someone else's network; the second is a
 # decision this repository has to make.
-if printf '%s' "$output" | grep -qiE 'unable to fetch advisory|failed to fetch|could not.*advisory-db|network|dns error|connection refused'; then
+if grep -qiE 'unable to fetch advisory|failed to fetch|could not.*advisory-db|network|dns error|connection refused' <<<"$output"; then
   printf '\ncheck_dependencies: the advisory database could not be fetched.\n' >&2
   printf 'This is an environment problem, not a policy violation.\n' >&2
   exit 2
