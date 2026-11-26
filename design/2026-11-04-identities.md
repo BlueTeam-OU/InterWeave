@@ -108,7 +108,8 @@ acceptance case in §14 that needs one says so:
   created nothing. It says nothing about an earlier add of the same key
   whose outcome was unknown, since the entry that the earlier add left
   ahead can still be in the configuration when a later add is refused
-  (ADR-0061 decision 7, A 2026-11-26). Neither the add nor the remove promises more about an answer that was lost: a
+  (ADR-0061 decision 7, A 2026-11-26). Neither the add nor the remove
+  promises more about an answer that was lost: a
   write the client stopped waiting for may still commit after a later
   list has answered (`LOCAL-IPC.md`, A 2026-10-23; ADR-0061 decision 7,
   A 2026-11-24). §7's Remove is written for that: when an id is read
@@ -575,8 +576,9 @@ no card is named by it.
    `exists` (D1). A name changed after that goes to the card only
    (step 3), as a later rename does (the alias rule above).
    The record is deleted when the id becomes an identity (the add
-   answers `added` or `unchanged`, or a list reads it as Found, below), which comes
-   before step 3; when the form is left with nothing created and the
+   answers `added` or `unchanged`, or a list reads the id as Found,
+   below), which comes before step 3;
+   when the form is left with nothing created and the
    key is deleted; or when the settle discards the record and the
    remove it sends answers `removed` or `EndpointUnknown` (below). It
    is never deleted otherwise.
@@ -650,8 +652,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
     was refused with nothing created): on Back, the client deletes the
     key file and, on Android, the platform key, then the record; a key
     path that holds nothing, and a platform key that was never made,
-    count as deleted already. If a delete fails, the record is kept. If the app ends, nothing is
-    deleted. In both of these cases the record is then settled as the
+    count as deleted already. If a delete fails, the record is kept.
+    If the app ends, nothing is deleted.
+    In both of these cases the record is then settled as the
     next item says.
   - after an add of its key ended unknown, or while an add was running
     (the app ended during Create): the key and the record are kept,
@@ -1361,16 +1364,17 @@ pass before it lands.
     `IdentityAddUnknown`. (m) An add left ahead as in (c), the entry's
     alias then changed from the command line, and Create chosen: the
     list lacks the id, the add answers `exists`, and the list read after
-    it still lacks the id, so `IdentityAddUnknown` shows. Again, with
-    the daemon restarted between that add and the list read after it,
-    so that the restart loads the entry: the list reads it as Found and
-    the card is written. (n) A
-    pending-add record whose id is listed and whose key path is empty
-    (an add that registered the id with its answer cut, the list read
-    after it made to fail, so `IdentityAddUnknown` shows; then the key
-    file moved aside and Back): the settle sends the remove of that
-    listed id, which answers `removed`, and deletes the record. With
-    Create in place of Back: the list does not read the id as Found,
+    it still lacks the id, so `IdentityAddUnknown` shows. In a variant
+    of (m), the daemon is restarted between that add and the list read
+    after it, and the restart loads the entry: the list reads the id as
+    Found and the card is written. (n) A pending-add record whose id is
+    listed and whose key path is empty. To reach that state, an add
+    registers the id and its answer is cut, and the list that is read
+    after that add is made to fail, so `IdentityAddUnknown` shows; then
+    the key file is moved aside and Back is chosen. The settle sends the
+    remove of that listed id, which answers `removed`, and deletes the
+    record. In a variant of (n) with Create in place of Back: the list
+    does not read the id as Found,
     the add answers `key_missing`, `IdentityAddUnknown` shows again,
     and no card is written. (o) The process ended after the record was
     written and before the key was sealed: at the next start the list
