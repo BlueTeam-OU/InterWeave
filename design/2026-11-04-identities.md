@@ -609,8 +609,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   the settle that Your identities runs on opening finds that id as an
   identity, or discards it.
 - **Refused, with nothing created**: the add answered
-  `InvalidArgument`, or `refused` for a reason other than `exists` or
-  `bound`; or Create stopped before the add, because the record or the
+  `InvalidArgument`, or `refused` for a reason other than `exists`,
+  `bound` or `key_missing`; or Create stopped before the add, because the record or the
   key could not be written. Each of these is this outcome only when no
   earlier add of the form's key ended unknown; after such an add, each
   is an unknown outcome (below).
@@ -618,8 +618,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   Create, focus on it. The key stays with the form (step 2), and the
   next Create takes the alias again from what the Name field says
   then.
-  The cases of this item, and a refusal `bound` when no earlier add of
-  the form's key ended unknown, are the only cases in which the client
+  The cases of this item, and a refusal `bound` or `key_missing` when
+  no earlier add of the form's key ended unknown, are the only cases in which the client
   knows that nothing was created (D1; ADR-0061 decision 7, A 2026-11-26).
 - **The add answers that the id is held**: `unchanged` (an earlier add
   landed, D1) is handled as Found: the record is deleted and the client
@@ -633,8 +633,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   device, which the client cannot tell apart, D1); any other error,
   `BackendUnavailable` included (the device can answer it in place of
   `unchanged`, D1); after an earlier add of the form's key ended
-  unknown, a refusal for any reason other than `bound` or a Create
-  stopped before its add; the connection to the daemon dropping; or no
+  unknown, a refusal for any reason other than `bound` or
+  `key_missing`, or a Create stopped before its add; the connection to the daemon dropping; or no
   answer within **the add's wait, 30 seconds**
   (a hypothesis: well past a key's sealing and one configuration write
   on the slowest supported phone; falsified if rust-ui-dev measures an
@@ -645,24 +645,49 @@ Outcomes other than Done, each with nothing half-made shown as made:
   (ADR-0061 decision 7, A 2026-11-26). A listed id whose key path is
   empty is not Found: its key is gone, so it is no identity the person
   can use, and the settle below discards it. Found:
-  the record is deleted and the client goes on with step 3. Not Found,
-  or the read fails: the form stays filled with
+  the record is deleted and the client goes on with step 3. The id
+  listed while its key path is empty: the form's key is gone (the next
+  item). Not Found otherwise, or the read fails: the form
+  stays filled with
   `IdentityAddUnknown` ("InterWeave could not check whether {name} was
   created. Choose Create to try again. If {name} was already
   created, Create does not create a second one.") above Create, focus on
-  it, and Back enabled. Create there reads the list first and, not
-  Found, or when that read fails, calls the add again with the same
-  key, alias and kinds (step 2); its answer is then handled as this
-  section says for any add, so an add that had landed answers
+  it, and Back enabled. Create there reads the list first, which ends
+  as the read above does: Found, or the form's key gone; not Found
+  otherwise, or when that read fails, it calls the add again with the
+  same key, alias and kinds (step 2), and its answer is then handled
+  as this section says for any add, so an add that had landed answers
   `unchanged` and is Found. A failed read never ends a Create by
   itself: the add is safe to send, since it can only make the same
   EndpointId. **Alternative named:** try the add again at once, with a
   new key. Rejected: a second key would make a second identity if the
   first add had landed.
+- **The form's key is gone**: an add answered `refused` `key_missing`
+  (the key file is not at its key path, LOCAL-IPC's check order), or a
+  list read for Found holds the id while its key path is empty. No
+  Create on this form can succeed from here, since every later add
+  sends the same key (step 2) and would be refused the same way, so
+  the form says so once rather than offering Create again: Create is
+  not offered and `IdentityAddKeyGone` ("{name} cannot be created from
+  this form, because the key InterWeave made for it is missing. Go
+  back and create the identity again.") shows in its place, focused,
+  with Back enabled. The form keeps its fields until it is left. Back
+  leaves the form as the next item says: with no add of the key ended
+  unknown, the empty key path counts as deleted and the platform key
+  and the record are deleted; after one, the record is kept and the
+  settle discards the id, which an add that landed may have made, so
+  that no identity without its key is left behind. A new form makes a
+  new key. **Alternative named:** keep `IdentityAddUnknown` and Create.
+  Rejected: "Choose Create to try again" would then be a promise no
+  Create keeps, and the person would retry with no way to learn why
+  (heuristic: help users recognise, diagnose and recover from errors).
+  **Alternative named:** make a new key on this form. Rejected: an
+  earlier add may have landed with the old key, and step 2's rule that
+  one form makes one identity rests on its one key.
 - **The form is left** (Back, or the app ends):
   - when no add of its key ended unknown (no add was sent, or each
-    was refused with nothing created): on Back, the client deletes the
-    key file and, on Android, the platform key, then the record; a key
+    was refused with nothing created, or `key_missing`): on Back, the
+    client deletes the key file and, on Android, the platform key, then the record; a key
     path that holds nothing, and a platform key that was never made,
     count as deleted already. If a delete fails, the record is kept.
     If the app ends, nothing is deleted.
@@ -1077,6 +1102,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F21 | the identity in front becomes Starting, Could not start, No room at the daemon, unable to send because the device cannot store new messages, Off by the configuration, or with no lease, while its send control has focus (§5.2) | the composer's field | keyboard, with the daemon restarted, again with acceptance 30's two runs, and again with the identity's endpoint turned off in the configuration while the client runs |
 | F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each of the four runs, a reconnection to the device makes `admin.endpoints.list` answer |
 | F23 | Try again on Chats' failure row after a switch (§5.4) | the switch | keyboard, with acceptance 27's failing read |
+| F24 | Create finds the form's key gone (§6.2) | `IdentityAddKeyGone`, in Create's place | keyboard, with acceptance 10's run (j) and the variant of (n) |
 
 ## 12. Accessibility beyond focus
 
@@ -1207,6 +1233,7 @@ front.
 | `IdentityAlias` | Name to use on the command line: {alias} | an identity's page | the name used in commands, with the alias; the alias last, nothing touching it |
 | `ConfirmIdentityAdded` | {name} was created. It does not trust any peer yet. | snackbar | {name} added; it trusts no one yet |
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
+| `IdentityAddKeyGone` | {name} cannot be created from this form, because the key InterWeave made for it is missing. Go back and create the identity again. | the add form, in Create's place | this form can no longer create it, since its key is missing; leave and start a new form |
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
 | `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before its rows were deleted (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
@@ -1342,7 +1369,7 @@ pass before it lands.
     `IdentityAddUnknown` with the daemon down, the key file and the
     pending-add record stay until a list that answers. Needs D1.
 
-    Add's kept key, thirteen more runs, each observed from the daemon
+    Add's kept key, fourteen more runs, each observed from the daemon
     (`admin.endpoints.list`), `endpoint-keys/` and the store:
     (c) an add left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): `IdentityAddUnknown`
@@ -1367,8 +1394,10 @@ pass before it lands.
     Create refused `alias_taken`, then Back: the key file, the platform
     key and the record are deleted on Back, with no remove sent. (j) As
     (c) up to `IdentityAddUnknown`, then the key file moved aside and
-    Create chosen, refused `key_missing`: `IdentityAddUnknown` shows,
-    never `IdentityAddFailed`. Back deletes nothing: the record stays,
+    Create chosen, refused `key_missing`: `IdentityAddKeyGone` shows in
+    Create's place, focused, and Create is no longer offered; neither
+    `IdentityAddUnknown` nor `IdentityAddFailed` shows. Back deletes
+    nothing: the record stays,
     and the key file stays in the place it was moved to. The settle
     then finds the key path empty, empties the platform key on Android,
     and sends the remove, which answers `removed`; the record is
@@ -1390,14 +1419,18 @@ pass before it lands.
     the key file is moved aside and Back is chosen. The settle sends the
     remove of that listed id, which answers `removed`, and deletes the
     record. In a variant of (n) with Create in place of Back: the list
-    does not read the id as Found,
-    the add answers `key_missing`, `IdentityAddUnknown` shows again,
-    and no card is written. (o) The process ended after the record was
-    written and before the key was sealed: at the next start the list
-    lacks the id, the settle counts the empty key path and the absent
-    platform key as emptied, the remove answers `EndpointUnknown`, and
-    the record is deleted. Needs D1 and ADR-0061 decision 7 (A
-    2026-11-26).
+    read before the add holds the id with its key path empty, so no add
+    is sent, `IdentityAddKeyGone` shows in Create's place, focused, and
+    no card is written; Back then ends as (n) does. (o) The process
+    ended after the record was written and before the key was sealed:
+    at the next start the list lacks the id, the settle counts the
+    empty key path and the absent platform key as emptied, the remove
+    answers `EndpointUnknown`, and the record is deleted. (p) A first
+    Create refused `key_missing` (the key file moved aside after it was sealed,
+    before the add): `IdentityAddKeyGone`, never `IdentityAddFailed`;
+    Back deletes the platform key on Android and the record, with no
+    remove sent, and the moved-aside file stays where it was put. Needs
+    D1 and ADR-0061 decision 7 (A 2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
@@ -1502,7 +1535,7 @@ pass before it lands.
     Tab in that order on the desktop, and by a hardware keyboard on the
     Pixel; Escape and Back close each menu, sheet and dialog with
     focus on the opener; no key switches identity without the switcher.
-21. Focus table: each row F1–F23 holds, checked as its row says.
+21. Focus table: each row F1–F24 holds, checked as its row says.
 22. Contrast: one row per mark and surface named in §12, each measured
     at or above its ratio, light and dark.
 23. TalkBack: each "as" line is read with its control, and each
