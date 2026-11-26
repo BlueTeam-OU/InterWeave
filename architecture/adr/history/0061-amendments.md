@@ -526,13 +526,14 @@ old identity, so the same 64 bound it.
 **A discard of the store.** "Discard" in the two settlements is the
 record's: key path, platform key, administrative remove. A discard of
 the store (ADR-0060) takes both records with every other row and
-deletes no key file. No settlement runs before it, and no mark of the
+deletes no file in `endpoint-keys/`; the one key file it may delete is
+the store's own sealed key. No settlement runs before it, and no mark of the
 rows is kept outside the store: such a mark would be a second record of
 what the store held, surviving the act meant to end it. What follows is
 said rather than repaired. An id the endpoint list holds, then or after
 the daemon's next start, is an identity whose card is recreated from
-its alias, as decision 2 has it for every identity after a store
-discard; a replacement in progress is forgotten, and the old identity
+its alias, as decision 1 has it for every identity after a store
+discard (ADR-0060 decision 6); a replacement in progress is forgotten, and the old identity
 and the new stand as two identities, the person removing the one not
 wanted; a key whose add never wrote stays in `endpoint-keys/` unused,
 and the client does not scan for it, the directory being one a
@@ -557,12 +558,17 @@ would settle it; the daemon is p2p-network-dev's.
 
 Propagation: decision 7; this note; the log row; the digest entry, its
 replacement bullet and its pending-add bullet; `STATE.md` §Logical
-tables, both records. Three design texts state the order or a case this
+tables, both records. Four design texts state the order or a case this
 note changes and are their owner's to bring to it, unchanged here:
 `design/2026-10-24-identity-key.md` §5.3 step 1 ("the key minted and
 sealed at the new identity's key path, the record, the add") and
 `design/2026-11-04-identities.md` §6.2 ("before or after Replace writes
 its replaces record") and its run (g), a Replace stopped between the
-seal and the record, which this order leaves no way to reach. Neither
+seal and the record, which this order leaves no way to reach; and
+`design/2026-10-24-identity-key.md` acceptance 24, whose cut "after
+the record is written but before the administrative add" now holds two
+cases: with the key not yet sealed the record is discarded and the old
+identity stands as before, and with the key sealed it ends as written
+there. Neither
 record is built (`STATE.md` §Logical tables), so no build did
 otherwise.
