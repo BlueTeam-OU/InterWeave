@@ -1434,16 +1434,19 @@ mod tests {
     /// a stop drops them, as the hub drops its rows, so a model made at
     /// the stop, and at the next start until the facade tells its own, is
     /// told none; a list the model refuses is kept for the root to log.
-    /// One identity is held here: the front-only facts a running state
-    /// tells are not yet told with a model behind (another change moves
-    /// them). Mutations: `Identities` not told to the
+    /// Two identities are held. Mutations: `Identities` not told to the
     /// model shown -- the first assert; `made` not telling them -- the
     /// "made again" assert; the rows kept at a stop -- the "stopped"
     /// assert; the refusal dropped -- `take_held_refused` answers `None`.
     #[test]
     fn a_model_made_again_is_told_the_identities_again() {
-        let mut side = view_side();
-        let told = rows(&[(me(), "mine")]);
+        let mut side = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        side.apply(ToView::Held(Held {
+            held: vec![me(), other()],
+            front: me(),
+        }))
+        .expect("applied");
+        let told = rows(&[(me(), "mine"), (other(), "work")]);
         side.apply(ToView::Identities(told.clone()))
             .expect("applied");
         assert_eq!(held_rows(&side), told, "told to the model shown");
@@ -1548,8 +1551,7 @@ mod tests {
     /// switch, after the command the old front's view had not yet asked,
     /// which crosses naming the old front; once the hub hands a crossing
     /// back -- no facade runs -- the take says so and crosses nothing
-    /// more. With two held and no running state said, no front-only fact
-    /// is told. Mutations: `take_identity_acts` not handing the model
+    /// more. Mutations: `take_identity_acts` not handing the model
     /// side's crossings to `cross` -- nothing reaches the facade; a
     /// handed-back crossing not reported -- the take answers false; a
     /// handed-back command not failed to its model -- no problem said.
