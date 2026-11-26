@@ -527,10 +527,11 @@ Cards §5.1 stands, with these changes:
     a label member rather than drop it for the same reason: "dropped, it would
     bring back enabled an endpoint the operator turned off", ENDPOINTS,
     A 2026-11-22);
-  - its stderr line is that of a configuration that cannot be loaded,
-    and its exit class is `EX_CONFIG`, or `EX_NOPERM` when the file is
-    not private, as the store's and the lock's are (a `config.yaml`
-    that is not private exits `EX_CONFIG`).
+  - its stderr line is that of a configuration that cannot be loaded.
+    Its exit class is `EX_CONFIG`. When the overlay is not private, the
+    exit class is `EX_NOPERM`, as it is when the store or the store's
+    lock is not private; a `config.yaml` that is not private gives
+    `EX_CONFIG`, not `EX_NOPERM`.
   Why not the first identity alone with a notice: (1) the daemon stops
   its own start on the same file (`crates/transport/composition/src/runtime.rs`,
   "A present overlay that cannot be trusted stops the start"), so the
@@ -677,8 +678,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   client to the list read that the next item, "The outcome is
   unknown", describes, and what that read finds is handled as that
   item says: Found, the form's key gone, or `IdentityAddUnknown`.
-  Unless that read is Found, an add answered `exists` has ended
-  unknown (step 2).
+  When that read finds anything other than Found, or fails, the add
+  that was answered `exists` counts as an add that ended unknown
+  (step 2).
 - **The outcome is unknown**: every other ending of an add. These are
   `Internal` (a write that failed, or an add left ahead of the running
   device, which the client cannot tell apart, D1); any other error,
@@ -707,12 +709,12 @@ Outcomes other than Done, each with nothing half-made shown as made:
   read is Found, or finds the form's key gone, the client goes on as
   it does after the first list read. Otherwise (not Found, or the read
   fails), Create calls the add again with the same key and kinds
-  (step 2). Its alias is the one that step 2 gives: once an add of
-  the form's key has ended unknown, the alias of the first such add.
-  Otherwise it is made from what the Name field says at that time, as
-  it is after the not-listed reading of "Created, not finished" (that
-  item says why). The
-  answer of the add that Create sends is then handled as this section
+  (step 2). Step 2 gives the alias of that add. Once an add of the
+  form's key has ended unknown, it is the alias of the first add of
+  that key that ended unknown; otherwise it is made from what the Name
+  field says when the person chooses Create, as it is after the
+  not-listed reading of "Created, not finished" (that item says why).
+  The answer of the add that Create sends is then handled as this section
   says for any add, so an add that had landed answers `unchanged` and
   is Found. A failed read never ends a Create by
   itself: the add is safe to send, since it can only make the same
