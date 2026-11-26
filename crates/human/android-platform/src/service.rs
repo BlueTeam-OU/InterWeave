@@ -354,8 +354,10 @@ impl ServiceHost {
         }
     }
 
-    /// Where the facade says what the platform log names, by class: kept
-    /// until the app takes it ([`Self::take_facade_notes`]).
+    /// Where the facade says what the platform log names, by class (no
+    /// [`FacadeNote`] variant carries a field, the build's check where it
+    /// is declared): kept until the app takes it
+    /// ([`Self::take_facade_notes`]; `a_class_said_twice_is_taken_once`).
     fn facade_note(&self) -> impl Fn(FacadeNote) + Send + 'static {
         let notes = Arc::clone(&self.facade_notes);
         move |note| {
@@ -364,8 +366,8 @@ impl ServiceHost {
     }
 
     /// What the facade said for the platform log since the last take, by
-    /// class and never content (a unit-only enum, the build's check where
-    /// [`FacadeNote`] is declared), each once
+    /// class and never content (no [`FacadeNote`] variant carries a field,
+    /// the build's check where it is declared), each once
     /// (`a_class_said_twice_is_taken_once`): the app logs them after a
     /// start, as it logs [`Self::identity_key_refused`].
     #[must_use]

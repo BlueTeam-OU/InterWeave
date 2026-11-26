@@ -96,7 +96,7 @@ impl From<RosterError> for SpawnError {
 }
 
 /// What the facade says for the platform log: a class, never what the
-/// store holds, since a row names an identity. Every variant is a unit:
+/// store holds, since a row names an identity. No variant carries a field:
 /// the casts below are refused by the compiler for an enum any of whose
 /// variants carries a field, of whatever size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -109,8 +109,9 @@ pub enum FacadeNote {
     FrontUnremembered,
 }
 
-// A FacadeNote is a class: `as` casts an enum only while every variant
-// is a unit, so a variant given a field stops this from building.
+// A FacadeNote is a class: `as` casts an enum only while no variant
+// carries a field, so a variant given one, of any size, stops this from
+// building.
 const _: [u8; 2] = [
     FacadeNote::FrontUnread as u8,
     FacadeNote::FrontUnremembered as u8,
