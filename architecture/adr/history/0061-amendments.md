@@ -488,3 +488,81 @@ arrive with it in one change: `design/2026-11-04-identities.md` D1
 refusal) and `IdentityAddFailed` shown on `Internal`. How the form
 holds the alias of the first add that ended unknown is the design's.
 `LOCAL-IPC.md` is unchanged: every answer this leans on is its own.
+
+### Amendment 2026-11-26 — The replaces record is written before the replacement's key is sealed, the pending-add record is bounded, and a store discard takes both (ii)
+
+Four things, the first a gap both reviews of the pending-add text at
+cadd2cf47 named as standing before it, the rest owed since that text
+landed.
+
+**The replaces record's order.** Decision 7 and `STATE.md` had the
+record written before the administrative add, and the design's step
+had the key sealed before the record. A Replace cut between the seal
+and the record left a key file no record names: no settlement reaches
+it, the pending-add rule of the same day forbids deleting a key no
+record names, and a second Replace, finding no record on the old
+identity, minted another. It is the gap the pending-add record had in
+its first text, and it takes the same fix: the client generates the
+key pair, knows the id from it, writes the record, and only then seals
+the key, makes the platform key and sends the add; a record that cannot
+be written seals nothing. A record whose key was never sealed needs no
+rule of its own. The settlement of 2026-11-25 sends the same add, the
+daemon answers `refused` with `key_missing`, and the discard finds the
+key path empty, retires a platform key made before the process ended as
+any is, and deletes the record on the remove's `EndpointUnknown`; the
+old identity stands as before with Replace offered again. The
+2026-11-24 note's "written before the add" stands as the record of its
+day and is narrowed by this one.
+
+**The pending-add record's bound.** At most 64 rows, the profile's
+bound on endpoints, which is also the most identities a profile holds.
+A write past it is a record that cannot be written, which the
+2026-11-26 note already answers: no seal, no platform key, no add.
+Nothing is evicted, because a row is the one thing that names its key
+and an evicted row would leave the key file no rule may delete. The
+replaces record takes no number of its own: one row at most names an
+old identity, so the same 64 bound it.
+
+**A discard of the store.** "Discard" in the two settlements is the
+record's: key path, platform key, administrative remove. A discard of
+the store (ADR-0060) takes both records with every other row and
+deletes no key file. No settlement runs before it, and no mark of the
+rows is kept outside the store: such a mark would be a second record of
+what the store held, surviving the act meant to end it. What follows is
+said rather than repaired. An id the endpoint list holds, then or after
+the daemon's next start, is an identity whose card is recreated from
+its alias, as decision 2 has it for every identity after a store
+discard; a replacement in progress is forgotten, and the old identity
+and the new stand as two identities, the person removing the one not
+wanted; a key whose add never wrote stays in `endpoint-keys/` unused,
+and the client does not scan for it, the directory being one a
+deployment also mints keys in (ADR-0067 decision 4).
+
+**"Read as that remove is".** The sentence opening the add's rule
+followed the replacement's settlement, whose last-named remove is the
+discard's, and a reviewer of the design change read it so. It now names
+the administrative remove of an identity's Remove, whose failed or lost
+answer is an outcome the client does not know, and says that the add is
+settled the other way from a replacement's add.
+
+Still not decided, and not verified, as the 2026-11-26 note left it:
+how the daemon orders an add applied late against a discard's remove.
+`LOCAL-IPC.md` says of the endpoint methods that none is ordered by
+connection and that an add applied late after the key file is deleted
+is `key_missing`; it does not say that an add past its key check cannot
+write after a remove answered `EndpointUnknown`. Both settlements end
+on that answer, so the residue is the same for both: an entry listed
+with its key gone, removed by the person. A daemon interleaving test
+would settle it; the daemon is p2p-network-dev's.
+
+Propagation: decision 7; this note; the log row; the digest entry, its
+replacement bullet and its pending-add bullet; `STATE.md` §Logical
+tables, both records. Three design texts state the order or a case this
+note changes and are their owner's to bring to it, unchanged here:
+`design/2026-10-24-identity-key.md` §5.3 step 1 ("the key minted and
+sealed at the new identity's key path, the record, the add") and
+`design/2026-11-04-identities.md` §6.2 ("before or after Replace writes
+its replaces record") and its run (g), a Replace stopped between the
+seal and the record, which this order leaves no way to reach. Neither
+record is built (`STATE.md` §Logical tables), so no build did
+otherwise.
