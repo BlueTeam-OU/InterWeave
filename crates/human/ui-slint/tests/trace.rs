@@ -4495,3 +4495,34 @@ fn a_dialogs_way_back_across_a_live_switch_is_the_same_letter() {
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
 }
+
+/// A page shown again before a new notice's banner has taken focus --
+/// a second render in the same turn, no time passed -- leaves focus to
+/// the banner: the rebuild keeps the stop still wanted, not the key
+/// focus stood on (j345).
+#[test]
+fn a_second_render_as_a_notice_arrives_leaves_focus_to_the_banner() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-primary",
+        "control: 24 filled"
+    );
+    page.tab();
+    tab_to(&mut page, "ui-trace focus=identity-key");
+    page.take();
+    interweave_human_ui_slint::apply_identity(&mut page.flow, IdentityInput::Primary);
+    page.flow.checked(None);
+    for _ in 0..2 {
+        page.view
+            .show_identity(Some(interweave_human_ui_slint::identity_page(&page.flow)));
+        slint::platform::update_timers_and_animations();
+    }
+    page.turn();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner");
+    assert_eq!(page.take(), [], "nothing asked of the flow");
+}
