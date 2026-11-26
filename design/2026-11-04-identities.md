@@ -690,15 +690,16 @@ Outcomes other than Done, each with nothing half-made shown as made:
   discards the id when its key path is empty, so that no identity is
   left without its key: that covers an add that ended unknown and may
   have landed, and an add that answered `added` before the key went
-  (a form reached here from "Created, not finished", below). One case
-  the settle does not discard: the id listed while a key file that
-  cannot be read is at its key path (unlisted, the id is discarded as
-  any is). The settle's first branch then makes the id an identity,
-  whose page shows the key state of that file's refusal
-  (identity-key §3), with Try again where that state offers it, and
-  Remove (§7); this note does not change decision 7's test of "key
-  file at its key path". A new form makes a
-  new key. **Alternative named:** keep
+  (a form reached here from "Created, not finished", below). One id
+  the settle does not discard: an id that is listed and whose key path
+  holds a key file that cannot be read. (An id that is absent from a
+  list that answered is discarded, whatever is at its key path.) The
+  settle's branch "The id is listed and its key file is at its key
+  path" makes that id an identity. That identity's page shows the kind
+  that identity-key §3 gives to the file's refusal. The page offers
+  Remove (§7), and also Try again where that kind offers it. This note
+  does not change decision 7's test of "key file at its key path". A
+  new form makes a new key. **Alternative named:** keep
   `IdentityAddUnknown` and Create.
   Rejected: "Choose Create to try again" would then be a promise no
   Create keeps, and the person would retry with no way to learn why
