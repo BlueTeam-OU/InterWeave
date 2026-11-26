@@ -187,7 +187,8 @@ echo "check_stage_status: a missing tree is an invocation error"
 expect "no such directory" "$TMP/does-not-exist" 2
 
 echo "check_stage_status: --help works and says nothing about failure"
-if grep -q "single source of truth" <<<"$(bash "$GUARD" --help)"; then
+help_out="$(bash "$GUARD" --help)"; help_rc=$?
+if [ "$help_rc" -eq 0 ] && grep -q "single source of truth" <<<"$help_out"; then
   ok "--help prints the help block"
 else
   bad "--help did not print the help block"

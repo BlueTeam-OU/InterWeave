@@ -77,9 +77,11 @@ obj none.so
 
 # The fixtures are what the test says they are: readelf, not the script,
 # is asked, so a stub that linked without its versions fails here.
-grep -q 'Name: GLIBC_2.43' <<<"$(readelf -V -W "$SANDBOX/new.so")" \
+elf_out="$(readelf -V -W "$SANDBOX/new.so")"; elf_rc=$?
+[[ $elf_rc -eq 0 ]] && grep -q 'Name: GLIBC_2.43' <<<"$elf_out" \
     && pass "fixture: new.so needs GLIBC_2.43" || fail "fixture: new.so does not need GLIBC_2.43"
-grep -q 'WEAK .*v_2_43@GLIBC_2.43' <<<"$(readelf -W --dyn-syms "$SANDBOX/weak.so")" \
+elf_out="$(readelf -W --dyn-syms "$SANDBOX/weak.so")"; elf_rc=$?
+[[ $elf_rc -eq 0 ]] && grep -q 'WEAK .*v_2_43@GLIBC_2.43' <<<"$elf_out" \
     && pass "fixture: weak.so's v_2_43@GLIBC_2.43 is a weak symbol" \
     || fail "fixture: weak.so's v_2_43 is not a weak GLIBC_2.43 symbol" "$(readelf -W --dyn-syms "$SANDBOX/weak.so")"
 grep -q 'Version needs' <<<"$(readelf -V -W "$SANDBOX/none.so")" \

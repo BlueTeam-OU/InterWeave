@@ -255,7 +255,8 @@ timeout 10 bash "$CHECK" --root >/dev/null 2>&1; got=$?
 if [ "$got" = 2 ]; then echo "ok   --root with no value: exit 2, no loop"; else echo "FAIL --root with no value gave $got (124 = hung)" >&2; failures=$((failures + 1)); fi
 bash "$CHECK" --bogus >/dev/null 2>&1; got=$?
 if [ "$got" = 2 ]; then echo "ok   an unknown argument: exit 2"; else echo "FAIL unknown argument gave $got" >&2; failures=$((failures + 1)); fi
-grep -q "Does the root funnel's measurement still exist" <<<"$(bash "$CHECK" --help 2>&1)" \
+help_out="$(bash "$CHECK" --help 2>&1)"; help_rc=$?
+[ "$help_rc" -eq 0 ] && grep -q "Does the root funnel's measurement still exist" <<<"$help_out" \
     && echo "ok   --help prints the header" || { echo "FAIL --help" >&2; failures=$((failures + 1)); }
 
 if [ "$failures" -gt 0 ]; then echo "test_check_root_funnel_precondition: FAILED — $failures assertion(s)" >&2; exit 1; fi
