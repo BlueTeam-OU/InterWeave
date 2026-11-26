@@ -630,7 +630,14 @@ no card is named by it.
    nothing created" says (below). That includes a store that already
    holds 64 pending-add records, its bound; no record is evicted to
    make room, since a record is the one thing that names its key
-   (`STATE.md`; A 2026-11-26 (ii)).
+   (`STATE.md`; A 2026-11-26 (ii)). Since the settle below skips no
+   record but the open form's, and the open form has none yet, a
+   Create whose record is refused at the bound first settles the other
+   records, as opening Your identities does, and writes its record
+   again; only a second refusal ends Create as "Refused, with nothing
+   created". The next Create does the same, so "Choose Create to try
+   again" stays a promise a Create can keep: each one settles again,
+   and a settle that the daemon answers frees the records it ends.
    The form keeps that key for as long as it is open: **every later
    Create on the same form calls the add with the same key**, never a
    new one, so a retry can only make the same EndpointId, which is one
@@ -1612,7 +1619,12 @@ pass before it lands.
     (k) The record's write made to fail: `IdentityAddFailed`, no key
     file sealed, no add sent; a second
     Create, with the write no longer made to fail, writes the record
-    before its add. (l) A first add answered `BackendUnavailable`:
+    before its add. In a variant, 64 records stand, left by forms whose
+    adds ended unknown, with the daemon stopped: Create settles them
+    (each list fails, all are kept), its record is refused again, and
+    `IdentityAddFailed` shows with no key file sealed and no add sent;
+    with the daemon started again, the next
+    Create's settle discards those records and writes its own. (l) A first add answered `BackendUnavailable`:
     `IdentityAddUnknown`. (m) An add left ahead as in (c), the entry's
     alias then changed from the command line, and Create chosen: the
     list lacks the id, the add answers `exists`, and the list read after
