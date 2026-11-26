@@ -178,18 +178,24 @@ impl Behind {
 /// it, so a switch never brings in a model that missed a fact told while
 /// it was behind.
 ///
-/// Not here: `start_busy` and `start_refused`, which the model itself
-/// changes ([`UiModel::retry_start_asked`]), and `unlock_facts`, whose
-/// `seen` flag the model changes as the Trust page shows its line; a copy
-/// held here would go stale the moment the model changed its own. They
-/// are the front's alone, so a root that holds more than one identity
-/// must not call them: each asserts that no model is behind
-/// (`a_front_only_fact_with_a_model_behind_is_refused`).
+/// The start's facts are here too: they are the Service's start, which
+/// every held identity starts in or not together. Two of them a model
+/// also changes itself -- Try again turns a start notice to Starting
+/// ([`UiModel::retry_start_asked`]), the Trust page marks the P-up line
+/// seen ([`UiModel::unlock_line_seen`]) -- so each such change is made
+/// here first and told to every model; a copy left behind would undo it
+/// at the next tell
+/// (`a_retry_and_a_seen_line_outlive_the_next_fact_and_a_switch`).
 #[derive(Debug, Clone, Copy)]
 struct RootFacts {
     daemon: Option<bool>,
     network_allowed: bool,
     authentication_needed: bool,
+    start_busy: Option<StartBusy>,
+    start_refused: Option<StartBusy>,
+    unlock: Option<UnlockFacts>,
+    unlock_start: u64,
+    unlock_seen: bool,
 }
 
 impl Default for RootFacts {
@@ -199,6 +205,11 @@ impl Default for RootFacts {
             daemon: None,
             network_allowed: true,
             authentication_needed: false,
+            start_busy: None,
+            start_refused: None,
+            unlock: None,
+            unlock_start: 0,
+            unlock_seen: false,
         }
     }
 }
@@ -211,10 +222,28 @@ impl RootFacts {
             daemon,
             network_allowed,
             authentication_needed,
+            start_busy,
+            start_refused,
+            unlock,
+            unlock_start,
+            unlock_seen,
         } = self;
         model.daemon_seen(daemon);
         model.network_access(network_allowed);
         model.authentication_needed(authentication_needed);
+        model.start_busy(start_busy);
+        model.start_refused(start_refused);
+        model.unlock_facts(unlock, unlock_start, unlock_seen);
+    }
+
+    /// [`UiModel::retry_start_asked`]'s change, made to the facts every
+    /// model is told.
+    fn retry_start_asked(&mut self) {
+        for notice in [&mut self.start_busy, &mut self.start_refused] {
+            if notice.is_some() {
+                *notice = Some(StartBusy::Starting);
+            }
+        }
     }
 }
 
@@ -634,11 +663,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// the bound, and whether a start for its notice runs, as the root
     /// learns it from the platform.
     pub fn start_busy(&mut self, busy: Option<StartBusy>) {
-        debug_assert!(
-            self.behind.is_empty(),
-            "a front-only fact told with a model behind (RootFacts)"
-        );
-        self.model.start_busy(busy);
+        self.facts.start_busy = busy;
+        self.tell_all();
     }
 
     /// Whether the last start compared with C4's `PeerId` and was refused
@@ -646,21 +672,17 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// Chats in its place, and whether a start for its notice runs, as the
     /// root learns it from the platform ([`UiModel::start_refused`]).
     pub fn start_refused(&mut self, refused: Option<StartBusy>) {
-        debug_assert!(
-            self.behind.is_empty(),
-            "a front-only fact told with a model behind (RootFacts)"
-        );
-        self.model.start_refused(refused);
+        self.facts.start_refused = refused;
+        self.tell_all();
     }
 
     /// The unlock note's facts as the platform says them, the count of
     /// the start they are from, and whether its P-up line was seen.
     pub fn unlock_facts(&mut self, facts: Option<UnlockFacts>, start: u64, seen: bool) {
-        debug_assert!(
-            self.behind.is_empty(),
-            "a front-only fact told with a model behind (RootFacts)"
-        );
-        self.model.unlock_facts(facts, start, seen);
+        self.facts.unlock = facts;
+        self.facts.unlock_start = start;
+        self.facts.unlock_seen = seen;
+        self.tell_all();
     }
 
     /// What did not happen since the last call, oldest first.
@@ -1067,6 +1089,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         if input == TrustInput::Opened
                             && let Some(start) = self.model.unlock_line_seen()
                         {
+                            // Seen for every identity held: a switch does
+                            // not offer the line again in this start.
+                            self.facts.unlock_seen = true;
+                            self.tell_all();
                             self.opener.unlock_line_seen(start);
                         }
                         if let Some(intent) = self.model.trust_settings_mut().input(input)
@@ -1218,7 +1244,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             // Disabled from here until the platform says the start
             // answered: the model offers no second one meanwhile.
             Intent::RetryStart => {
-                self.model.retry_start_asked();
+                self.facts.retry_start_asked();
+                self.tell_all();
                 self.opener.retry_start();
                 return None;
             }
@@ -1727,32 +1754,68 @@ mod tests {
         )
     }
 
-    /// The three facts `RootFacts` leaves to the front alone are refused
-    /// once a model is behind, so the doc's "must not call them" holds.
-    /// Mutation: dropping the assertion from any of the three -- its test
-    /// does not panic.
-    #[test]
-    #[should_panic(expected = "a front-only fact told with a model behind")]
-    fn a_front_only_fact_with_a_model_behind_is_refused() {
-        let mut side = ModelSide::new(Nothing, Nothing);
-        assert!(side.hold(&[first(), second()], &first()));
-        side.start_busy(None);
+    /// A surface that hands over `events` at the next take.
+    struct Events(Vec<ViewEvent>);
+
+    impl Surface for Events {
+        fn render(&mut self, _model: &UiModel) {}
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            std::mem::take(&mut self.0)
+        }
     }
 
+    /// The start's facts are the Service's, told to every identity held
+    /// (rust-ui-dev-02's REPLY 01a2190d): a busy start told while the
+    /// first is in front shows when the second comes forward; Try again
+    /// in front leaves every model Starting, and a fact told after it
+    /// (any `tell_all`) does not put Shown back; the P-up line seen on the
+    /// first's Trust page is seen on the second's too, past the next
+    /// tell. Mutations: `start_busy` telling the front alone -- the
+    /// second reads no notice; `RetryStart` changing the front's model
+    /// alone -- the next fact puts Shown back; the seen line not written
+    /// to the facts -- the second offers the P-up notice again.
     #[test]
-    #[should_panic(expected = "a front-only fact told with a model behind")]
-    fn start_refused_with_a_model_behind_is_refused() {
-        let mut side = ModelSide::new(Nothing, Nothing);
-        assert!(side.hold(&[first(), second()], &first()));
-        side.start_refused(None);
-    }
+    fn a_retry_and_a_seen_line_outlive_the_next_fact_and_a_switch() {
+        use interweave_human_ui_model::{KeyUnlock, SessionNotice};
+        let mut side = ModelSide::new(Events(Vec::new()), Nothing);
+        side.hold(&[first(), second()], &first());
+        side.start_busy(Some(StartBusy::Shown));
+        assert_eq!(
+            side.model_of(&second()).unwrap().session_notice(),
+            Some(SessionNotice::StartBusy(StartBusy::Shown)),
+            "told to the identity behind"
+        );
+        side.unlock_facts(
+            Some(UnlockFacts {
+                in_force: KeyUnlock::BackgroundCompatible,
+                configured: Some(KeyUnlock::UserPresence),
+                pending: None,
+                restart_needs_unlock: Some(false),
+            }),
+            7,
+            false,
+        );
+        assert!(side.model_of(&second()).unwrap().unlock_notice(), "control");
 
-    #[test]
-    #[should_panic(expected = "a front-only fact told with a model behind")]
-    fn unlock_facts_with_a_model_behind_are_refused() {
-        let mut side = ModelSide::new(Nothing, Nothing);
-        assert!(side.hold(&[first(), second()], &first()));
-        side.unlock_facts(None, 0, false);
+        side.surface.0 = vec![
+            ViewEvent::Intent(Intent::RetryStart),
+            ViewEvent::Trust(TrustInput::Opened),
+        ];
+        let _ = side.turn();
+        side.network_access(true);
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::StartBusy(StartBusy::Starting)),
+            "the next tell keeps the retry"
+        );
+        assert!(!side.model().unlock_notice(), "the next tell keeps it seen");
+
+        assert!(side.switch(&second(), |_| {}));
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::StartBusy(StartBusy::Starting))
+        );
+        assert!(!side.model().unlock_notice(), "seen for this start");
     }
 
     /// Named, the model shown so far is the front's, drafts and all, and
