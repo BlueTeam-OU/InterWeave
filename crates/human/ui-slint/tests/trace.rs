@@ -4194,11 +4194,10 @@ fn a_live_switch_keeps_the_focused_keys_letter_c3_narrower_typing() {
     a_live_switch_keeps(Identity::at_c3(), 330.0, 'w', Mode::Typing);
 }
 
-/// Keys whose element the switch takes away, the new layout having
-/// fewer rows or fewer keys in that row: p, QWERTY's tenth, narrowing
-/// (the sevens' row 3 has five keys), and z, the sevens' last,
-/// widening (QWERTY's row 3 has seven). Focus is on the same letter
-/// after it (#768 round 1, risk 2).
+/// Two more letters kept across the switch, at the ends of their
+/// layouts: p, the end of QWERTY's first row, narrowing, and z, the
+/// sevens' last, widening. Focus is on the same letter after each
+/// (#768 round 1, risk 2).
 #[test]
 fn a_live_switch_keeps_a_key_whose_place_goes() {
     use interweave_human_ui_slint::IdentityInput;
@@ -4226,12 +4225,11 @@ fn a_live_switch_keeps_a_key_whose_place_goes() {
     assert_eq!(page.take(), [IdentityInput::Key('z')], "z in QWERTY");
 }
 
-/// The width crossing 340 and back with one timer turn between: focus
-/// ends on the same letter. On this backend the first crossing's key
-/// has taken focus by the second crossing (traced while writing it, and
-/// from i too, whose QWERTY place has no element in the sevens), so
-/// this does not reach a crossing before focus lands (#768 round 1,
-/// risk 1, left open).
+/// The width crossing 340 and back with one timer turn between: the
+/// first crossing's key is wanted, not yet focused (it is focused at the
+/// rebump, after the next draw), when the second comes, and focus ends
+/// on the same letter: b, not x, the key at b's QWERTY place in the
+/// sevens (#768 round 1, risk 1).
 #[test]
 fn a_live_switch_there_and_back_keeps_the_letter() {
     use interweave_human_ui_slint::IdentityInput;
@@ -4239,7 +4237,8 @@ fn a_live_switch_there_and_back_keeps_the_letter() {
     page.on_b_in_the_sevens();
     page.take();
     width(&page.view, 400.0);
-    // One timer turn: the switch's rule has run, its focus not landed.
+    // One timer turn and no draw: the switch's rule has run, its key is
+    // wanted at the rebump.
     slint::platform::update_timers_and_animations();
     width(&page.view, 330.0);
     page.turn();
@@ -4247,6 +4246,102 @@ fn a_live_switch_there_and_back_keeps_the_letter() {
     assert_eq!(page.take(), [], "nothing asked of the flow");
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not x");
+}
+
+/// A running window runs its timers before it draws, so in the turn a
+/// crossing's rule runs the old layout's keys still stand. None takes
+/// focus in that turn -- the stop said is the one before it -- where a
+/// focus request then would land on the old key at the new place: x on
+/// the way to b widening, v to w narrowing (measured with the key's
+/// focus traced). After the draw, `letter` takes it (#768 round 2,
+/// risk 1).
+fn a_live_switch_takes_no_other_key_on_the_way(mut page: Identity, letter: char) {
+    use interweave_human_ui_slint::IdentityInput;
+    let to = if letter == 'b' {
+        page.on_b_in_the_sevens();
+        400.0
+    } else {
+        width(&page.view, 400.0);
+        page.settle();
+        page.tab();
+        330.0
+    };
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "control: a key");
+    page.take();
+    let before = page.view.identity_stop();
+    assert!(before.is_some(), "control: a stop said");
+    width(&page.view, to);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(
+        page.view.identity_stop(),
+        before,
+        "no key took focus before the draw"
+    );
+    page.turn();
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key(letter)], "{letter}");
+}
+
+#[test]
+fn a_live_switch_takes_no_other_key_on_the_way_wider() {
+    a_live_switch_takes_no_other_key_on_the_way(Identity::at_r2(), 'b');
+}
+
+#[test]
+fn a_live_switch_takes_no_other_key_on_the_way_narrower() {
+    a_live_switch_takes_no_other_key_on_the_way(Identity::at_r2(), 'w');
+}
+
+/// The width crossing 340 after the dialog has opened over a focused
+/// key and before its Keep, made only at the next draw, has taken
+/// focus: focus goes to Keep, not back to a key under the dialog, and
+/// the way back is the same letter (#768 round 2, risk 2). It passes
+/// with the switch rule's `want-seg` guard removed as well (measured):
+/// it pins what a person gets, not that guard.
+#[test]
+fn a_live_switch_as_the_dialog_opens_leaves_focus_to_the_dialog() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::{Key, WindowEvent};
+    let mut page = Identity::at_r2();
+    width(&page.view, 330.0);
+    page.settle();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    // a, the first enabled key in the sevens, then b, navigating.
+    page.tab();
+    page.take();
+    let escape: slint::SharedString = Key::Escape.into();
+    let window = page.view.window().window();
+    window.dispatch_event(WindowEvent::KeyPressed {
+        text: escape.clone(),
+    });
+    window.dispatch_event(WindowEvent::KeyReleased { text: escape });
+    // The dialog's page shown and its rule run, then the width crossing
+    // and its rule run in a turn with no time passed: the rebump that
+    // focuses Keep is not yet due.
+    let queued: Vec<_> = page.queued.borrow_mut().drain(..).collect();
+    for input in queued {
+        page.applied.push(input.clone());
+        interweave_human_ui_slint::apply_identity(&mut page.flow, input);
+    }
+    assert!(page.flow.discard_asked(), "control: the dialog asked");
+    page.take();
+    page.view
+        .show_identity(Some(interweave_human_ui_slint::identity_page(&page.flow)));
+    slint::platform::update_timers_and_animations();
+    width(&page.view, 400.0);
+    slint::platform::update_timers_and_animations();
+    page.settle();
+    // Focus on Keep, said: an Enter alone would not show it, the
+    // dialog answering Keep to an Enter on a key under it too.
+    assert_eq!(page.last(), "ui-trace focus=identity-dialog-keep");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)], "Keep");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
 }
 
 /// With focus off the keypad, on `control`, a live switch across 340
