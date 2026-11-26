@@ -790,8 +790,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   and `IdentityAddNotFinished` ("{name} was created, but InterWeave
   could not finish setting it up. Choose Create to finish. Create does
   not create a second one.") shows above Create, focus on it, Back
-  enabled. Create there sends no add. With step 1's progress, it reads
-  the list first, as the settle does before it deletes a record
+  enabled. Create there sends no add. It shows step 1's progress and
+  reads the list first, as the settle does before it deletes a record
   (below): the id listed with its key file at its key path is Found,
   and Create tries the record's delete again and, when that delete
   succeeds, goes on with step 3 and Done; the id listed while its key
@@ -808,7 +808,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   `key_missing` is "Refused, with nothing created", where the person
   can change the name. If the read
   fails, or the delete fails again,
-  the same line stays and focus returns to it. The form retries the
+  `IdentityAddNotFinished` stays above Create and focus returns to
+  it. The form retries the
   delete itself because the settle skips the record of an open form
   (below), so
   nothing else would retry it while the form stays open. Back, or the
@@ -840,9 +841,11 @@ Outcomes other than Done, each with nothing half-made shown as made:
     record are kept, since an add may have landed, or did land, and the
     key would then
     be the identity's; the settle, not the leaving, finds out what
-    the id is, and the record is settled as the next item says. This
-    holds from `IdentityAddNotFinished`, and also from
-    `IdentityAddKeyGone` or `IdentityAddUnknown` reached from it.
+    the id is, and the record is settled as the next item says. The
+    key and the record are kept when the form shows
+    `IdentityAddNotFinished`, and also when it shows
+    `IdentityAddKeyGone` or `IdentityAddUnknown` after a Create chosen
+    on `IdentityAddNotFinished`.
 - **A pending-add record is settled** at the client's next start and
   whenever Your identities opens, so also right after Back, which
   opens Your identities. The settle handles every record except the
