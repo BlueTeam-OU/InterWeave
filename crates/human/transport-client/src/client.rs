@@ -325,7 +325,8 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     /// The assertion made for this acquisition, and the endpoint it is
     /// for, while the daemon has not answered it: polled at each tick and
     /// never awaited, so a call that blocks holds no other identity's
-    /// turn (`a_blocked_assertion_holds_no_other_client`). The session
+    /// turn (`an_assertion_that_blocks_takes_no_lease_until_it_answers`,
+    /// `tests/hiding.rs`). The session
     /// stays `Reconnecting` meanwhile, and no lease is asked.
     asserting: Option<(EndpointId, Asserting)>,
     store: HumanStore,

@@ -10,7 +10,7 @@
 //! What this does NOT prove: the identities on screen (the switcher's
 //! rows are the view's, `ui-slint`'s tests), a Try again, an added entry
 //! whose key is missing (app-core's
-//! `an_added_identity_without_its_key_is_held_and_never_leased`).
+//! `an_added_identity_without_its_key_is_leased_and_given_no_key`).
 
 use std::net::Ipv4Addr;
 use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
