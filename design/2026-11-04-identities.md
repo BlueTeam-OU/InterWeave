@@ -577,11 +577,23 @@ no card is named by it.
    (step 3), as a later rename does (the alias rule above).
    The record is deleted when the id becomes an identity (the add
    answers `added` or `unchanged`, or a list reads the id as Found,
-   below), which comes before step 3;
-   when the form is left with nothing created and the
-   key is deleted; or when the settle discards the record and the
-   remove it sends answers `removed` or `EndpointUnknown` (below). It
-   is never deleted otherwise.
+   below), which comes before step 3. If that delete fails, the
+   identity exists all the same, but the card is not written while
+   the record names its id: a record that outlives its form is
+   settled again later, and if the identity's key path had emptied by
+   then the settle would discard the id (below), so the record must
+   never name an identity with a card behind it (what else the store
+   may hold for that id meanwhile is §16 Q11). Create then ends as
+   "The endpoint exists and the card could not be written" says. The
+   record goes at the settle that Your identities runs on opening,
+   which finds the id listed with its key, or, failing that, when the
+   identity's page is opened to try again, which deletes the record
+   before it writes the card; while the record cannot be deleted, the
+   card is not written and `IdentityCardNotSaved` stays. The record is
+   also deleted when the form is left with nothing created and the key
+   is deleted, and when the settle discards the record and the remove
+   it sends answers `removed` or `EndpointUnknown` (below). It is never
+   deleted otherwise.
 3. It writes the identity's card.
 4. **Done**: Your identities opens, the new row focused, and
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
@@ -737,7 +749,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   nothing waits for a form that was left; and the add would need the
   alias and kinds stored after the form is gone.
 - **The endpoint exists and the card could not be written** (store
-  degraded or failed): the identity exists and is named by its alias
+  degraded or failed, or the pending-add record could not be deleted,
+  step 2): the identity exists and is named by its alias
   until it has a card (ADR-0061 d. 1, "named by its label"). Your
   identities opens with the row focused and `IdentityCardNotSaved`
   under it ("The name and photo were not saved. Open this identity
@@ -1432,7 +1445,14 @@ pass before it lands.
     remove sent, and the moved-aside file stays where it was put. Needs
     D1 and ADR-0061 decision 7 (A 2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
-    its alias, with `IdentityCardNotSaved`. Needs D1.
+    its alias, with `IdentityCardNotSaved`. Again with the record's
+    delete made to fail after the add answers `added`: the same, with
+    no card row and the record still there; then, with the delete no
+    longer made to fail, the opening of Your identities deletes the
+    record, and Open on the row followed by Save writes the card. A
+    third run keeps the delete failing, opens the identity's page and
+    chooses Save: no card row is written and `IdentityCardNotSaved`
+    stays. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
     agent's), and lists none as an identity. *(`human-client-ui.md` §13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
@@ -1778,3 +1798,20 @@ Asked by rust-ui-dev-02 for the step 1 wiring (QUESTION 01a2119d,
   in §6.1 and cards §5.1.
 - **U6** motion on a switch: the new rows fade in, and there is no
   cross-fade; under reduced motion, no fade (§5.4, §12).
+
+Asked of architect-cto with this note's j192 revision (the QUESTION's
+id is recorded here once it is sent), open:
+
+- **Q11** a pending-add record whose delete failed after its add
+  answered `added` or `unchanged` (§6.2 step 2) names an identity
+  that exists. The card is not written while the record stands, but
+  the identity receives: if its inbound messages, contacts or trust
+  rows are written to the store meanwhile, and its key path empties
+  before a settle deletes the record, the settle's empty-key-path
+  branch (ADR-0061 decision 7, A 2026-11-26) discards the id and §7's
+  clean-up rule then deletes those rows, unread messages included,
+  with nothing shown. Asked: does the client admit nothing to the
+  store for an id a pending-add record names, as Remove's window does,
+  or does the settle not discard a listed id that has rows in the
+  store, leaving it an identity whose key is missing (ADR-0067
+  decision 2) for the person to remove?
