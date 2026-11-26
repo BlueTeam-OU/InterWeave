@@ -40,7 +40,7 @@ assert_rc() {
     else fail "$1 (expected exit $2, got $RUN_RC)" "$RUN_OUT"; fi
 }
 assert_contains() {
-    if printf '%s' "$RUN_OUT" | grep -qF -- "$2"; then pass "$1"
+    if grep -qF -- "$2" <<<"$RUN_OUT"; then pass "$1"
     else fail "$1 (output did not contain: $2)" "$RUN_OUT"; fi
 }
 
