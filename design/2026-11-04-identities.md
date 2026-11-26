@@ -622,10 +622,10 @@ no card is named by it.
    that Replace minted (identity-key §5.3 step 1) is named by no such
    record (ADR-0061 decision 7, A 2026-11-26). If the record cannot
    be written, nothing is sealed, and Create ends as "Refused, with
-   nothing created" says (below). That includes a store that already
-   holds 64 pending-add records, its bound; no record is evicted to
-   make room, since a record is the one thing that names its key
-   (`STATE.md`; A 2026-11-26 (ii)).
+   nothing created" says (below). A store that already holds 64
+   pending-add records, the most the store may hold, is one such case:
+   no record is evicted to make room, since a record is the only thing
+   that names its key (`STATE.md`; A 2026-11-26 (ii)).
    The form keeps that key for as long as it is open: **every later
    Create on the same form calls the add with the same key**, never a
    new one, so a retry can only make the same EndpointId, which is one
@@ -910,21 +910,22 @@ Outcomes other than Done, each with nothing half-made shown as made:
     outside the client that the client is not told of.
   Nothing is shown for a settle. The person has left the form, and an
   identity found here appears in Your identities as any identity does.
-  One discard leaves something to see (ADR-0061 decision 7, A
-  2026-11-26 (ii)): an earlier remove of the id that was left ahead of
-  the running device (`Internal`, so the record was kept) makes the
-  next one answer `EndpointUnknown`, and the record is deleted while
-  the endpoint list still holds the id. Until the daemon's next start
-  the id is then an identity whose key is missing, named by its alias
-  (identity-key §4.1). It leaves Your identities at the first list
-  that lacks it after that start; §7's clean-up rule then finds no
-  rows of it to delete, since none were written while the record
-  stood (step 2).
-  The settle reaches only keys a pending-add record names, so a key
-  that Replace minted is never reached: Replace writes its replaces
-  record before it seals that key (identity-key §5.3 step 1; ADR-0061
-  decision 7, A 2026-11-26 (ii)), and that record is settled as §7
-  says ("An identity that cannot come back").
+  One case of discard leaves something that the person can see
+  (ADR-0061 decision 7, A 2026-11-26 (ii)). When an earlier remove of
+  the id was left ahead of the running device (answered `Internal`,
+  so the record was kept), the settle's next remove answers
+  `EndpointUnknown`, and the record is deleted while the endpoint
+  list still holds the id. Until the daemon's next start, the id is
+  then an identity whose key is missing, named by its alias
+  (identity-key §4.1). It leaves Your identities at the first
+  endpoint list, after that start, that lacks the id.
+  §7's clean-up rule then finds no rows of it to delete, since none
+  were written while the record stood (step 2).
+  The settle reaches only keys that a pending-add record names, so it
+  never reaches a key that Replace minted: Replace writes its
+  replaces record before it seals that key (identity-key §5.3 step 1;
+  ADR-0061 decision 7, A 2026-11-26 (ii)), and the replaces record is
+  settled as §7 says ("An identity that cannot come back").
   **Alternative named:** settle the record as a replaces record is, by
   sending the same add again (identity-key §5.3). Rejected (ADR-0061
   decision 7, A 2026-11-26): a replacement is finished because
@@ -1583,11 +1584,12 @@ pass before it lands.
     key file sealed in `endpoint-keys/` by another program, named by
     no record, with its id unlisted: after a start and an opening of
     Your identities the key file is still there. (g) A Replace stopped
-    after its step 1 sealed the new key and before its add (its
-    replaces record is written before the seal): after a start and an
-    opening of Your identities, no pending-add settle has touched that
-    key, and the replaces record's settle sends its add (identity-key
-    §5.3). (h) As (d), with the
+    inside its step 1, after the new key was sealed and before the add
+    (the replaces record is written before the seal, so the record is
+    there): after a start and an opening of Your identities, no
+    pending-add settle has touched that key, and the settle of the
+    replaces record has sent the step's add again (identity-key §5.3).
+    (h) As (d), with the
     settle's remove answering `BackendUnavailable`, then a list that
     answers: the record stays, §7's clean-up rule does not take it, and
     the next settle removes the id and deletes the record. (i) A first
