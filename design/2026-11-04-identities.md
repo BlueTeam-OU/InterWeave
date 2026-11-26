@@ -672,9 +672,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   landed, D1) is handled as Found: the record is deleted and the client
   goes on with step 3; nothing is shown as refused. `exists` (the id is
   held with a different alias or different client kinds, D1) sends the
-  client to the list,
-  as the next item does: Found as that item defines it, else the
-  outcome is unknown.
+  client to the list read of the next item, and what that read finds
+  is handled as the next item says: Found, the form's key gone, or
+  `IdentityAddUnknown`.
 - **The outcome is unknown**: every other ending of an add. These are
   `Internal` (a write that failed, or an add left ahead of the running
   device, which the client cannot tell apart, D1); any other error,
@@ -776,8 +776,10 @@ Outcomes other than Done, each with nothing half-made shown as made:
   yet (§16 Q11).
 - **The form is left** (Back, or the app ends):
   - when no add of its key ended unknown or answered `added` or
-    `unchanged`, and the id was never read as Found (no add was sent, or
-    each was refused with nothing created or with `key_missing`): on Back,
+    `unchanged`, and no list read the id as Found (no add was sent, or
+    each add was refused in one of the cases that "Refused, with nothing
+    created" names as those in which the client knows that nothing was
+    created): on Back,
     the client deletes the key file and, on Android, the platform key,
     then the record; a key path that holds nothing, and a platform key
     that was never made, count as deleted already. If a delete fails,
@@ -786,8 +788,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
     In both of these cases the record is then settled as the
     next item says.
   - otherwise, whatever the form shows: an add of its key ended
-    unknown, answered `added` or `unchanged`, or was read as Found, or
-    an add was running when the app ended. The key and the record are
+    unknown or answered `added` or `unchanged`, or a list read the id
+    as Found, or an add was running when the app ended. The key and the record are
     kept, since an add may have landed, or did, and the key would then
     be the identity's; the settle, not the leaving, finds out what
     the id is, and the record is settled as the next item says. This
