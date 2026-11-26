@@ -96,9 +96,9 @@ impl From<RosterError> for SpawnError {
 }
 
 /// What the facade says for the platform log: a class, never what the
-/// store holds, since a row names an identity. A variant that carried a
-/// value would make the type larger than a byte, which the assertion
-/// below refuses to build (`a_note_is_a_class_and_is_kept_once`).
+/// store holds, since a row names an identity. Every variant is a unit:
+/// the casts below are refused by the compiler for an enum any of whose
+/// variants carries a field, of whatever size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FacadeNote {
     /// The row naming the identity last in front could not be read: the
@@ -109,15 +109,17 @@ pub enum FacadeNote {
     FrontUnremembered,
 }
 
-const _: () = assert!(
-    std::mem::size_of::<FacadeNote>() == 1,
-    "a FacadeNote is a class: no variant carries content"
-);
+// A FacadeNote is a class: `as` casts an enum only while every variant
+// is a unit, so a variant given a field stops this from building.
+const _: [u8; 2] = [
+    FacadeNote::FrontUnread as u8,
+    FacadeNote::FrontUnremembered as u8,
+];
 
 impl FacadeNote {
     /// Keep `self` in `notes` unless that class is there already, so a
     /// class said again before the app takes them is logged once
-    /// (`a_note_is_a_class_and_is_kept_once`).
+    /// (`a_note_is_kept_once`).
     pub fn keep_in(self, notes: &mut Vec<Self>) {
         if !notes.contains(&self) {
             notes.push(self);
@@ -265,7 +267,7 @@ impl FacadeLoop {
                     }
                 };
                 // Said once, by class, before the start returns: the row
-                // names an identity.
+                // names an identity (`an_unread_front_is_said_at_spawn`).
                 if facade.front_unread() {
                     note(FacadeNote::FrontUnread);
                 }
@@ -554,12 +556,11 @@ mod closing_tests {
         }
     }
 
-    /// A class said twice before the take is kept once, and the type
-    /// holds no content (its size, checked where it is declared, is the
-    /// build's half). Mutation: `keep_in` pushing whatever it is given
-    /// fails the "kept once" assert.
+    /// A class said twice before the take is kept once. Mutation:
+    /// `keep_in` pushing whatever it is given fails the "kept once"
+    /// assert.
     #[test]
-    fn a_note_is_a_class_and_is_kept_once() {
+    fn a_note_is_kept_once() {
         let mut notes = Vec::new();
         FacadeNote::FrontUnread.keep_in(&mut notes);
         FacadeNote::FrontUnremembered.keep_in(&mut notes);
@@ -569,7 +570,6 @@ mod closing_tests {
             vec![FacadeNote::FrontUnread, FacadeNote::FrontUnremembered],
             "kept once"
         );
-        assert_eq!(std::mem::size_of::<FacadeNote>(), 1);
     }
 
     /// A facade whose last-front row was unreadable says so once, by

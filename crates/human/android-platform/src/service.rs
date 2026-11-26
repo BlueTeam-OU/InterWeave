@@ -189,7 +189,8 @@ pub struct ServiceHost {
     key_refused: Arc<Mutex<Option<KeyProblem>>>,
     /// What the facade said for the platform log and the app has not
     /// taken yet ([`Self::take_facade_notes`]): each class once, however
-    /// often it was said before the take.
+    /// often it was said before the take
+    /// (`a_class_said_twice_is_taken_once`).
     facade_notes: Arc<Mutex<Vec<FacadeNote>>>,
     /// The last start's unlock status: set by a start that ran, never by
     /// one redelivered to a running client, whose reseal found the profile
@@ -363,8 +364,9 @@ impl ServiceHost {
     }
 
     /// What the facade said for the platform log since the last take, by
-    /// class and never content, each once ([`FacadeNote::keep_in`]; facade
-    /// `a_note_is_a_class_and_is_kept_once`): the app logs them after a
+    /// class and never content (a unit-only enum, the build's check where
+    /// [`FacadeNote`] is declared), each once
+    /// (`a_class_said_twice_is_taken_once`): the app logs them after a
     /// start, as it logs [`Self::identity_key_refused`].
     #[must_use]
     pub fn take_facade_notes(&self) -> Vec<FacadeNote> {
@@ -1243,6 +1245,25 @@ mod busy_hook {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// What the facade says reaches the take once per class, however
+    /// often it was said, and a take empties it. Mutation: the closure
+    /// `facade_note` returns pushing every note fails the "taken once"
+    /// assert.
+    #[test]
+    fn a_class_said_twice_is_taken_once() {
+        let host = ServiceHost::new();
+        let note = host.facade_note();
+        note(FacadeNote::FrontUnread);
+        note(FacadeNote::FrontUnremembered);
+        note(FacadeNote::FrontUnread);
+        assert_eq!(
+            host.take_facade_notes(),
+            vec![FacadeNote::FrontUnread, FacadeNote::FrontUnremembered],
+            "taken once"
+        );
+        assert!(host.take_facade_notes().is_empty(), "a take empties it");
+    }
 
     /// Mutation: `take` answering true without spending one of the count
     /// refuses every start after the hook.
