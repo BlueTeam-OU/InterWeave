@@ -1883,7 +1883,8 @@ pass before it lands.
     entry takes the first identity's alias; (c) a file larger than the
     overlay's bound. Each time the start-up refusal window shows
     `RefusalIdentitiesUnreadable` with the overlay's full path, offers
-    no Try again and no Delete stored data, only Close, and no Chats, switcher or
+    no Try again and no Delete stored data, only Close, with focus on
+    Close, and no Chats, switcher or
     identity is shown; after it is closed the exit status is 78
     (`EX_CONFIG`), and the overlay's bytes and modification time are
     unchanged. (d) The overlay readable but with group read permission:
