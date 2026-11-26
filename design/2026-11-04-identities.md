@@ -894,7 +894,7 @@ Outcomes other than Done, each with nothing half-made shown as made:
   opens Your identities), and when a Create's record is refused at
   the bound (step 2; ADR-0061 decision 7, A 2026-11-26 (iii)). The settle handles every record except the
   record of a form that is open now. Each call of a settle, a list or
-  a remove, waits at most the add's wait (below) for its answer, on the
+  a remove, waits at most the add's wait (above) for its answer, on the
   client's side: a list with no answer in that time is a list that
   failed, and a remove with none is a remove that got no answer. For
   each record, the client lists the endpoints:
