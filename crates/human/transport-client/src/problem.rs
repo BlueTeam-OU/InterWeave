@@ -151,6 +151,10 @@ pub(crate) const fn classify_open(error: TransportError) -> OpenFailure {
 /// anything but success, refuses the lease as `NotHidden`, whatever the
 /// error: a permission it withheld, a method it does not speak, a write
 /// it could not make. Only Try again leaves that, and it asserts again.
+/// `Overloaded` is the one answer that is not a refusal: the daemon has
+/// no room now, as for the data connection's open (`classify_open`), so
+/// it is retried at the same pace with no Try again (architect-cto's
+/// ruling B, 01a216e9, 2026-11-26).
 ///
 /// The IPC binding cannot tell an admin socket missing beside a live
 /// data socket from a daemon that is down: both are a connection that
@@ -160,7 +164,8 @@ pub(crate) const fn classify_assertion(error: TransportError) -> OpenFailure {
     match error {
         TransportError::BackendUnavailable
         | TransportError::ShuttingDown
-        | TransportError::Timeout => Retry,
+        | TransportError::Timeout
+        | TransportError::Overloaded => Retry,
         TransportError::InvalidArgument
         | TransportError::PayloadTooLarge
         | TransportError::ChannelNotJoined
@@ -176,7 +181,6 @@ pub(crate) const fn classify_assertion(error: TransportError) -> OpenFailure {
         | TransportError::RemoteEndpointUnavailable
         | TransportError::CancelledBeforeDispatch
         | TransportError::CancellationRaced
-        | TransportError::Overloaded
         | TransportError::ProtocolUnsupported
         | TransportError::ProtocolViolation
         | TransportError::VersionIncompatible
@@ -458,14 +462,16 @@ mod tests {
         }
     }
 
-    /// Only a daemon that is not there, or did not answer, is retried on
-    /// a timer; every answer but success refuses the lease.
+    /// Only a daemon that is not there, did not answer, or has no room
+    /// now is retried on a timer; every other answer but success refuses
+    /// the lease.
     #[test]
     fn an_assertion_is_retried_only_when_no_daemon_answered() {
         let retried = [
             TransportError::BackendUnavailable,
             TransportError::ShuttingDown,
             TransportError::Timeout,
+            TransportError::Overloaded,
         ];
         for error in ALL {
             let expected = if retried.contains(&error) {

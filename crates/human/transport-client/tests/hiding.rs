@@ -334,7 +334,6 @@ async fn an_answered_error_refuses_the_lease_and_try_again_asserts_again() {
         (None, Some(TransportError::ProtocolUnsupported)),
         (None, Some(TransportError::InvalidArgument)),
         (None, Some(TransportError::EndpointUnknown)),
-        (None, Some(TransportError::Overloaded)),
         (Some(TransportError::CapabilityDenied), None),
         (Some(TransportError::ProtocolUnsupported), None),
     ] {
@@ -377,8 +376,9 @@ async fn an_answered_error_refuses_the_lease_and_try_again_asserts_again() {
 }
 
 /// No daemon to answer -- the admin connection cannot be made, or ends
-/// before the answer -- is today's `Reconnecting`, never a refusal: no
-/// lease is asked, and the next reconnect asserts again. Mutations: an
+/// before the answer -- and a daemon with no room now (`Overloaded`) are
+/// today's `Reconnecting`, never a refusal: no lease is asked, and the
+/// next reconnect asserts again. Mutations: an
 /// unreachable daemon classified `NotHidden`; the lease asked after a
 /// failed assertion.
 #[tokio::test]
@@ -389,6 +389,9 @@ async fn no_daemon_to_answer_is_reconnecting_and_the_next_reconnect_asserts() {
         (None, Answer::Fails(TransportError::BackendUnavailable)),
         (None, Answer::Fails(TransportError::ShuttingDown)),
         (None, Answer::Fails(TransportError::Timeout)),
+        // No room at the daemon now: retried at the same pace, as the
+        // data connection's open is (ruling B, 01a216e9).
+        (None, Answer::Fails(TransportError::Overloaded)),
     ] {
         let node = node();
         let log = Log::default();
