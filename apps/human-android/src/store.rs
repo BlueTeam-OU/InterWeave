@@ -103,11 +103,12 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreG
             Follow::Keep => {}
             Follow::Show(screen) => {
                 let raised = raised(state, screen);
-                // Counted as one identity: how many the Service holds does
-                // not reach this screen yet, so the lists name no added
-                // identity's data (the desktop passes its held count).
+                // Discard and recreate deletes the whole profile store, so
+                // its confirmation counts every identity the last start
+                // held, as the desktop's does (the count is ui-model's
+                // `the_full_list_names_every_identity_from_the_second_on`).
                 *shown = Some(Shown {
-                    flow: StoreRecovery::new(screen, 1),
+                    flow: StoreRecovery::new(screen, ServiceHost::global().held_count()),
                     plan: None,
                     view: Rc::downgrade(view),
                     done_at: None,

@@ -206,6 +206,11 @@ pub struct ServiceHost {
     /// How many starts' custody steps ran: a start whose reseal ran again
     /// owes the P-up notice again (unlock note section 4).
     unlock_starts: std::sync::atomic::AtomicU64,
+    /// How many identities the last start's profile held, set before the
+    /// store opens so that it is known when the open was refused: Discard
+    /// and recreate deletes the whole profile store, and the store screen's
+    /// confirmation names every identity in it ([`Self::held_count`]).
+    held_count: std::sync::atomic::AtomicUsize,
     /// Armed by [`refuse_next_store_open`](Self::refuse_next_store_open)
     /// or [`invalidate_next_store_key`](Self::invalidate_next_store_key):
     /// the debug build's stand-in for a store that needs recovery, or
@@ -256,6 +261,7 @@ impl ServiceHost {
             facade_notes: Arc::new(Mutex::new(Vec::new())),
             unlock: Mutex::new(None),
             unlock_starts: std::sync::atomic::AtomicU64::new(0),
+            held_count: std::sync::atomic::AtomicUsize::new(1),
             #[cfg(feature = "dev-stand-ins")]
             refuse_store: Mutex::new(None),
             #[cfg(feature = "test-hooks")]
@@ -291,6 +297,11 @@ impl ServiceHost {
             .refuse_store
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = Some(refused);
+    }
+
+    fn note_held(&self, held: &Held) {
+        self.held_count
+            .store(held.held.len(), std::sync::atomic::Ordering::Release);
     }
 
     /// The profile's store for a start, opened as `identity` -- the
@@ -429,6 +440,15 @@ impl ServiceHost {
     #[must_use]
     pub fn hub(&self) -> &Arc<Hub> {
         &self.hub
+    }
+
+    /// How many identities the last start's profile held, readable when
+    /// that start's store open was refused (one before any start): the
+    /// count the store recovery screen's confirmation says its discard
+    /// deletes (`the_held_count_is_known_when_the_store_open_is_refused`).
+    #[must_use]
+    pub fn held_count(&self) -> usize {
+        self.held_count.load(std::sync::atomic::Ordering::Acquire)
     }
 
     /// Whether the client runs now.
@@ -837,6 +857,7 @@ impl ServiceHost {
             Ok(held) => held,
             Err(why) => return refuse(host, StartRefused::Runtime(why)),
         };
+        self.note_held(&held);
         let store = match self.open_store(host.paths(), &endpoint, &*launch.store_cipher) {
             Ok(store) => store,
             Err(why) => return refuse(host, why),
@@ -930,6 +951,7 @@ impl ServiceHost {
         let endpoint = human_endpoint(&config).ok_or(StartRefused::NoHumanEndpoint)?;
         // Read before the store opens, as a start with network reads it.
         let held = held_identities(&paths, &config, endpoint.clone()).map_err(refused)?;
+        self.note_held(&held);
         let store = self.open_store(&paths, &endpoint, &*store_cipher)?;
         let executor = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)

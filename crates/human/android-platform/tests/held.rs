@@ -302,3 +302,33 @@ fn an_added_identity_is_asserted_unadvertised_before_its_lease() {
     assert!(!advertise(&work), "asserted unadvertised before the lease");
     let _ = service.stop(GRACE);
 }
+
+/// The held count of the last start is known when its store open was
+/// refused, which is when the store screen's confirmation needs it: the
+/// discard deletes the whole profile store, every identity's data. With
+/// two held the count is two, with one it is one, on both start paths.
+/// Mutation: both `note_held` calls removed -- two held reads the initial
+/// one.
+#[test]
+fn the_held_count_is_known_when_the_store_open_is_refused() {
+    for path in BOTH {
+        for (added, want) in [(true, 2), (false, 1)] {
+            let app = app();
+            if added {
+                two_added(&app);
+            } else {
+                common::provision_first_identity(&app.dir, PROFILE);
+            }
+            let service = ServiceHost::new();
+            service.refuse_next_store_open();
+            assert!(
+                matches!(
+                    start(&app, &service, path),
+                    Err(StartRefused::StoreNeedsRecovery)
+                ),
+                "{path:?}: the open is refused"
+            );
+            assert_eq!(service.held_count(), want, "{path:?}, added: {added}");
+        }
+    }
+}
