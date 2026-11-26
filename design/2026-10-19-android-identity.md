@@ -971,14 +971,15 @@ before it enters a word. Suggestion chips and the grid's positions are
 48 dp tall. Below 340 dp of width, where a QWERTY key would fall under
 28 dp, the keypad becomes alphabetical, seven columns, wider keys.
 When the width crosses 340 dp while R2 or C3 shows (a phone narrower
-than that in portrait, rotated; split screen; a freeform or foldable
-resize), the keypad changes layout in place, and a focused key stays
-focused by its letter, not by its place: `b` stays `b`, as it does
-through a recreation of the window (§6). The mode is kept, navigating
-or typing. Focus on a chip, the grid button or the primary action
-stays where it is. The switch announces nothing and types nothing. The
-person did not move focus, and Enter must never press a letter that was
-never focused (Nielsen's heuristic 5, error prevention).
+than 340 dp in portrait, then rotated; split screen; a freeform or
+foldable resize), the keypad changes layout in place, and a focused
+key stays focused by its letter, not by its place: focus on `b` stays
+on `b`, as it does through a recreation of the window (§6). The
+keypad's mode, navigating or typing, is kept. Focus on a chip, the
+grid button or the primary action stays where it is. The layout
+change announces nothing and types nothing. The person did not move
+focus, and Enter must never press a letter that was never focused
+(Nielsen's heuristic 5, error prevention).
 
 **Font scale.**
 - The letters, chips and words follow the font scale. The keys grow in
@@ -2732,13 +2733,14 @@ landscape:
       and `IdShowAgain` can be reached, scrolling the area above the
       picker if they must, with the picker in view.
 14. Every key and chip is at least 48 dp tall. Keys are at least 28 dp
-    wide. A live resize across 340 dp on R2 and on C3, in each mode,
-    with focus on `b` (second in the alphabetical layout, where QWERTY
-    has `w`) and in the other direction on `w`: focus is on the same
-    letter after the switch, the mode is unchanged, nothing is typed or
+    wide. A live resize across 340 dp on R2 and on C3, in each mode:
+    as the width grows past 340 dp with focus on `b` (second in the
+    alphabetical layout, where QWERTY has `w`), and as it shrinks below
+    340 dp with focus on `w`. Focus is on the same letter after the
+    layout change, the mode is unchanged, nothing is typed or
     announced; with focus on a chip, the grid button or the primary
     action, focus is unchanged. A host test on the headless backend
-    is enough, since no test phone here crosses 340 dp.
+    is enough, since the width of no test phone here crosses 340 dp.
 
 Items 13 and 15 assume that the Android build follows the system font
 scale and takes hardware-keyboard input. rust-ui-dev measures both
