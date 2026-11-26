@@ -232,7 +232,8 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     }
 
     /// Why the last-front row could not be read at start, when it could
-    /// not: the start went on with the default, and the root says so once.
+    /// not: the start went on without it (the default if held, else the
+    /// first), and the root says so once.
     #[must_use]
     pub const fn front_unread(&self) -> Option<&StoreError> {
         self.front_unread.as_ref()

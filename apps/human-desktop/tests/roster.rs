@@ -124,8 +124,10 @@ fn the_window_is_told_the_identities_and_a_switch_reaches_the_roster() {
 static FRONT_REPORTS: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 /// A last-front row the roster cannot read is reported once, by class
-/// and without the row's content, and the start goes on with the
-/// default; a readable row reports nothing (#769 r1 F2). Mutation:
+/// and without the row's content, and the start goes on without it --
+/// here with no default, so the first is in front and the line names
+/// neither (#769 r2 F4); a readable row reports nothing (#769 r1 F2).
+/// Mutation:
 /// `FacadeThread` not asking `front_unread` -- no line; the line
 /// carrying `{:?}` of the error -- the exact-line assertion fails.
 #[test]
@@ -184,7 +186,7 @@ fn an_unreadable_last_front_row_is_reported_once_by_class() {
     };
     assert_eq!(
         run(Some("human")),
-        ["the identity last in front could not be read; the default stands"],
+        ["the identity last in front could not be read; the start went on without it"],
         "a row this build does not write"
     );
     assert!(run(None).is_empty(), "no row, no report");

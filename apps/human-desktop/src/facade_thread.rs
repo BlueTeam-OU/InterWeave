@@ -322,10 +322,13 @@ impl FacadeThread {
                         }
                     };
                     if side.front_unread() {
-                        // The class only: the row names an identity.
+                        // The class only: the row names an identity. The
+                        // line names no fallback: the roster chose the
+                        // default or the first, and this thread does not
+                        // know which.
                         report(
                             "the identity last in front could not be read; \
-                             the default stands",
+                             the start went on without it",
                         );
                     }
                     // Before any message: a take that holds an update
