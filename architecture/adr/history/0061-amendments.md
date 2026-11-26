@@ -491,9 +491,11 @@ holds the alias of the first add that ended unknown is the design's.
 
 ### Amendment 2026-11-26 — The replaces record is written before the replacement's key is sealed, the pending-add record is bounded, and a store discard takes both (ii)
 
-Four things, the first a gap both reviews of the pending-add text at
-cadd2cf47 named as standing before it, the rest owed since that text
-landed.
+Six things. The first is a gap both reviews of the pending-add text at
+cadd2cf47 named as standing before it; the next three were owed since
+that text landed; the fifth is a gap of the 2026-11-25 note that this
+change's own review named; the sixth answers a question the design
+asked of the pending-add record after it landed.
 
 **The replaces record's order.** Decision 7 and `STATE.md` had the
 record written before the administrative add, and the design's step
@@ -551,7 +553,8 @@ record by sending the same add again, and the record is content-free,
 so after a restart nothing held the alias and the client kinds of the
 first add (named by this change's review as standing before it). The
 add is the same in its key. Its alias is chosen again as the form that
-creates an identity chooses one, and its kinds are an identity's. Where
+creates an identity chooses one, from the old identity's card name as
+the first was, and its kinds are an identity's. Where
 the endpoint list is as it was, that is the first add's alias and an
 entry left ahead answers `unchanged`; where it is another, the daemon
 refuses the add, and `refused` already discards the record, the
@@ -583,8 +586,9 @@ on that answer, so the residue is the same for both: an entry listed
 with its key gone, removed by the person. A daemon interleaving test
 would settle it; the daemon is p2p-network-dev's.
 
-Propagation: decision 7; this note; the log row; the digest entry, its
-replacement bullet and its pending-add bullet; `STATE.md` §Logical
+Propagation: decision 7, and decision 1, whose added endpoints now
+except an id a pending-add record names; this note; the log row; the
+digest entry, its replacement bullet and its pending-add bullet; `STATE.md` §Logical
 tables, both records. Four design texts state the order or a case this
 note changes and are their owner's to bring to it, unchanged here:
 `design/2026-10-24-identity-key.md` §5.3 step 1 ("the key minted and
