@@ -500,6 +500,45 @@ Cards §5.1 stands, with these changes:
   build where it opens this list. A build without the page shows the
   switcher with its title and its rows alone, and no control that leads
   nowhere. The button arrives in the change that builds the page.
+- **The list cannot be read at start** (desktop; rust-ui-dev-02's
+  QUESTION 01a216b7, U7). architect-cto's ruling, as that question
+  quotes it (REPLY 01a216b6, item 4): "An overlay that cannot be read
+  is never read as 'no added entries'. The client does not guess the
+  held list." The state: the endpoint overlay
+  (`<state>/endpoint-overlay.json`) is present, and the client's read
+  of it fails — the file cannot be opened or read, is larger than its
+  bound, is not the overlay's shape, or is refused by name at load
+  (`EndpointOverlayError`). An absent file is not this state: it is a
+  profile with no added identity, and the client opens with the first
+  identity alone, as today. In this state the client does not open.
+  The start-up refusal window shows, as it does today for a
+  `config.yaml` it cannot use (`apps/human-desktop/src/refusal.rs`):
+  - its reason is `RefusalIdentitiesUnreadable` (§13), and its path is
+    the overlay's. An overlay that is not private to the person shows
+    `RefusalNotPrivate` with the overlay's path instead, as every other
+    file of the profile does;
+  - no Try again, as for every refusal decided before the store's
+    lock: the person checks the file and starts the app again;
+  - no action that deletes, empties or replaces the file, on this
+    window or anywhere in the client. The file also holds the first
+    identity's trust set and which identities are turned off (ENDPOINTS
+    §Configured endpoint set), so an empty overlay would turn a disabled
+    identity back on and lose every identity's trust (the loader refuses
+    a label member rather than drop it for the same reason: "dropped, it would
+    bring back enabled an endpoint the operator turned off", ENDPOINTS,
+    A 2026-11-22);
+  - its stderr line and exit class are those of a configuration that
+    cannot be loaded (`EX_CONFIG`; `EX_NOPERM` when not private).
+  Why not the first identity alone with a notice: (1) the daemon stops
+  its own start on the same file (`crates/transport/composition/src/runtime.rs`,
+  "A present overlay that cannot be trusted stops the start"), so the
+  first identity would show as not connected for a reason this window
+  never names; (2) that identity's trust set is in the file, so its
+  Trust page could not say whom it trusts; (3) Add an identity would
+  offer an alias or a key that the unread file may already hold, and a
+  person who sees one identity takes the others as lost (heuristics:
+  visibility of system status, error prevention). Focus and the screen
+  reader are the refusal window's as built; this state adds no control.
 
 ### 6.2 Add an identity
 
@@ -1271,6 +1310,7 @@ front.
 |---|---|---|---|
 | `ProposalAs` | If you accept, the card is saved in the contacts of {identity}. | Accept's context, its last sentence, in every case but S (N4) | the contact is saved to the identity in front |
 | `TrustStepAs` | Trust as {identity} | add-a-peer trust step's button (N9) | "Trust as {identity}" |
+| `RefusalIdentitiesUnreadable` | InterWeave could not read the file below, which lists your identities and the peers that each of them trusts. So that it does not show you a list that may be incomplete, InterWeave did not open. Nothing was changed. Check the file, then start InterWeave again. | desktop start-up refusal window, the overlay's path below it (§6.1, "The list cannot be read at start") | the file lists the identities and their trust; the app did not open rather than show a list that may be incomplete; nothing was changed; check the file and start again. Proposed words, language-culture's to write. Must not say to delete the file or to put back an older copy: an older copy would bring back peers an identity has since stopped trusting |
 | `TrustScope` | The peers listed here can exchange messages with {identity}. Each of your other identities trusts its own peers. | Trust, under the title | peers trusted here write to this identity; the other identities trust their own |
 | `TrustPeerAs` | Trust as {identity} | the Trust page's trust control and its confirmation's primary, in place of `TrustPeer` ("Trust this peer") | "Trust as {identity}" |
 | `TrustAs` | Trust as {identity}: {peer} | the accessible name of the Trust page's trust controls (`TrustPeerAs`) and of a Peers row's Trust (`TrustThisPeer`) | trust {peer} as {identity}; begins with the button's visible label |
@@ -1744,6 +1784,21 @@ pass before it lands.
     their EndpointIds.
     *(§6.1; cards §5.7.1.)*
 
+32. On the desktop, with two identities held, the endpoint overlay is
+    replaced by each of these in turn, and the app is started from its
+    menu entry: (a) a file that is not JSON; (b) a file whose added
+    entry takes the first identity's alias; (c) a file larger than the
+    overlay's bound. Each time the start-up refusal window shows
+    `RefusalIdentitiesUnreadable` with the overlay's full path, offers
+    no Try again and no Delete stored data, only Close, and no Chats, switcher or
+    identity is shown; after it is closed the exit status is 78
+    (`EX_CONFIG`), and the overlay's bytes and modification time are
+    unchanged. (d) The overlay readable but with group read permission:
+    `RefusalNotPrivate` with the overlay's path, exit status 77. (e)
+    The overlay absent: the app opens with the first identity alone
+    and no refusal.
+    *(§6.1, "The list cannot be read at start".)*
+
 ## 15. Deliberately left out
 
 - **Replacing an identity whose key is lost** (ADR-0067 d. 5: a new
@@ -1873,6 +1928,9 @@ Asked by rust-ui-dev-02 for the step 1 wiring (QUESTION 01a2119d,
   in §6.1 and cards §5.1.
 - **U6** motion on a switch: the new rows fade in, and there is no
   cross-fade; under reduced motion, no fade (§5.4, §12).
+- **U7** an endpoint overlay the desktop client cannot read at start
+  (rust-ui-dev-02's QUESTION 01a216b7): the start-up refusal window,
+  never the first identity alone (§6.1).
 
 Asked of architect-cto with this note's j192 revision (QUESTION
 01a2159d-1c32, 2026-11-26), and ruled the same day:
