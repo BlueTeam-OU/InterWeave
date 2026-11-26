@@ -2739,7 +2739,8 @@ landscape:
     340 dp with focus on `w`. Focus is on the same letter after the
     layout change, the mode is unchanged, nothing is typed or
     announced; with focus on the delete key, it is on the delete key
-    after the layout change; with focus on a chip, the grid button or
+    after the layout change, and with focus on the clear key, it is on
+    the clear key after the layout change; with focus on a chip, the grid button or
     the primary action, focus is unchanged. Run as a host test on the
     headless backend, and on the Pixel 9a resized live with `wm size`,
     as item 13 resizes it.
