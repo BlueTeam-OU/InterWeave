@@ -703,9 +703,11 @@ Outcomes other than Done, each with nothing half-made shown as made:
   read is Found, or finds the form's key gone, the client goes on as
   it does after the first list read. Otherwise (not Found, or the read
   fails), Create calls the add again with the same key and kinds
-  (step 2). Its alias is also the same, with one exception: the next
-  add after the not-listed reading of "Created, not finished" takes
-  its alias as that item says, and that alias can be a new one. The
+  (step 2). Its alias is the one that step 2 gives: once an add of
+  the form's key has ended unknown, the alias of the first such add.
+  Otherwise it is made from what the Name field says at that time, as
+  it is after the not-listed reading of "Created, not finished" (that
+  item says why). The
   answer of the add that Create sends is then handled as this section
   says for any add, so an add that had landed answers `unchanged` and
   is Found. A failed read never ends a Create by
