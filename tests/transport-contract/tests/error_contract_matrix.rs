@@ -208,6 +208,22 @@ const MATRIX: &[Clause] = &[
         error: "PeerUnknown",
         proof: Proof::Test("an_unknown_peer_and_an_unreachable_one_are_told_apart"),
     },
+    // A configured address is in the book before start returns
+    // (ruled 2026-11-26): the static peer and the cached peer are each
+    // answered something other than `PeerUnknown` with the interval an
+    // hour away, beside a trusted unnamed peer that is.
+    Clause {
+        doc: DIRECT,
+        text: "the `PeerUnknown` check above reads that book directly rather than through the discovery driver",
+        error: "PeerUnknown",
+        proof: Proof::Test("a_configured_peer_is_not_unknown_before_the_first_tick"),
+    },
+    Clause {
+        doc: DIRECT,
+        text: "a configured peer is not `PeerUnknown` for want of a first discovery round",
+        error: "PeerUnknown",
+        proof: Proof::Test("a_configured_peer_is_not_unknown_before_the_first_tick"),
+    },
     Clause {
         doc: DIRECT,
         text: "connection failure -> `PeerUnreachable`",
