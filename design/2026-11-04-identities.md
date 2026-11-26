@@ -333,17 +333,17 @@ the same text as its reason:
   session (architect-cto's REPLY 01a216e9, item A), and between the
   attempts the identity stays Starting without a break: no Try again,
   no words of its own, and focus does not move. Until the lease is
-  taken, the identity's session is in the client's Reconnecting state,
-  before the first attempt and between the attempts, and the notice
-  slot shows it as it shows any session's state today: the
-  Reconnecting notice, or the no-daemon notice while the daemon is
-  absent (`SessionNotice`). This design adds nothing to that notice
-  and hides none of it; the row and the line are what say the
-  identity is Starting, and while the daemon is absent the identity
-  stays Starting in the same way. Try again is offered for an answered refusal (Could
-  not start, below), not for a call that the client gives up on: the
-  client is already asking again, and nothing the person does here
-  makes the next attempt sooner. When a retry that Try again began
+  taken, both before the first attempt and between the attempts, the
+  identity's session is in the client's Reconnecting state. The notice
+  slot shows that state as it already shows the state of any session:
+  the Reconnecting notice, or the no-daemon notice while the daemon is
+  absent (`SessionNotice`). This design adds nothing to that notice and
+  hides nothing of it. The row and the composer line are what say that
+  the identity is Starting, and while the daemon is absent the identity
+  stays Starting in the same way. Try again is offered for an answered
+  refusal (Could not start, below), not for a call that the client gives
+  up on: the client is already asking again, and nothing the person does
+  here makes the next attempt sooner. When a retry that Try again began
   gives up in the same way, the row and the line stay as they are
   through that retry's Starting (Could not start, below): Try again in
   its place, disabled, with its progress indicator, until an attempt
@@ -627,17 +627,19 @@ no card is named by it.
    that Replace minted (identity-key §5.3 step 1) is named by no such
    record (ADR-0061 decision 7, A 2026-11-26). If the record cannot
    be written, nothing is sealed, and Create ends as "Refused, with
-   nothing created" says (below). That includes a store that already
-   holds 64 pending-add records, its bound; no record is evicted to
-   make room, since a record is the one thing that names its key
-   (`STATE.md`; A 2026-11-26 (ii)). Since the settle below skips no
-   record but the open form's, and the open form has none yet, a
-   Create whose record is refused at the bound first settles the other
-   records, as opening Your identities does, and writes its record
+   nothing created" says (below). A store that already holds 64
+   pending-add records, the most the store may hold, is also a case in
+   which the record cannot be written: no record is evicted to make
+   room, since a record is the only thing that names its key
+   (`STATE.md`; A 2026-11-26 (ii)). The settle below settles every
+   record except the open form's, and the open form has none yet. So a
+   Create whose record is refused at that bound first settles the other
+   records, as opening Your identities does, and then writes its record
    again; only a second refusal ends Create as "Refused, with nothing
    created". The next Create does the same, so "Choose Create to try
-   again" stays a promise a Create can keep: each one settles again,
-   and a settle that the daemon answers frees the records it ends.
+   again" stays a promise that a Create can keep: each Create settles
+   again, and each settle that the daemon answers frees the records that
+   this settle ends.
    The form keeps that key for as long as it is open: **every later
    Create on the same form calls the add with the same key**, never a
    new one, so a retry can only make the same EndpointId, which is one
@@ -922,23 +924,24 @@ Outcomes other than Done, each with nothing half-made shown as made:
     outside the client that the client is not told of.
   Nothing is shown for a settle. The person has left the form, and an
   identity found here appears in Your identities as any identity does.
-  One discard leaves something to see (ADR-0061 decision 7, A
-  2026-11-26 (ii)): an earlier remove of the id that was left ahead of
-  the running device (`Internal`, so the record was kept) makes the
-  next one answer `EndpointUnknown`, and the record is deleted while
-  the endpoint list still holds the id. Until the daemon's next start
-  the id is then an identity whose key is missing, named by its alias
-  (identity-key §4.1). It leaves Your identities at the first list
-  that lacks it after that start. Until then it is an identity like
-  any whose key is missing, so a message can be admitted to it (§7,
-  acceptance 13); §7's clean-up rule then deletes whatever rows it
-  has by then, none having been written while the record stood
-  (step 2).
-  The settle reaches only keys a pending-add record names, so a key
-  that Replace minted is never reached: Replace writes its replaces
-  record before it seals that key (identity-key §5.3 step 1; ADR-0061
-  decision 7, A 2026-11-26 (ii)), and that record is settled as §7
-  says ("An identity that cannot come back").
+  One case of discard leaves something that the person can see
+  (ADR-0061 decision 7, A 2026-11-26 (ii)). When an earlier remove of
+  the id was left ahead of the running device (answered `Internal`,
+  so the record was kept), the settle's next remove answers
+  `EndpointUnknown`, and the record is deleted even though the
+  endpoint list still holds the id. Until the daemon's next start, the
+  id is then an identity whose key is missing, named by its alias
+  (identity-key §4.1). It leaves Your identities at the first
+  endpoint list, after that start, that lacks the id. Until then it is
+  like any identity whose key is missing, so a message can be admitted
+  to it (§7, acceptance 13). When it leaves, §7's clean-up rule
+  deletes whatever rows of it there are by then; none of them were
+  written while the record stood (step 2).
+  The settle reaches only keys that a pending-add record names, so it
+  never reaches a key that Replace minted: Replace writes its
+  replaces record before it seals that key (identity-key §5.3 step 1;
+  ADR-0061 decision 7, A 2026-11-26 (ii)), and the replaces record is
+  settled as §7 says ("An identity that cannot come back").
   **Alternative named:** settle the record as a replaces record is, by
   sending the same add again (identity-key §5.3). Rejected (ADR-0061
   decision 7, A 2026-11-26): a replacement is finished because
@@ -1597,11 +1600,12 @@ pass before it lands.
     key file sealed in `endpoint-keys/` by another program, named by
     no record, with its id unlisted: after a start and an opening of
     Your identities the key file is still there. (g) A Replace stopped
-    after its step 1 sealed the new key and before its add (its
-    replaces record is written before the seal): after a start and an
-    opening of Your identities, no pending-add settle has touched that
-    key, and the replaces record's settle sends its add (identity-key
-    §5.3). (h) As (d), with the
+    inside its step 1, after the new key was sealed and before the add
+    (the replaces record is written before the seal, so the record is
+    there): after a start and an opening of Your identities, no
+    pending-add settle has touched that key, and the settle of the
+    replaces record has sent the step's add again (identity-key §5.3).
+    (h) As (d), with the
     settle's remove answering `BackendUnavailable`, then a list that
     answers: the record stays, §7's clean-up rule does not take it, and
     the next settle removes the id and deletes the record. (i) A first
@@ -1619,12 +1623,14 @@ pass before it lands.
     (k) The record's write made to fail: `IdentityAddFailed`, no key
     file sealed, no add sent; a second
     Create, with the write no longer made to fail, writes the record
-    before its add. In a variant, 64 records stand, left by forms whose
-    adds ended unknown, with the daemon stopped: Create settles them
-    (each list fails, all are kept), its record is refused again, and
-    `IdentityAddFailed` shows with no key file sealed and no add sent;
-    with the daemon started again, the next
-    Create's settle discards those records and writes its own. (l) A first add answered `BackendUnavailable`:
+    before its add. In a variant, the store holds 64 records, left by
+    forms whose adds ended unknown, and the daemon is stopped. Create
+    settles those records (each list fails, and all the records are
+    kept), its record is refused again, and `IdentityAddFailed` shows,
+    with no key file sealed and no add sent. After the daemon is started
+    again, the next Create's settle discards those records, and that
+    Create writes its own record. (l) A first add answered
+    `BackendUnavailable`:
     `IdentityAddUnknown`. (m) An add left ahead as in (c), the entry's
     alias then changed from the command line, and Create chosen: the
     list lacks the id, the add answers `exists`, and the list read after
@@ -1683,8 +1689,8 @@ pass before it lands.
     `IdentityCardNotSaved` under its row. Needs
     D1 and ADR-0061 decision 7 (A 2026-11-26). (s) As (n), with the
     settle's remove left ahead of the running device (its publish and
-    restore made to fail, answered `Internal`): the record stays, and
-    then the failure is no longer made. At the next opening of Your
+    restore made to fail, answered `Internal`): the record stays. Then
+    the failure is no longer made. At the next opening of Your
     identities the remove answers `EndpointUnknown` while the list still
     holds the id, and the record is deleted. Your identities then shows
     the id as an identity whose key is missing, named by its alias, with
