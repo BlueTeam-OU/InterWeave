@@ -499,8 +499,10 @@ already knows**:
   record: a key that was never sealed (the step was cut between the
   record and the seal), refused `key_missing`; and an entry left
   ahead of the running device that holds another alias, refused
-  `exists`. The second follows a rename of the old identity between
-  the cut and the settle, which then changes the alias. The person
+  `exists`. The second follows any change of the alias the client
+  would choose between the cut and the settle: a rename of the old
+  identity, or a change in the aliases held (a Remove that frees a
+  lower suffix, or a new identity that takes one). The person
   never saw that replacement finish: the old identity stands with
   `KeyReplaceFailed`, and Replace makes a new one. Replace then opens no dialog and mints no second key
   while a record names the old identity. While the client settles
