@@ -577,11 +577,13 @@ async fn a_rename_of_an_add_left_ahead_is_renamed_and_loads_under_the_new_alias(
 /// written, a value already in effect writing nothing -- and neither
 /// registers the endpoint. The add sent again is `unchanged` and
 /// registers it with both values, and so does the next start.
-/// `set_default` naming it leaves the overlay as it was: `EndpointUnknown`
-/// while enabled, `EndpointDisabled` once disabled. The control: each write moves the bytes on disk,
+/// `set_default` naming it is `EndpointUnknown` with nothing written,
+/// enabled or not. The control: each write moves the bytes on disk,
 /// so the unmoved ones are a write that did not happen.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add() {
+    use interweave_transport_composition::OverlayFault::BeforeRename;
+
     let p = paths();
     let (identity, _) = id();
     let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
@@ -595,21 +597,36 @@ async fn a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add() 
     );
     assert!(row_of(&port, &work).await.is_none(), "control: not served");
 
-    let default_is = |answer: TransportError, why: &'static str| {
+    // NO WRITE AT ALL, not equal bytes after a write and its put-back:
+    // a write fault is queued first, so a write would answer `Internal`.
+    let default_is_unknown = |why: &'static str| {
         let port = &port;
+        let runtime = &runtime;
         let work = work.clone();
         let p = &p;
         async move {
+            runtime
+                .fail_overlay_writes(vec![BeforeRename])
+                .await
+                .expect("queued");
             let before = bytes(p);
             assert_eq!(
                 port.set_default_endpoint(Some(work)).await,
-                Err(answer),
+                Err(TransportError::EndpointUnknown),
                 "{why}"
             );
             assert_eq!(bytes(p), before, "{why}: the overlay as it was");
+            // THE CONTROL: the fault is still queued, and the next write
+            // -- clearing the default, which `human` holds -- takes it.
+            assert_eq!(
+                port.set_default_endpoint(None).await,
+                Err(TransportError::Internal),
+                "{why}: the queued fault was armed"
+            );
+            assert_eq!(bytes(p), before, "{why}: nothing written");
         }
     };
-    default_is(TransportError::EndpointUnknown, "enabled").await;
+    default_is_unknown("enabled").await;
 
     let before = bytes(&p);
     assert_eq!(
@@ -644,9 +661,9 @@ async fn a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add() 
         lease(&runtime, &work).await,
         Err(TransportError::EndpointUnknown)
     );
-    // AS BUILT, NOT AS 1dc975919 WORDS IT: the overlay refuses a
-    // disabled default before anything is published, as on any entry.
-    default_is(TransportError::EndpointDisabled, "disabled").await;
+    // Registration is asked before the overlay's disabled check, so a
+    // disabled entry left ahead has the one answer.
+    default_is_unknown("disabled").await;
 
     assert_eq!(
         port.add_endpoint(key, "work".to_owned(), vec![]).await,

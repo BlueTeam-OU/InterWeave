@@ -1566,21 +1566,7 @@ impl Driver {
                 let _ = reply.send(self.set_endpoints("set_enabled", moved, publish).await);
             }
             Request::SetDefaultEndpoint(endpoint, reply) => {
-                let moved = self
-                    .endpoint_overlay
-                    .set_default(&self.authored.endpoints, endpoint.as_ref());
-                let fault = self.take_publish_fault();
-                let commander = self.swarm.commander();
-                let publish = async move {
-                    if fault {
-                        return Err(TransportError::BackendUnavailable);
-                    }
-                    commander
-                        .set_default_endpoint(endpoint)
-                        .await
-                        .map_err(|_| TransportError::BackendUnavailable)?
-                };
-                let _ = reply.send(self.set_endpoints("set_default", moved, publish).await);
+                let _ = reply.send(self.set_default_endpoint(endpoint).await);
             }
             Request::AddEndpoint(key, alias, kinds, reply) => {
                 let _ = reply.send(self.add_endpoint(key, alias, kinds).await);

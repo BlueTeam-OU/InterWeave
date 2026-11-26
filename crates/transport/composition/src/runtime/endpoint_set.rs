@@ -321,6 +321,51 @@ impl Driver {
         self.set_endpoints("set_advertise", moved, publish).await
     }
 
+    /// `admin.endpoints.set_default {endpoint?}`: the overlay's move
+    /// written, then the substrate's default set.
+    ///
+    /// AN ENDPOINT THE RUNTIME DOES NOT REGISTER is `EndpointUnknown`
+    /// with NOTHING WRITTEN, asked of the registry before the overlay
+    /// moves -- an add left ahead among them, enabled or not. A default
+    /// is the runtime's from the answer on and an unregistered endpoint
+    /// serves none; moved first, the overlay was written, the publish
+    /// refused, and the move put back, and a put-back that failed left
+    /// the overlay holding a default the runtime never served
+    /// (LOCAL-IPC.md, ruled 2026-11-26;
+    /// `a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add`).
+    /// The writing methods are answered one at a time, so nothing moves
+    /// between the read and the move. The other setters stay judged by
+    /// the overlay.
+    pub(super) async fn set_default_endpoint(
+        &mut self,
+        endpoint: Option<EndpointId>,
+    ) -> Result<(), TransportError> {
+        let commander = self.swarm.commander();
+        if let Some(id) = &endpoint {
+            let registered = commander
+                .list_endpoints()
+                .await
+                .map_err(|_| TransportError::BackendUnavailable)?;
+            if !registered.iter().any(|row| &row.endpoint == id) {
+                return Err(TransportError::EndpointUnknown);
+            }
+        }
+        let moved = self
+            .endpoint_overlay
+            .set_default(&self.authored.endpoints, endpoint.as_ref());
+        let fault = self.take_publish_fault();
+        let publish = async move {
+            if fault {
+                return Err(TransportError::BackendUnavailable);
+            }
+            commander
+                .set_default_endpoint(endpoint)
+                .await
+                .map_err(|_| TransportError::BackendUnavailable)?
+        };
+        self.set_endpoints("set_default", moved, publish).await
+    }
+
     /// `admin.endpoints.set_alias {endpoint, alias}`: refused `authored`,
     /// `alias_invalid`, `alias_taken` in that order, `unchanged` for the
     /// alias the entry has, else written and the runtime's list told.
