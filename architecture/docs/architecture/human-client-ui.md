@@ -118,7 +118,7 @@ Infrastructure PeerIds, AutoNAT probe details, relay multiaddrs, Kademlia bucket
 
 ## 8. Trust/settings interaction
 
-Trust mutation is always an explicit local settings action. A message may contain a PeerId as text, but clicking/copying it cannot auto-allowlist it.
+Trust mutation is always an explicit local settings action, made as the identity in front and written to that identity's own set (ADR-0067 decision 6; A 2026-11-26, this paragraph having said "auto-allowlist", the word of the one list an operator holds). A message may contain a PeerId as text, but clicking/copying it trusts it for no identity.
 
 Desktop settings use the admin IPC binding. Android settings use `LocalAdminPort`. Network/event callbacks never receive either authority.
 
