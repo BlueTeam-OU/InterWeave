@@ -2523,12 +2523,19 @@ component IdentityScreen inherits FocusScope {
         root.at-seg = seg;
         root.at-idx = idx;
         root.at-alpha = root.keys-alpha;
+        root.pending = false;
         root.focused(key);
     }
     // A stop the page's own render may have just made misses the first
     // `focus-seq` change; the second, one timer turn later, focuses it.
     property <bool> rebump;
+    // A stop is wanted and has not yet taken focus: a page rebuilt
+    // before it lands -- a second render in the same turn -- keeps the
+    // stop wanted, not the one focus still stands on (trace.rs
+    // a_second_render_as_a_notice_arrives_leaves_focus_to_the_banner).
+    property <bool> pending;
     function go(seg: int, idx: int) {
+        root.pending = true;
         root.want-seg = seg;
         root.want-idx = idx;
         root.focus-seq += 1;
@@ -2653,6 +2660,7 @@ component IdentityScreen inherits FocusScope {
     function again(seg: int, idx: int) {
         if (seg < 0 || seg > 8 || root.size(seg) == 0) {
             root.at-seg = -1;
+            root.pending = false;
             root.focus();
             return;
         }
@@ -2880,6 +2888,10 @@ component IdentityScreen inherits FocusScope {
             root.go(6, 0);
         } else if (to-keypad && root.page.picker) {
             root.keypad();
+        } else if (root.pending && root.want-seg != 2) {
+            // A chip wanted and not yet taken is the row's rule below:
+            // its index is the old row's, and the word is what it follows.
+            root.again(root.want-seg, root.want-idx);
         } else if (root.at-seg == 2 && root.page.picker) {
             // The chips were rebuilt: focus stays on its chip's word,
             // wherever the row put it, or goes to the keypad when the
