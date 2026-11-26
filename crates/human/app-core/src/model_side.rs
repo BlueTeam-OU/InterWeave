@@ -175,8 +175,9 @@ impl Behind {
 /// changes ([`UiModel::retry_start_asked`]), and `unlock_facts`, whose
 /// `seen` flag the model changes as the Trust page shows its line; a copy
 /// held here would go stale the moment the model changed its own. They
-/// are the front's alone, as only a root that never holds more than one
-/// identity (Android) calls them.
+/// are the front's alone, so a root that holds more than one identity
+/// must not call them: each asserts that no model is behind
+/// (`a_front_only_fact_with_a_model_behind_is_refused`).
 #[derive(Debug, Clone, Copy)]
 struct RootFacts {
     daemon: Option<bool>,
@@ -503,6 +504,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// the bound, and whether a start for its notice runs, as the root
     /// learns it from the platform.
     pub fn start_busy(&mut self, busy: Option<StartBusy>) {
+        debug_assert!(
+            self.behind.is_empty(),
+            "a front-only fact told with a model behind (RootFacts)"
+        );
         self.model.start_busy(busy);
     }
 
@@ -511,12 +516,20 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// Chats in its place, and whether a start for its notice runs, as the
     /// root learns it from the platform ([`UiModel::start_refused`]).
     pub fn start_refused(&mut self, refused: Option<StartBusy>) {
+        debug_assert!(
+            self.behind.is_empty(),
+            "a front-only fact told with a model behind (RootFacts)"
+        );
         self.model.start_refused(refused);
     }
 
     /// The unlock note's facts as the platform says them, the count of
     /// the start they are from, and whether its P-up line was seen.
     pub fn unlock_facts(&mut self, facts: Option<UnlockFacts>, start: u64, seen: bool) {
+        debug_assert!(
+            self.behind.is_empty(),
+            "a front-only fact told with a model behind (RootFacts)"
+        );
         self.model.unlock_facts(facts, start, seen);
     }
 
@@ -1582,6 +1595,34 @@ mod tests {
         ConversationKey::Channel(
             interweave_transport_api::ChannelId::parse("general").expect("a channel"),
         )
+    }
+
+    /// The three facts `RootFacts` leaves to the front alone are refused
+    /// once a model is behind, so the doc's "must not call them" holds.
+    /// Mutation: dropping the assertion from any of the three -- its test
+    /// does not panic.
+    #[test]
+    #[should_panic(expected = "a front-only fact told with a model behind")]
+    fn a_front_only_fact_with_a_model_behind_is_refused() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        assert!(side.hold(&[first(), second()], &first()));
+        side.start_busy(None);
+    }
+
+    #[test]
+    #[should_panic(expected = "a front-only fact told with a model behind")]
+    fn start_refused_with_a_model_behind_is_refused() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        assert!(side.hold(&[first(), second()], &first()));
+        side.start_refused(None);
+    }
+
+    #[test]
+    #[should_panic(expected = "a front-only fact told with a model behind")]
+    fn unlock_facts_with_a_model_behind_are_refused() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        assert!(side.hold(&[first(), second()], &first()));
+        side.unlock_facts(None, 0, false);
     }
 
     /// Named, the model shown so far is the front's, drafts and all, and
