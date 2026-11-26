@@ -6,8 +6,11 @@
 # Self-test for rust-android.sh --check, with rustup and cargo stubbed in
 # a scratch CARGO_HOME: every piece present passes; each missing piece
 # (rustup at another version, the toolchain, the Android target,
-# cargo-ndk, ~/.cargo/bin after /usr/bin on PATH) is named and fails. The
-# install path downloads a real toolchain and is not run here.
+# cargo-ndk, ~/.cargo/bin after /usr/bin on PATH) is named and fails.
+# With state/loud every rustup answer is followed by a 256 KiB line, past
+# the pipe buffer, so a probe piped into grep -q under pipefail kills the
+# stub with SIGPIPE and reads its match as a miss on every run.
+# The install path downloads a real toolchain and is not run here.
 #
 # Exit codes: 0 all assertions passed; 1 otherwise.
 
@@ -33,6 +36,10 @@ case "\$1" in
   target) [[ -e \$S/no-target ]] || printf 'aarch64-linux-android\nx86_64-unknown-linux-gnu\n' ;;
   run) shift 2; [[ "\$*" == "cargo ndk --version" && ! -e \$S/no-ndk ]] && echo "cargo-ndk 4.1.2" ;;
 esac
+st=\$?
+# A builtin write in this shell: a closed pipe kills the stub itself (141).
+[[ -e \$S/loud ]] && printf '%0262144d\n' 0
+exit \$st
 EOF
 printf '#!/usr/bin/env bash\n' > "$CH/bin/cargo"; cp "$CH/bin/cargo" "$SANDBOX/sysbin/cargo"
 chmod +x "$CH/bin/rustup" "$CH/bin/cargo" "$SANDBOX/sysbin/cargo"
@@ -48,6 +55,7 @@ echo 1.28.2 > "$SANDBOX/state/rustup"; run; expect "rustup at another version" 1
 touch "$SANDBOX/state/no-toolchain"; run; expect "the pinned toolchain missing" 1 "toolchain 1.98.1 is not installed"; rm "$SANDBOX/state/no-toolchain"
 touch "$SANDBOX/state/no-target"; run; expect "the Android target missing" 1 "target aarch64-linux-android is not installed"; rm "$SANDBOX/state/no-target"
 touch "$SANDBOX/state/no-ndk"; run; expect "cargo-ndk missing" 1 "cargo-ndk 4.1.2 is not installed"; rm "$SANDBOX/state/no-ndk"
+touch "$SANDBOX/state/loud"; run; expect "output past the pipe buffer still matches" 0 "== all present =="; rm "$SANDBOX/state/loud"
 run "$SANDBOX/sysbin:$CH/bin:/usr/bin:/bin"; expect "CARGO_HOME/bin after the system cargo is named" 1 "the system cargo wins"
 run "$SANDBOX/sysbin:/usr/bin:/bin"; expect "CARGO_HOME/bin not on PATH is named" 1 "is not on PATH"
 printf 'RUSTUP_VERSION=1.29.1\n' > "$SANDBOX/pins"; run; expect "a missing pin is refused" 2 "has no value for"
