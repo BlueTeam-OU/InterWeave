@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use interweave_human_android_platform::start_rules::StartRules;
 use interweave_human_android_platform::{ServiceHost, ViewLink, ViewSide, onboarding};
 use interweave_human_app_core::{Failure, ModelSide, Opener, Problem, Surface, Update};
-use interweave_human_ui_model::{RuntimeHost, UiModel, ViewEvent, WindowEvent};
+use interweave_human_ui_model::{IdentityIntent, RuntimeHost, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::{
     ActivityEvent, AndroidApp, ClipMark, PeerIdClipboard, PhotoPick, PhotoRequest, ShowOpen,
     TouchSettings, View, after, defer, init_android, invoke_on_window,
@@ -58,6 +58,14 @@ impl Surface for AndroidSurface {
     // borrowed for it.
     fn model_made(&mut self) {
         self.1 = true;
+    }
+
+    // The switch, the switcher's rows, the switch's snackbar and an
+    // identity's Try again, as the desktop's window reports them: the
+    // model side takes them before its turn (android-platform's
+    // `ViewSide::take_identity_acts`).
+    fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+        self.0.borrow_mut().take_identity_intents()
     }
 }
 
@@ -661,6 +669,9 @@ impl Root {
                 log("the message store could not be listed");
             }
         }
+        if let Some(problem) = self.side.take_held_refused() {
+            log(&format!("the identities held were not taken: {problem:?}"));
+        }
         // Before a reattach can replace the side, whose stop record it
         // reads (j280 review round 1, risk 1).
         self.held_ended();
@@ -684,6 +695,12 @@ impl Root {
         // opening the turn has yet to take is counted already, so the
         // reads it settles open nothing over it.
         let opened = self.view.borrow().opened_from_chats();
+        // The person's acts on the identities before the turn, as on the
+        // desktop: a switch sends the old front's acts as its own ahead of
+        // its crossing, and the turn below then asks as the new front.
+        if self.side.take_identity_acts(|crossing| hub.cross(crossing)) {
+            log("a command found no running network service");
+        }
         // The front's commands, by name once the hub said what the facade
         // holds: before that the one model is the front's, whichever it
         // is (android-platform's `ToFacade::Command`).

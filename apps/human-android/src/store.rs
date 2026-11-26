@@ -103,7 +103,9 @@ pub(crate) fn follow(view: &Rc<RefCell<View>>, said: Option<(StoreAnswer, StoreG
             Follow::Keep => {}
             Follow::Show(screen) => {
                 let raised = raised(state, screen);
-                // The desktop and the phone hold one identity until Stage 22.
+                // Counted as one identity: how many the Service holds does
+                // not reach this screen yet, so the lists name no added
+                // identity's data (the desktop passes its held count).
                 *shown = Some(Shown {
                     flow: StoreRecovery::new(screen, 1),
                     plan: None,
