@@ -471,12 +471,19 @@ impl Discovery {
     /// `widenings` is the substrate's count
     /// (`SwarmRuntime::listener_widenings`), read BEFORE the offers this
     /// round makes. A private address refused while this node offered no
-    /// private listener of its family -- a wildcard listener whose LAN
-    /// address came after its loopback one, the peer cache's restart
-    /// route offered in between -- is admitted after, and held back for
-    /// the interval it was a reconnect that never dialled: the
-    /// android-e2e cache-alone row, 1 run in 24 under a loaded host
-    /// (j133). Every candidate is offered again, not only a refused one:
+    /// private listener of its family -- a Wi-Fi joining, the platform's
+    /// view arriving on Android, where `getifaddrs` answers nothing
+    /// until it does -- is admitted after, and held back for the
+    /// interval it was a reconnect that never dialled. The case that
+    /// found it was at start: a wildcard listener whose LAN address came
+    /// after its loopback one, the peer cache's restart route offered in
+    /// between -- the android-e2e cache-alone row, 1 run in 24 under a
+    /// loaded host (j133). That start case was closed at its source
+    /// (j237): `SwarmRuntime::listen` answers a wildcard listen once its
+    /// listener has reported the interfaces its watcher holds, so the
+    /// first round's offers meet the LAN listener already counted
+    /// (`a_cached_lan_peer_is_not_unknown_on_a_wildcard_listener`).
+    /// Every candidate is offered again, not only a refused one:
     /// the substrate's answer counts what entered, not why the rest did
     /// not, and a widening is rare -- a listener or the platform's view
     /// moving -- so the cost is one `learn` per candidate per widening
