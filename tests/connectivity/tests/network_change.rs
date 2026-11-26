@@ -787,13 +787,16 @@ async fn a_departed_ips_listener_admits_no_private_candidate() {
 
 /// ADR-0052 rule 3's boundary WIDENING is counted where a caller outside
 /// the Swarm task can read it (`SwarmRuntime::listener_widenings`), as
-/// a wildcard listener makes it at startup: its loopback address reported
-/// first and its LAN address after. A private candidate offered between
-/// the two is refused and the count stands; the LAN listener binding
-/// moves the count, and the same candidate offered again is admitted --
-/// the move a caller remembering its offer (composition's discovery
-/// memo) must see, or it keeps the refusal for its relearn interval
-/// (j133: the android-e2e cache-alone row, 1 run in 24 under load).
+/// a private listener bound after a refusal makes it: a Wi-Fi joining,
+/// a listener added later. A private candidate offered before it is
+/// refused and the count stands; the private listener binding moves the
+/// count, and the same candidate offered again is admitted -- the move a
+/// caller remembering its offer (composition's discovery memo) must
+/// see, or it keeps the refusal for its relearn interval. It was first
+/// met at start, a wildcard listener reporting loopback before its LAN
+/// address (j133: the android-e2e cache-alone row, 1 run in 24 under
+/// load), until `listen` came to answer a wildcard listen after both
+/// (j237).
 /// Each reading follows a `learn` reply, which the task sends only
 /// after it handled the listener event before it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
