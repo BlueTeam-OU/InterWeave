@@ -527,8 +527,10 @@ Cards §5.1 stands, with these changes:
     a label member rather than drop it for the same reason: "dropped, it would
     bring back enabled an endpoint the operator turned off", ENDPOINTS,
     A 2026-11-22);
-  - its stderr line and exit class are those of a configuration that
-    cannot be loaded (`EX_CONFIG`; `EX_NOPERM` when not private).
+  - its stderr line is that of a configuration that cannot be loaded,
+    and its exit class is `EX_CONFIG`, or `EX_NOPERM` when the file is
+    not private, as the store's and the lock's are (a `config.yaml`
+    that is not private exits `EX_CONFIG`).
   Why not the first identity alone with a notice: (1) the daemon stops
   its own start on the same file (`crates/transport/composition/src/runtime.rs`,
   "A present overlay that cannot be trusted stops the start"), so the
@@ -675,6 +677,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   client to the list read that the next item, "The outcome is
   unknown", describes, and what that read finds is handled as that
   item says: Found, the form's key gone, or `IdentityAddUnknown`.
+  Unless that read is Found, an add answered `exists` has ended
+  unknown (step 2).
 - **The outcome is unknown**: every other ending of an add. These are
   `Internal` (a write that failed, or an add left ahead of the running
   device, which the client cannot tell apart, D1); any other error,
