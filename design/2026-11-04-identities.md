@@ -607,9 +607,13 @@ no card is named by it.
 **Create**, on a valid form (cards §5.2's input rules):
 
 1. Create shows a progress indicator in itself and the form stops
-   taking input; Back and Escape do nothing while it runs, for at most
-   the add's wait (below), since what it starts cannot be stopped
-   halfway.
+   taking input; Back and Escape do nothing while it runs, since what
+   it starts cannot be stopped halfway: for at most the add's wait
+   (below), and, when the record is refused at the bound, also for the
+   settle of the other records (step 2), which starts no further
+   record once the add's wait has passed since it began and leaves the
+   records it did not reach to the next settle. The progress indicator
+   stays through that settle.
 2. The client generates the identity's key. On each Create while the
    form has no record yet, it writes a **pending-add record** in the
    store before it calls the add. The record
@@ -923,8 +927,11 @@ Outcomes other than Done, each with nothing half-made shown as made:
     up). What `IdentityAddNotFinished` says stops being true
     when the endpoint is removed, by an act
     outside the client that the client is not told of.
-  Nothing is shown for a settle. The person has left the form, and an
-  identity found here appears in Your identities as any identity does.
+  Nothing is shown for a settle of its own. At the start and when Your
+  identities opens, the person is not on a form; at the bound, the
+  open form shows Create's progress indicator until the second write
+  (step 1). An identity found here appears in Your identities as any
+  identity does.
   One case of discard leaves something that the person can see
   (ADR-0061 decision 7, A 2026-11-26 (ii)). When an earlier remove of
   the id was left ahead of the running device (answered `Internal`,
