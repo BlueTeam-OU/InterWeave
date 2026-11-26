@@ -332,10 +332,15 @@ the same text as its reason:
   lease and asks again at the pace at which it reconnects a lost
   session (architect-cto's REPLY 01a216e9, item A), and between the
   attempts the identity stays Starting without a break: no Try again,
-  no words of its own, and focus does not move. The session's
-  Reconnecting state is the client's own and is never shown to the
-  person; while the daemon is absent, the identity stays Starting in
-  the same way. Try again is offered for an answered refusal (Could
+  no words of its own, and focus does not move. Until the lease is
+  taken, the identity's session is in the client's Reconnecting state,
+  before the first attempt and between the attempts, and the notice
+  slot shows it as it shows any session's state today: the
+  Reconnecting notice, or the no-daemon notice while the daemon is
+  absent (`SessionNotice`). This design adds nothing to that notice
+  and hides none of it; the row and the line are what say the
+  identity is Starting, and while the daemon is absent the identity
+  stays Starting in the same way. Try again is offered for an answered refusal (Could
   not start, below), not for a call that the client gives up on: the
   client is already asking again, and nothing the person does here
   makes the next attempt sooner. When a retry that Try again began
@@ -1772,7 +1777,9 @@ pass before it lands.
     attempts and to succeed on the third, the row and the composer line
     read `IdentityStarting` without a break from before the first
     attempt until the lease, no Try again is shown and focus does not
-    move, and then the composer line reads `ComposerAs` (§5.2); after a
+    move, the notice slot shows the Reconnecting notice until the
+    lease, and then the composer line reads
+    `ComposerAs` and the notice is gone (§5.2); after a
     daemon restart with the delta removed, the re-lease
     asserts again with the same two results; a trusted peer's directory
     query lists no identity of this device. Needs D1. *(`human-client-ui.md` §13 bullet 19;
