@@ -29,7 +29,7 @@ use std::time::Duration;
 
 use interweave_local_client_api::{
     AddressChange, AddressSource, AdminBinding, AdminCapability, AdminPort, DataSessionBinding,
-    DataSessionPort as _, PeerGateView, TrustChange,
+    DataSessionPort as _, PeerGateView, TrustChange, TrustDirection,
 };
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
 use interweave_transport_api::{DirectDestination, MessageId, TransportIdentity};
@@ -761,17 +761,24 @@ pub(crate) async fn pair<B: DataSessionBinding + AdminBinding>(
             return Err(format!("the add of {address}: {added:?}"));
         }
     }
+    // The `human` endpoint's own set, which the app's person administers
+    // (both members: the set's person-level meaning is the peers both
+    // hold). The operator's list no longer reaches it.
     let trusted = || async {
-        Ok::<bool, String>(
-            port.trust()
+        let mut both = true;
+        for direction in [TrustDirection::Inbound, TrustDirection::Outbound] {
+            both &= port
+                .endpoint_trust(human(), direction)
                 .await
-                .map_err(|e| format!("the trust list was refused: {e:?}"))?
-                .peers()
-                .any(|p| p == peer),
-        )
+                .map_err(|e| format!("the human endpoint's trust set was refused: {e:?}"))?
+                .allowed
+                .iter()
+                .any(|p| &p.peer == peer);
+        }
+        Ok::<bool, String>(both)
     };
     if args.trust {
-        match port.set_trust(peer.clone(), true).await {
+        match port.set_endpoint_trust(human(), peer.clone(), true).await {
             Ok(TrustChange::Set) => {}
             // One admin port here, so nothing supersedes it; said if it
             // ever does.

@@ -12,7 +12,9 @@
 //!
 //! The baseline is taken before anything can be handed. This side's
 //! profile does not trust the desktop, so every send of its is refused
-//! until the case itself trusts it through the admin port, once the
+//! until the case itself trusts it through the admin port, in the `human`
+//! endpoint's own set (the app's person administers that set, not the
+//! operator's list), once the
 //! facade holds its `human` lease and the baseline is read. The desktop
 //! retries until accepted. Without that gate, a payload accepted before
 //! the baseline could be acted on before it, and a revoke would be read
@@ -25,8 +27,8 @@
 //!   control showing the would-be deputy was given them.
 //! - Read afterwards through this side's own admin port, the endpoint
 //!   leases and the bootstrap addresses are as they were at the
-//!   baseline, and the trust list differs only by the desktop the case
-//!   trusted. So a revoke shows as the `human` lease gone or under a new
+//!   baseline, and the `human` endpoint's own trust set differs only by
+//!   the desktop the case trusted (the operator's list not at all). So a revoke shows as the `human` lease gone or under a new
 //!   epoch. The stranger is neither trusted nor addressed, and the
 //!   runtime still answers.
 //! - The positive controls: the same reads see each kind of change made
@@ -48,6 +50,7 @@ use std::time::{Duration, Instant};
 use interweave_human_chat_protocol::HumanChatV2;
 use interweave_local_client_api::{
     AddressChange, AdminBinding, AdminCapability, AdminPort as _, DataSessionBinding, TrustChange,
+    TrustDirection,
 };
 use interweave_transport_api::TransportIdentity;
 use serde_json::{Map, Value};
@@ -154,7 +157,11 @@ impl AdminShapedArgs {
 /// request names.
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct State {
+    /// The `human` endpoint's own set, the one the app's person administers
+    /// (the inbound member: the case writes both).
     trusted: BTreeSet<String>,
+    /// The operator's list, which no step of the case writes.
+    operator: BTreeSet<String>,
     leases: String,
     addresses: Vec<String>,
 }
@@ -162,10 +169,14 @@ struct State {
 /// A refusal is reported by which read it was: a case's result is text,
 /// and the read's name is what tells the runs apart.
 async fn state(port: &impl interweave_local_client_api::AdminPort) -> Result<State, String> {
-    let trust = port
+    let operator = port
         .trust()
         .await
         .map_err(|_| "the trust list was refused".to_owned())?;
+    let own = port
+        .endpoint_trust(crate::human(), TrustDirection::Inbound)
+        .await
+        .map_err(|_| "the human endpoint's trust set was refused".to_owned())?;
     let leases = port
         .leases()
         .await
@@ -175,7 +186,12 @@ async fn state(port: &impl interweave_local_client_api::AdminPort) -> Result<Sta
         .await
         .map_err(|_| "the bootstrap address list was refused".to_owned())?;
     Ok(State {
-        trusted: trust.peers().map(|p| p.as_str().to_owned()).collect(),
+        trusted: own
+            .allowed
+            .iter()
+            .map(|p| p.peer.as_str().to_owned())
+            .collect(),
+        operator: operator.peers().map(|p| p.as_str().to_owned()).collect(),
         leases: format!("{leases:?}"),
         addresses: addresses
             .into_iter()
@@ -235,7 +251,9 @@ pub(crate) fn admin_shaped_case<B: DataSessionBinding + AdminBinding>(
         return Err("a payload was handed to the facade before the baseline".into());
     }
     let set = |peer: &TransportIdentity, allowed: bool| {
-        crate::block_on(port.set_trust(peer.clone(), allowed))
+        // The `human` endpoint's own set, which the app's first trust read
+        // gave it: the operator's list no longer reaches the endpoint.
+        crate::block_on(port.set_endpoint_trust(crate::human(), peer.clone(), allowed))
             .and_then(|r| r.map_err(|_| "a trust change through the port was refused".to_owned()))
     };
     // The gate opens: from here the desktop's sends are accepted.
