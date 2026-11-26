@@ -576,9 +576,11 @@ struct State {
     own: BTreeMap<EndpointId, OwnSet>,
     /// Calls to the operator's list ([`FakeNode::operator_trust_calls`]).
     operator_calls: usize,
-    /// Answered seeds ([`FakeNode::seeds`]).
+    /// Answered seeds ([`FakeNode::seeds`]), unbounded here since a test
+    /// makes few seeds.
     seeds: Vec<(EndpointId, TrustSeed)>,
-    /// Every trust call ([`FakeNode::trust_log`]).
+    /// Every trust call ([`FakeNode::trust_log`]), unbounded here since a
+    /// test makes few calls.
     trust_log: Vec<(u64, FakeTrustCall)>,
     /// The sessions a restart ended: theirs was the runtime before it, so
     /// each answers `BackendUnavailable`, as a stopped runtime's does.
