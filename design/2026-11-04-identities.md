@@ -616,7 +616,8 @@ no card is named by it.
    most the add's wait (the settle, below), so it ends. With a daemon
    that does not answer, 64 records can hold the form for one add's
    wait per call; this note accepts that for a state reached only after
-   64 forms were left on an unknown outcome. The progress indicator
+   64 forms left records that no settle could yet end (§"The form is
+   left" and the settle say when a record is kept). The progress indicator
    stays through that settle.
 2. The client generates the identity's key. On each Create while the
    form has no record yet, it writes a **pending-add record** in the
@@ -1642,13 +1643,15 @@ pass before it lands.
     forms whose adds ended unknown, and the daemon is stopped. Create
     settles those records (each list fails, and all the records are
     kept), its record is refused again, and `IdentityAddFailed` shows,
-    with no key file sealed and no add sent. In the same variant with
-    the daemon running and each list's answer held back by a seam for
-    some seconds, Back and Escape pressed while that settle runs do
-    nothing: the form stays open with Create's progress indicator until
-    the settle ends. After the daemon is started
+    with no key file sealed and no add sent. After the daemon is started
     again, the next Create's settle discards those records, and that
-    Create writes its own record. (l) A first add answered
+    Create writes its own record. In a second variant, the store holds
+    the same 64 records, the daemon is running, and a seam holds back
+    each list's answer for some seconds, less than the add's wait: Back
+    and Escape pressed while the settle runs do nothing, and the form
+    stays open with Create's progress indicator until the settle ends;
+    the settle then discards the 64 records and Create writes its own
+    record. (l) A first add answered
     `BackendUnavailable`:
     `IdentityAddUnknown`. (m) An add left ahead as in (c), the entry's
     alias then changed from the command line, and Create chosen: the
