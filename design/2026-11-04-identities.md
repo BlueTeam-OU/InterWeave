@@ -691,11 +691,13 @@ Outcomes other than Done, each with nothing half-made shown as made:
   left without its key: that covers an add that ended unknown and may
   have landed, and an add that answered `added` before the key went
   (a form reached here from "Created, not finished", below). One case
-  the settle does not discard: a key file that is present at its key
-  path but cannot be read. Its first branch then reads the id as an
-  identity, which the person meets as one whose key is missing
-  (ADR-0067 decision 2) and removes (§7); this note does not change
-  decision 7's test of "key file at its key path". A new form makes a
+  the settle does not discard: the id listed while a key file that
+  cannot be read is at its key path (unlisted, the id is discarded as
+  any is). The settle's first branch then makes the id an identity,
+  whose page shows the key state of that file's refusal
+  (identity-key §3), with Try again where that state offers it, and
+  Remove (§7); this note does not change decision 7's test of "key
+  file at its key path". A new form makes a
   new key. **Alternative named:** keep
   `IdentityAddUnknown` and Create.
   Rejected: "Choose Create to try again" would then be a promise no
