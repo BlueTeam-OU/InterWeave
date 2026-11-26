@@ -682,12 +682,20 @@ Outcomes other than Done, each with nothing half-made shown as made:
   this form, because the key that InterWeave made for it is missing.
   Go back, then choose Add an identity to start again.") shows in its
   place, focused, with Back enabled. The form keeps its fields until
-  it is left. Back leaves the form as "The form is left" says: when no
-  add of the key ended unknown, the empty key path counts as deleted,
-  and the platform key and the record are deleted; after such an add,
-  the record is kept, and the settle discards the id (an add that
-  landed may have made it), so that no identity is left without its
-  key. A new form makes a new key. **Alternative named:** keep
+  it is left. Back leaves the form as "The form is left" says. Under
+  its first bullet, whatever is at the key path is deleted (an empty
+  path counts as deleted already), then the platform key and the
+  record. Under its second, the record is kept, and the settle
+  discards the id when its key path is empty, so that no identity is
+  left without its key: that covers an add that ended unknown and may
+  have landed, and an add that answered `added` before the key went
+  (a form reached here from "Created, not finished", below). One case
+  the settle does not discard: a key file that is present at its key
+  path but cannot be read. Its first branch then reads the id as an
+  identity, which the person meets as one whose key is missing
+  (ADR-0067 decision 2) and removes (§7); this note does not change
+  decision 7's test of "key file at its key path". A new form makes a
+  new key. **Alternative named:** keep
   `IdentityAddUnknown` and Create.
   Rejected: "Choose Create to try again" would then be a promise no
   Create keeps, and the person would retry with no way to learn why
@@ -734,15 +742,14 @@ Outcomes other than Done, each with nothing half-made shown as made:
     If the app ends, nothing is deleted.
     In both of these cases the record is then settled as the
     next item says.
-  - after an add of its key ended unknown, or while an add was running
-    (the app ended during Create): the key and the record are kept,
-    since that add may have landed, and the key would then be the
-    identity's; the settle, not the leaving, finds out whether it
-    landed, and the record is settled as the next item says.
-  - when the form shows `IdentityAddNotFinished` ("Created, not
-    finished", above): the key and the record are kept, since the key
-    is the identity's, and the
-    record is settled as the next item says.
+  - otherwise, whatever the form shows: an add of its key ended
+    unknown, answered `added` or `unchanged`, or was read as Found, or
+    an add was running when the app ended. The key and the record are
+    kept, since an add may have landed, or did, and the key would then
+    be the identity's; the settle, not the leaving, finds out what
+    the id is, and the record is settled as the next item says. This
+    holds from `IdentityAddNotFinished`, and also from
+    `IdentityAddKeyGone` or `IdentityAddUnknown` reached from it.
 - **A pending-add record is settled** at the client's next start and
   whenever Your identities opens, so also right after Back, which
   opens Your identities. The settle handles every record except the
@@ -1132,7 +1139,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F4 | Your identities opens | the title | keyboard |
 | F5 | the add form opens | the Name field | keyboard |
 | F6 | Create ends Done | the new identity's row | keyboard |
-| F7 | Create refused, failed, unknown or not finished | the line above Create (`IdentityAddFailed`, `IdentityAddUnknown`, `IdentityAddNotFinished`) | keyboard, with acceptance 11a (a) and (c) for `IdentityAddNotFinished` |
+| F7 | Create refused, failed, unknown or not finished | the line above Create (`IdentityAddFailed`, `IdentityAddUnknown`, `IdentityAddNotFinished`) | keyboard, with acceptance 11a (a), (c) and (f) for `IdentityAddNotFinished` |
 | F8 | Create at the bound | `IdentityLimit` | keyboard |
 | F9 | Create done, card not saved | the new row; `IdentityCardNotSaved` is read with it | keyboard |
 | F10 | the identity Remove dialog opens | Cancel | keyboard |
@@ -1484,7 +1491,7 @@ pass before it lands.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 11a. Add with the record's delete made to fail after the add answers
-    `added`, four runs, each observed from the daemon's list, the
+    `added`, six runs, each observed from the daemon's list, the
     store and the lease table. (a) `IdentityAddNotFinished` shows above
     Create, focused; the id is listed, no lease is held on it, the
     pending-add record is the only store row that names it (no card,
@@ -1503,8 +1510,20 @@ pass before it lands.
     then the key file moved aside and Create chosen with the delete no
     longer made to fail: `IdentityAddKeyGone` in Create's place,
     focused; the record is not deleted, no card is written, and the
-    form never ends Done. Needs D1 and
-    ADR-0061 decision 7 as #767 amends it.
+    form never ends Done. Then Back: the platform key and the record
+    are not deleted on Back; the settle on Your identities' opening
+    finds the key path empty, empties the platform key on Android,
+    sends the remove, which answers `removed`, and deletes the record;
+    the list then lacks the id. (e) As (a) up to
+    `IdentityAddNotFinished`, then the endpoint removed from the
+    command line and Create chosen: the list lacks the id, so
+    `IdentityAddUnknown` shows, focused; then Back: the key file and
+    the record are kept on Back, and the settle discards the id (the
+    remove answers `EndpointUnknown`) and deletes the record. (f) As
+    (a) up to `IdentityAddNotFinished`, then the list read made to
+    fail and Create chosen: the same line stays, focus returns to it,
+    and the record is not deleted. Needs D1 and ADR-0061 decision 7 as
+    #767 amends it.
 12. Add offers no configured endpoint that is not an identity (an
     agent's), and lists none as an identity. *(`human-client-ui.md` §13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
