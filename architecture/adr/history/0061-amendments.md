@@ -405,3 +405,76 @@ whatever the new identity's key) and `design/2026-11-04-identities.md`
 (`added` and `unchanged` registered from the answer on, `key_missing`
 for a late add, `removed` for an entry left ahead, `EndpointUnknown`
 for an id no entry holds).
+
+### Amendment 2026-11-26 — An add whose outcome is unknown keeps its key under a pending-add record, settled by discard
+
+Decision 7 said how a Remove and a replacement read the endpoint
+methods' answers and said nothing of the add a person sends from the
+form that creates an identity. The design filled the gap two ways the
+contract does not carry (ux-designer's question on
+`design/2026-11-04-identities.md` §6.2, from the third review of the
+change that brought the design texts to the 2026-11-25 note). It read
+the add's `Internal` as nothing created and deleted the key with the
+form; and it deleted a key kept after a lost answer once a list that
+answered lacked its id. `LOCAL-IPC.md` has an add that leaves the
+overlay ahead of the runtime answered `Internal` as a failed write is,
+absent from `admin.endpoints.list` and loaded at the daemon's next
+start. On both paths that start listed an identity whose key the
+client had deleted.
+
+So the add's answers are read as the remove's already were. `added`
+and `unchanged` are the identity. `refused` and `InvalidArgument` say
+that nothing was created, but only where no earlier add of that key
+ended unknown: `key_missing` is decided before the overlay is asked,
+so an entry left ahead can stand behind a later refusal. Everything
+else, `Internal`, `BackendUnavailable` and no answer included, is an
+outcome the client does not know, and the key is kept.
+
+A kept key is settled by discard and not, as a replaces record is, by
+sending the add again. A replacement is finished toward because the
+person asked for it and the old identity hangs on it; a form the person
+left has nothing hanging on it, and sending its add again would need
+its alias and client kinds stored beside the key. The discard is the
+one the 2026-11-25 note gave a refused replacement: the key path and
+the platform key first, which makes any add applied late `key_missing`;
+then the administrative remove, `removed` taking an entry left ahead
+out of the overlay and `EndpointUnknown` saying no entry holds the id.
+A record whose key path is already empty goes on to the remove whether
+its id is listed or not: the daemon may have started, with the entry
+ahead, between the unlink and the remove. A form left after a known
+refusal with no unknown add before it has nothing in the overlay to
+take out, and deletes the key and the record directly.
+
+What the rule may touch is named by a record and never by absence. The
+design recognised a kept key as a key file whose id no list holds; but
+`endpoint-keys/` is not the human client's alone, a deployment minting
+keys there with no daemon running (ADR-0067 decision 4), so that test
+would delete another program's add in progress. The pending-add record
+is content-free, names the new EndpointId, is written before the
+form's first add and is deleted when the id is an identity or the
+discard ends. No alias and no client kinds are stored. A key that
+Replace minted is named by no pending-add record, so this rule never
+reaches it before or after its replaces record is written; and the
+clean-up rule of 2026-11-24, whose test (the list lacks the id, the
+key path is empty) a record in the middle of its discard meets, takes
+no pending-add record, since the entry it waits to remove can still
+come back at the daemon's next start.
+
+Not decided here, and not verified: how the daemon orders an add
+applied late against the discard's remove. If an add that had passed
+its key check wrote its entry after the remove answered
+`EndpointUnknown`, the entry would stand with its key gone and its
+record deleted; the identity is then listed as any whose key is
+missing is, and removed by the person, as the 2026-11-25 note leaves
+the same case of a replacement. Neither the form nor the record is
+built (`STATE.md` §Logical tables), so no build did otherwise.
+
+Propagation: decision 7; this note; the log row; the digest entry, a
+bullet of its own; `STATE.md` §Logical tables, the record. The design
+texts that state the rules this note changes are their owner's and
+arrive with it in one change: `design/2026-11-04-identities.md` D1
+("cannot create an endpoint after the client deleted its key"), §6.2
+(the kept key deleted on the list's silence, the form left after a
+refusal) and `IdentityAddFailed` shown on `Internal`. How the form
+holds the first add's alias while an add is unknown is the design's.
+`LOCAL-IPC.md` is unchanged: every answer this leans on is its own.
