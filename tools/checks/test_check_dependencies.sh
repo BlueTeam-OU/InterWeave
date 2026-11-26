@@ -38,7 +38,7 @@ expect() {
 }
 
 echo "check_dependencies: --help works"
-if bash "$GUARD" --help | grep -q "ALLOW-LIST"; then
+if grep -q "ALLOW-LIST" <<<"$(bash "$GUARD" --help)"; then
   ok "--help prints the help block"
 else
   bad "--help did not print the help block"
