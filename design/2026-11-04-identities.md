@@ -608,12 +608,13 @@ no card is named by it.
 
 1. Create shows a progress indicator in itself and the form stops
    taking input; Back and Escape do nothing while it runs, since what
-   it starts cannot be stopped halfway: for at most the add's wait
-   (below), and, when the record is refused at the bound, also for the
-   settle of the other records (step 2). That settle reaches every
-   record, as the settle when Your identities opens does (ADR-0061
-   decision 7, A 2026-11-26 (iii)), and each of its calls waits at
-   most the add's wait (the settle, below), so it ends. With a daemon
+   it starts cannot be stopped halfway. Create runs for at most the
+   add's wait (below) and, when the record is refused at the bound,
+   also for the settle of the other records (step 2). That settle
+   reaches every record, as the settle when Your identities opens does
+   (ADR-0061 decision 7, A 2026-11-26 (iii)), and each of its calls
+   waits at most the add's wait (the settle, below), so the settle
+   ends. With a daemon
    that does not answer, 64 records can hold the form for one add's
    wait per call; this note accepts that for a state reached only after
    64 forms left records that no settle could yet end (§"The form is
@@ -894,9 +895,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   whenever Your identities opens (so also right after Back, which
   opens Your identities), and when a Create's record is refused at
   the bound (step 2; ADR-0061 decision 7, A 2026-11-26 (iii)). The settle handles every record except the
-  record of a form that is open now. Each call of a settle, a list or
-  a remove, waits at most the add's wait (above) for its answer, on the
-  client's side: a list with no answer in that time is a list that
+  record of a form that is open now. Each list or remove that a settle
+  sends waits, on the client's side, at most the add's wait (above) for
+  its answer: a list with no answer in that time is a list that
   failed, and a remove with none is a remove that got no answer. For
   each record, the client lists the endpoints:
   - The list fails: nothing is deleted and the record is kept, to be
@@ -921,8 +922,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
     platform key cannot be emptied, no remove is sent and the record
     is kept. On any other answer of the remove, or if it gets no
     answer, the record is kept.
-    A kept record is settled again at the next of these three
-    moments.
+    A kept record is settled again at the next of the three moments
+    at which a record is settled.
     This branch also applies to an id for which an add answered
     `added`, when something outside the client (the command line, for
     example) removed the endpoint of that id before the record's delete
@@ -938,8 +939,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   Nothing is shown for a settle of its own. At the start and when Your
   identities opens, the person is not on a form; at the bound, the
   open form shows Create's progress indicator until the second write
-  (step 1). An identity found here appears in Your identities as any
-  identity does.
+  of its record (step 1). An identity found here appears in Your
+  identities as any identity does.
   One case of discard leaves something that the person can see
   (ADR-0061 decision 7, A 2026-11-26 (ii)). When an earlier remove of
   the id was left ahead of the running device (answered `Internal`,
