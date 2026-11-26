@@ -630,11 +630,17 @@ impl State {
 
     /// The admission set's size.
     fn admitted(&self) -> usize {
+        self.admitted_peers().len()
+    }
+
+    /// The admission set itself: the operator's list and every own set's
+    /// two members, in order.
+    fn admitted_peers(&self) -> BTreeSet<&TransportIdentity> {
         let mut all: BTreeSet<&TransportIdentity> = self.trusted.iter().collect();
         for own in self.own.values() {
             all.extend(own.inbound.iter().chain(&own.outbound));
         }
-        all.len()
+        all
     }
 
     /// `peer` left the last set that held it: its connection closes, which
@@ -1221,6 +1227,14 @@ impl DataSessionPort for FakeSession {
             .endpoints
             .values()
             .filter(|e| e.enabled && e.advertise && state.leases.contains_key(&e.id))
+            // The runtime's `advertised_for` drops an endpoint whose own
+            // inbound set refuses the querier, as it drops one that is
+            // not leased: the directory shows what the querier may send to.
+            .filter(|e| {
+                state
+                    .effective(&e.id, TrustDirection::Inbound)
+                    .contains(&self.node.peer)
+            })
             .map(|e| e.id.clone())
             .collect();
         Ok(EndpointDirectoryV1 {
@@ -1434,7 +1448,8 @@ impl AdminPort for FakeAdmin {
         })
     }
 
-    /// One row per trusted peer, in order. The fake has no dial gate, so
+    /// One row per admitted peer, in order: the admission set, as the
+    /// runtime's `peer_rows` reads it. The fake has no dial gate, so
     /// nothing is ever in backoff or quarantined; the paired node, while
     /// trusted, reads connected.
     async fn peers(&self) -> Result<Vec<PeerGateView>, TransportError> {
@@ -1442,8 +1457,8 @@ impl AdminPort for FakeAdmin {
         let paired = self.node.remote().ok().map(|remote| remote.peer.clone());
         let state = self.node.running()?;
         Ok(state
-            .trusted
-            .iter()
+            .admitted_peers()
+            .into_iter()
             .map(|peer| {
                 let connected = paired.as_ref() == Some(peer);
                 PeerGateView {
@@ -1486,9 +1501,11 @@ impl AdminPort for FakeAdmin {
         // other node; a revoked peer that never could is told to nobody.
         let paired = self.node.remote().is_ok_and(|remote| remote.peer == peer);
         let mut state = self.node.running()?;
+        // The bound is the admission set's, which the operator's list
+        // shares with every endpoint's own set (runtime `set_trust`).
         if allowed
             && (peer == self.node.peer
-                || (!state.trusted.contains(&peer) && state.trusted.len() >= MAX_ALLOWED_PEERS))
+                || (!state.admits(&peer) && state.admitted() >= MAX_ALLOWED_PEERS))
         {
             return Err(TransportError::InvalidArgument);
         }
@@ -1836,8 +1853,8 @@ mod tests {
     use super::{
         AdminBinding as _, AdminCapability, AdminPort as _, DataCapability,
         DataSessionBinding as _, DataSessionPort as _, EndpointSetKind, FakeConfig, FakeEndpoint,
-        FakeNetwork, FakeNode, LocalSessionEvent, SessionEvent, SessionRequest, TrustChange,
-        TrustDirection, TrustSeed,
+        FakeNetwork, FakeNode, FakeTrustCall, LocalSessionEvent, SessionEvent, SessionRequest,
+        TrustChange, TrustDirection, TrustRefusal, TrustSeed,
     };
     use interweave_test_support::endpoint_keys::endpoint_id;
     use interweave_transport_api::{
@@ -2072,5 +2089,206 @@ mod tests {
             payload(),
         ));
         assert!(sent.is_ok(), "{sent:?}");
+    }
+
+    /// The `n`th of as many distinct well-formed peers as a bound needs.
+    fn peer_n(n: usize) -> TransportIdentity {
+        let mut bytes = vec![0x00, 0x24, 0x08, 0x01, 0x12, 0x20];
+        bytes.extend_from_slice(&[7; 24]);
+        bytes.extend_from_slice(&u64::try_from(n).expect("small").to_be_bytes());
+        TransportIdentity::parse(bs58::encode(bytes).into_string()).expect("a peer id")
+    }
+
+    fn lease(node: &FakeNode, endpoint: &EndpointId) -> super::FakeSession {
+        now(node.open(
+            SessionRequest::new(
+                "test",
+                Some(endpoint.clone()),
+                [DataCapability::Commands, DataCapability::Events],
+            )
+            .expect("in bounds"),
+        ))
+        .expect("leases")
+    }
+
+    fn disconnected(events: &[SessionEvent]) -> bool {
+        events.iter().any(|e| {
+            matches!(
+                e,
+                SessionEvent::Local(LocalSessionEvent::PeerDisconnected { .. })
+            )
+        })
+    }
+
+    /// The directory is what the querier may send to: an endpoint whose
+    /// own inbound set refuses it is left out, as the runtime's
+    /// `advertised_for` leaves it out.
+    #[test]
+    fn the_directory_leaves_out_an_endpoint_refusing_the_querier() {
+        let (a, b) = pair();
+        let agent = endpoint_id("agent");
+        let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        let _leased = lease(&a, &agent);
+        let from_b = now(b.open(
+            SessionRequest::new(
+                "test",
+                Some(endpoint_id("human")),
+                [DataCapability::EndpointsQuery],
+            )
+            .expect("in bounds"),
+        ))
+        .expect("leases");
+        let listed = |session: &super::FakeSession| {
+            now(session.query_endpoints(a.peer().clone()))
+                .expect("directory")
+                .endpoints
+        };
+        assert_eq!(listed(&from_b), vec![agent.clone()]);
+        assert_eq!(
+            now(admin.set_endpoint_trust(agent, b.peer().clone(), false)),
+            Ok(TrustChange::Set)
+        );
+        assert!(listed(&from_b).is_empty());
+    }
+
+    /// The peers rows are the admission set's: a peer only an endpoint's
+    /// own set holds is still listed after the operator's revoke.
+    #[test]
+    fn the_peer_rows_are_the_admission_set() {
+        let (a, b) = pair();
+        let admin =
+            now(a.admin([AdminCapability::Trust, AdminCapability::Status].into())).expect("a port");
+        let _ = now(admin.seed_endpoint_trust(endpoint_id("human"))).expect("seeds");
+        assert_eq!(
+            now(admin.set_trust(b.peer().clone(), false)),
+            Ok(TrustChange::Set)
+        );
+        assert!(a.operator_list().is_empty());
+        let rows = now(admin.peers()).expect("rows");
+        assert_eq!(
+            rows.iter().map(|r| r.peer.clone()).collect::<Vec<_>>(),
+            vec![b.peer().clone()]
+        );
+    }
+
+    /// The operator's allow is bounded by the admission set, which every
+    /// endpoint's own set shares: a peer outside it is refused at the
+    /// bound, one already inside is not, and nothing is written.
+    #[test]
+    fn an_operator_allow_is_bounded_by_the_admission_set() {
+        let (a, _b) = pair();
+        let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        a.give_own_set(
+            endpoint_id("human"),
+            (0..super::MAX_ALLOWED_PEERS).map(peer_n),
+            [],
+        );
+        assert_eq!(
+            now(admin.set_trust(other(), true)),
+            Err(TransportError::InvalidArgument)
+        );
+        assert!(!a.operator_list().contains(&other()));
+        assert_eq!(now(admin.set_trust(peer_n(5), true)), Ok(TrustChange::Set));
+        assert!(a.operator_list().contains(&peer_n(5)));
+    }
+
+    /// An endpoint write's refusals in the runtime's order: the endpoint,
+    /// the local peer, the bounds, then superseded, nothing written.
+    #[test]
+    fn an_endpoint_write_refuses_in_the_runtimes_order() {
+        let (a, b) = pair();
+        let (human, agent) = (endpoint_id("human"), endpoint_id("agent"));
+        let early = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        let late = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        let local = a.peer().clone();
+        assert_eq!(
+            now(late.set_endpoint_trust(endpoint_id("nobody"), local.clone(), true)),
+            Err(TransportError::EndpointUnknown),
+            "the endpoint before the local peer"
+        );
+        assert_eq!(
+            now(late.set_endpoint_trust(human.clone(), local.clone(), true)),
+            Err(TransportError::InvalidArgument)
+        );
+        assert_eq!(
+            now(late.set_trust(local, true)),
+            Err(TransportError::InvalidArgument),
+            "the operator's list refuses the local peer too"
+        );
+        assert_eq!(
+            peers(&a, &human, TrustDirection::Inbound),
+            vec![b.peer().as_str().to_owned()],
+            "nothing written"
+        );
+        // Superseded is keyed by the endpoint and the peer together.
+        assert_eq!(
+            now(late.set_endpoint_trust(human.clone(), b.peer().clone(), false)),
+            Ok(TrustChange::Set)
+        );
+        assert_eq!(
+            now(early.set_endpoint_trust(human.clone(), b.peer().clone(), true)),
+            Ok(TrustChange::Refused(TrustRefusal::Superseded))
+        );
+        assert!(peers(&a, &human, TrustDirection::Inbound).is_empty());
+        assert_eq!(
+            now(early.set_endpoint_trust(agent.clone(), b.peer().clone(), false)),
+            Ok(TrustChange::Set),
+            "another endpoint is another key"
+        );
+        // The bound before superseded: both hold for this write.
+        a.give_own_set(agent, (0..super::MAX_ALLOWED_PEERS).map(peer_n), []);
+        assert_eq!(
+            now(early.set_endpoint_trust(human.clone(), b.peer().clone(), true)),
+            Err(TransportError::InvalidArgument)
+        );
+        assert!(peers(&a, &human, TrustDirection::Inbound).is_empty());
+    }
+
+    /// An endpoint write that takes the paired node out of the last set
+    /// holding it closes the connection, as an operator's revoke does.
+    #[test]
+    fn an_endpoint_write_that_empties_the_last_set_disconnects() {
+        let (a, b) = pair();
+        let human = endpoint_id("human");
+        let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        let _ = now(admin.seed_endpoint_trust(human.clone())).expect("seeds");
+        let session = lease(&a, &human);
+        let _ = now(session.events(16)).expect("reads");
+        assert_eq!(
+            now(admin.set_trust(b.peer().clone(), false)),
+            Ok(TrustChange::Set)
+        );
+        assert!(!disconnected(&now(session.events(16)).expect("reads")));
+        assert_eq!(
+            now(admin.set_endpoint_trust(human, b.peer().clone(), false)),
+            Ok(TrustChange::Set)
+        );
+        assert!(disconnected(&now(session.events(16)).expect("reads")));
+    }
+
+    /// Every trust call is counted and logged, answered or refused; the
+    /// operator's count is the operator's calls alone.
+    #[test]
+    fn trust_calls_are_counted_and_logged() {
+        let (a, b) = pair();
+        let human = endpoint_id("human");
+        let admin = now(a.admin([AdminCapability::Trust].into())).expect("a port");
+        let _ = now(admin.trust());
+        let _ = now(admin.set_trust(b.peer().clone(), true));
+        let _ = now(admin.endpoint_trust(human.clone(), TrustDirection::Inbound));
+        let _ = now(admin.seed_endpoint_trust(human.clone()));
+        let _ = now(admin.set_endpoint_trust(human.clone(), b.peer().clone(), true));
+        assert_eq!(a.operator_trust_calls(), 2);
+        let log: Vec<FakeTrustCall> = a.trust_log().into_iter().map(|(_, c)| c).collect();
+        assert_eq!(
+            log,
+            vec![
+                FakeTrustCall::OperatorRead,
+                FakeTrustCall::OperatorSet(b.peer().clone(), true),
+                FakeTrustCall::EndpointRead(human.clone(), TrustDirection::Inbound),
+                FakeTrustCall::Seed(human.clone()),
+                FakeTrustCall::EndpointSet(human, b.peer().clone(), true),
+            ]
+        );
     }
 }

@@ -29,7 +29,8 @@ something conformance has proved.
   one; "Noise proved the peer" is configuration here.
 - **Trust.** The two nodes trust each other from pairing; an admin
   port's `set_trust` revokes or restores that, refuses the local peer
-  and a new peer at the 4096 ceiling, and a revocation of the paired
+  and a new peer that would put the admission set (the operator's list
+  and every endpoint's own set) past the 4096 ceiling, and a revocation of the paired
   node is owed to every session as `PeerDisconnected` with the `policy`
   reason. It cuts the pair both ways, as closing the connections does:
   the revoking node's sends and queries are `UnauthorizedPeer`, the
@@ -45,6 +46,10 @@ something conformance has proved.
   it takes the peer out of the last set holding it. The probes
   `operator_trust_calls`, `operator_list`, `seeds`, `trust_log` and
   `give_own_set` let a client's test see which list it touched.
+  Unmodelled: `endpoint_trust` never answers `EndpointSetKind::Authored`
+  (the runtime's static-subset sets, which the fake never authors), so
+  no client test sees that kind from it; and the peers rows carry no
+  backoff, quarantine or held route, for the fake has no dial gate.
 - **The network's own outcomes.** The fake does not produce `Timeout`
   itself, nor `UnauthorizedPeer` except for a peer revoked as above;
   a client sees them otherwise when TOLD via

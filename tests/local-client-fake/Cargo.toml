@@ -30,3 +30,5 @@ interweave-transport-api = { path = "../../crates/api/transport-api" }
 [dev-dependencies]
 # Real derived endpoint ids for the unit tests' configuration.
 interweave-test-support = { path = "../support" }
+# Distinct peer ids by the thousand, to reach the admission bound.
+bs58 = { workspace = true }
