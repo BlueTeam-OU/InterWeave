@@ -803,13 +803,14 @@ where focus lands — with its dialog changed for ADR-0067:
     an identity whose id that list does not hold and whose key path
     holds no key file. Nothing is deleted on a list that failed, and an
     identity whose key file is still there keeps its rows, since it can
-    be configured again. **The one exception is a replacement** (ADR-0061
-    decision 7, A 2026-11-25): the rule never takes a replaces record,
-    nor a pending-add record (§6.2), which only §6.2's settle ends,
-    nor the rows of the new identity that a replaces record names, even when the
+    be configured again. **There are two exceptions.** The rule never
+    takes a pending-add record, which only §6.2 deletes, by its own
+    rules (ruled 2026-11-25, REPLY 01a21460). And it never takes a
+    replaces record (ADR-0061 decision 7, A 2026-11-25), nor the rows
+    of the new identity that a replaces record names, even when the
     list lacks that identity's id and its key path is empty, because
     such a list does not say that its add never happened (an add left
-    ahead of the running device, or applied late). That record is
+    ahead of the running device, or applied late). A replaces record is
     settled as identity-key §5.3 says, by sending the same add again;
     the settle deletes the new identity's rows when it discards the
     record, and the rule applies to that identity again only when no
@@ -1317,7 +1318,7 @@ pass before it lands.
     `IdentityAddUnknown` with the daemon down, the key file and the
     pending-add record stay until a list that answers. Needs D1.
 
-    Add's kept key, ten more runs, each observed from the daemon
+    Add's kept key, twelve more runs, each observed from the daemon
     (`admin.endpoints.list`), `endpoint-keys/` and the store:
     (c) an add left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): `IdentityAddUnknown`
@@ -1341,14 +1342,23 @@ pass before it lands.
     the next settle removes the id and deletes the record. (i) A first
     Create refused `alias_taken`, then Back: the key file, the platform
     key and the record are deleted at once, with no remove sent. (j) As
-    (c) up to `IdentityAddUnknown`, then a Create refused for any reason
-    but `bound`: `IdentityAddUnknown` shows, never `IdentityAddFailed`;
+    (c) up to `IdentityAddUnknown`, then the key file moved aside and
+    Create chosen, refused `key_missing`: `IdentityAddUnknown` shows,
+    never `IdentityAddFailed`;
     Back keeps the key and the record for the settle, which ends as in
     (d). (k) The record's write made to fail: `IdentityAddFailed`, no
     key file sealed, no add sent; Create again writes the record before
     its add. (l) A first add answered `BackendUnavailable`:
-    `IdentityAddUnknown`. Needs D1 and ADR-0061 decision 7 as amended
-    for j188.
+    `IdentityAddUnknown`. (m) A Create answered `exists` (the entry's
+    alias changed from the command line after an add that ended
+    unknown): the client reads the list, finds the id and writes the
+    card; with the list made to lack it, `IdentityAddUnknown`. (n) A
+    pending-add record whose id is listed and whose key path is empty
+    (an add that registered the id with its answer cut, the list read
+    after it made to fail, so `IdentityAddUnknown` shows; then the key
+    file moved aside and Back): the settle sends the remove of that
+    listed id, which answers `removed`, and deletes the record. Needs
+    D1 and ADR-0061 decision 7 as amended for j188.
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
