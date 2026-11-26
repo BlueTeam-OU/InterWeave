@@ -169,8 +169,8 @@ behaviour="$stripped_behaviour"
 # 1. Strict still asks for signature verification.
 if ! grep -qE 'ValidationMode::Strict *=>' "$protocol"; then
   report "protocol.rs no longer matches on ValidationMode::Strict"
-elif ! awk '/ValidationMode::Strict *=>/,/ValidationMode::Permissive/' "$protocol" \
-     | grep -qE 'verify_signature *= *true'; then
+elif ! grep -qE 'verify_signature *= *true' \
+     <<<"$(awk '/ValidationMode::Strict *=>/,/ValidationMode::Permissive/' "$protocol")"; then
   report "ValidationMode::Strict no longer sets verify_signature — a forged message may now reach the behaviour"
 fi
 
