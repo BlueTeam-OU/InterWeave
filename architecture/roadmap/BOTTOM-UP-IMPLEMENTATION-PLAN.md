@@ -8502,6 +8502,62 @@ the condition was ruled again on rust-ui-dev-02's QUESTION
   script leases by `--endpoint`; fabric-coordinator is asked before
   that change lands, and a yes makes it a release note.
 
+**2026-11-26, the advertise assertion: who asserts, and what an
+unanswered assertion is.** Ruled for rust-ui-dev-02 (their QUESTION
+01a216b4-60bd and REPLY 01a216e8-079b; architect-cto's REPLY
+01a216b6-6939 and 01a216e9-5ee3), for the change that calls
+`set_advertise` (ADR-0061 decision 5). With that change the second
+bullet of the note of 2026-11-25 ends, as its condition says: the
+first identity is asserted unadvertised before every lease. Its first
+bullet ends when the same change holds the overlay's added entries,
+and where its fourth compares the command-line lease to the first
+identity's, the comparison is to the lease as it was on that day.
+
+- **Who asserts.** The assertion is a port of the graphical client's
+  transport facade: the administrative connection on the desktop, the
+  embedded host on Android. A graphical client is not composed without
+  it, by type and by no switch that defaults off. Android was allowed
+  to follow in a change of its own, holding the first identity alone
+  until then; as rust-ui-dev-02's branch stood when this note was
+  written, both platforms compose the asserting facade in the one
+  change. The command-line client makes no assertion: `--endpoint`
+  leases the entry as authored, since a deployed profile may author an
+  entry advertised on purpose and a script's run is not the place
+  that changes it.
+- **How.** `set_advertise` to false is sent at every acquisition with
+  no read before it: a value already in effect writes nothing
+  (`LOCAL-IPC.md`, the endpoint set's methods), so a read would add a gap
+  between the answer and the lease and nothing else.
+- **A daemon that is not there is reconnecting; a daemon that answers
+  an error is the refusal.** The administrative connection that cannot
+  be opened or ends before the answer, a daemon shutting down, and an
+  answer that did not come in time take no lease and are retried at
+  the pace a lost session is, each attempt asserting first. Were they
+  the refusal, whose way on is the person's Try again, the re-lease
+  after a daemon restart that exit gate (b) asks for would wait on the
+  person. Any other error the daemon answers, a method it does not
+  speak included, is the refusal with its notice, and nothing retries
+  it on a timer. `Overloaded` is neither: it is the no-room state of
+  the note below, retried. `human-client-ui.md` §13 carries the line
+  (A 2026-11-26).
+- **Two things the line cannot tell apart, accepted.** A missing
+  administrative socket beside a live data socket reaches the client
+  as a daemon that is down, so it reads as reconnecting and is retried
+  without end, with no lease taken. A publish the runtime did not take
+  is answered `BackendUnavailable` (`LOCAL-IPC.md`, the endpoint
+  methods' errors) and reads the same; that is safe because the
+  runtime publishes on every call, so the retry's assertion is not
+  answered as already in effect while the directory still holds the
+  old value.
+- **What exit gate (b) still asks.** The fail and block cases may be
+  proved in this change against a scripted administrative port, and
+  on Android against the in-process runtime the service leases from.
+  For the desktop the gate's "observed from the daemon's side" stays
+  unmet for those cases until a test drives a real daemon whose
+  publish is made to fail and to hold; whether the hold p2p-network-dev
+  built for the one-at-a-time publish (#770) serves is theirs to say.
+  The stage does not close on the scripted port alone.
+
 A limit carried by name, which no text changes now: the identities a
 client holds connected are counted against the daemon's IPC connection
 limit, `ipc.max_clients` less what the client's own administrative
