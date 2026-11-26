@@ -3803,10 +3803,7 @@ fn width(view: &View, px: f32) {
 fn a_recreation_across_the_layout_switch_keeps_the_letter() {
     use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2();
-    width(&page.view, 330.0);
-    page.settle();
-    // a, the first enabled key in the alphabetical sevens, then b.
-    page.tab();
+    page.on_b_in_the_sevens();
     page.take();
     page.recreate_with(true, |view| width(view, 400.0));
     page.enter();
@@ -3977,10 +3974,9 @@ fn a_kept_stops_debug_says_nothing_of_it() {
 
 /// The window's width crossing 340 says no stop of its own: Welcome,
 /// which opens on none, holds none after it (#764 round 2, risk a); and
-/// on R2 the key kept is the one focus stands on at the recreation. A
-/// live switch puts focus on the key at the same place in the new
-/// layout, as before this change: b's place in the sevens is w's in
-/// QWERTY.
+/// on R2 the key kept is the one focus stands on at the recreation,
+/// which a live switch before it kept on its letter: b in the sevens,
+/// b in QWERTY, b again.
 #[test]
 fn a_resize_across_the_layout_switch_says_no_stop() {
     use interweave_human_ui_model::{IdentityFlow, Start};
@@ -4008,7 +4004,7 @@ fn a_resize_across_the_layout_switch_says_no_stop() {
     width(&page.view, 330.0);
     page.settle();
     // a, the first enabled key in the sevens, then b; then wider, where
-    // focus stands on w.
+    // focus stands on b still.
     page.tab();
     width(&page.view, 400.0);
     page.settle();
@@ -4017,8 +4013,8 @@ fn a_resize_across_the_layout_switch_says_no_stop() {
     page.enter();
     assert_eq!(
         page.take(),
-        [IdentityInput::Key('w')],
-        "w, the key focused at the recreation"
+        [IdentityInput::Key('b')],
+        "b, the key focused at the recreation"
     );
 }
 
@@ -4054,6 +4050,254 @@ fn a_dialogs_way_back_keeps_the_layout_it_was_saved_in() {
     );
     page.take();
     page.recreate_with(true, |view| width(view, 400.0));
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
+}
+
+impl Identity {
+    /// The event loop's turns after a resize, with no page shown again:
+    /// a window that changes size renders no new page, as `settle`
+    /// would hand it, so only the resize's own rules can move focus.
+    fn turn(&mut self) {
+        let _ = ElementHandle::find_by_accessible_label(self.view.window(), "q").count();
+        for _ in 0..2 {
+            i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(10));
+            slint::platform::update_timers_and_animations();
+        }
+        let _ = ElementHandle::find_by_accessible_label(self.view.window(), "q").count();
+    }
+
+    /// The window narrowed to 330 under the opening's q, kept on its
+    /// letter there, then back along the sevens' reading order to b,
+    /// navigating. The two sevens rows above q hold 14 keys, a and b
+    /// begin the first.
+    fn on_b_in_the_sevens(&mut self) {
+        width(&self.view, 330.0);
+        self.settle();
+        for _ in 0..15 {
+            self.backtab();
+        }
+    }
+}
+
+/// Which way focus is moved onto the key before the live switch.
+#[derive(Clone, Copy)]
+enum Mode {
+    Navigating,
+    Typing,
+}
+
+/// Section 4.3's live switch (acceptance 14): with focus on `letter`
+/// -- b in the sevens, or w by one Tab from the opening's q in QWERTY
+/// -- the window turns `to` wide across 340. Nothing is typed
+/// or asked of the flow, and the trace says nothing but the key's focus;
+/// the mode is the one focus had, and focus is on `letter`. Typing, an
+/// Enter is the flow's; Left then moves to v, the key left of both b in
+/// QWERTY and w in the sevens -- from the key at the same place (w in
+/// QWERTY, b in the sevens) it would reach q or a.
+fn a_live_switch_keeps(mut page: Identity, to: f32, letter: char, mode: Mode) {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "control: q");
+    if letter == 'b' {
+        page.on_b_in_the_sevens();
+    } else {
+        width(&page.view, 400.0);
+        page.settle();
+        page.tab();
+    }
+    assert_eq!(page.last(), "ui-trace focus=identity-key", "control: a key");
+    if let Mode::Typing = mode {
+        // A letter typed and taken back: typing, on the key Tab reached.
+        page.key("c");
+        page.key(Key::Backspace);
+    }
+    assert_eq!(page.typed(), "", "control: nothing typed");
+    page.take();
+    let said = page.said_count();
+    width(&page.view, to);
+    page.turn();
+    assert_eq!(page.take(), [], "nothing asked of the flow");
+    assert_eq!(page.typed(), "", "nothing typed");
+    assert!(
+        page.said.borrow()[said..]
+            .iter()
+            .all(|line| line == "ui-trace focus=identity-key"),
+        "nothing said but the key's focus: {:?}",
+        &page.said.borrow()[said..]
+    );
+    match mode {
+        Mode::Navigating => {
+            page.enter();
+            assert_eq!(page.take(), [IdentityInput::Key(letter)], "the same letter");
+        }
+        Mode::Typing => {
+            page.enter();
+            assert_eq!(page.take(), [IdentityInput::Enter], "typing still");
+            page.key(Key::LeftArrow);
+            page.enter();
+            assert_eq!(
+                page.take(),
+                [IdentityInput::Key('v')],
+                "left of {letter}, in the layout it moved to"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_r2_wider_navigating() {
+    a_live_switch_keeps(Identity::at_r2(), 400.0, 'b', Mode::Navigating);
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_r2_wider_typing() {
+    a_live_switch_keeps(Identity::at_r2(), 400.0, 'b', Mode::Typing);
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_r2_narrower_navigating() {
+    a_live_switch_keeps(Identity::at_r2(), 330.0, 'w', Mode::Navigating);
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_r2_narrower_typing() {
+    a_live_switch_keeps(Identity::at_r2(), 330.0, 'w', Mode::Typing);
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_c3_wider_navigating() {
+    a_live_switch_keeps(Identity::at_c3(), 400.0, 'b', Mode::Navigating);
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_c3_wider_typing() {
+    a_live_switch_keeps(Identity::at_c3(), 400.0, 'b', Mode::Typing);
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_c3_narrower_navigating() {
+    a_live_switch_keeps(Identity::at_c3(), 330.0, 'w', Mode::Navigating);
+}
+
+#[test]
+fn a_live_switch_keeps_the_focused_keys_letter_c3_narrower_typing() {
+    a_live_switch_keeps(Identity::at_c3(), 330.0, 'w', Mode::Typing);
+}
+
+/// With focus off the keypad, on `control`, a live switch across 340
+/// either way leaves it there: no focus line is said and nothing is
+/// asked of the flow; the caller's Enter then shows what is focused.
+fn a_live_switch_holds(page: &mut Identity, control: &str) {
+    for (from, to) in [(400.0, 330.0), (330.0, 400.0)] {
+        width(&page.view, from);
+        page.settle();
+        page.focus_on(control);
+        page.take();
+        let said = page.said_count();
+        width(&page.view, to);
+        page.turn();
+        assert_eq!(page.said_count(), said, "focus did not move: {control}");
+        assert_eq!(page.take(), [], "nothing asked of the flow");
+    }
+}
+
+/// A chip keeps focus through the switch (acceptance 14).
+#[test]
+fn a_live_switch_holds_a_focused_chip() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    a_live_switch_holds(&mut page, "chip");
+    page.enter();
+    assert!(
+        matches!(page.take().as_slice(), [IdentityInput::Chip(_)]),
+        "a chip pressed"
+    );
+}
+
+/// A grid position keeps focus through the switch (acceptance 14).
+#[test]
+fn a_live_switch_holds_a_focused_position() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    a_live_switch_holds(&mut page, "slot:0");
+    page.enter();
+    assert!(
+        page.take() == [IdentityInput::Slot(0)],
+        "a position pressed"
+    );
+}
+
+/// The delete key and the clear key keep focus through the switch
+/// (acceptance 14): pressed after it, each takes back what it did
+/// before, a letter or the word typed.
+#[test]
+fn a_live_switch_holds_the_focused_delete_and_clear_keys() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    a_live_switch_holds(&mut page, "delete");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Delete], "the delete key");
+    a_live_switch_holds(&mut page, "clear");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Clear], "the clear key");
+}
+
+/// The grid's button, over 130 % font, keeps focus through the switch
+/// (acceptance 14).
+#[test]
+fn a_live_switch_holds_the_focused_grid_button() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    text_size(&mut page, 20.0);
+    a_live_switch_holds(&mut page, "review");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Review(true)], "the full list");
+}
+
+/// The primary action keeps focus through the switch (acceptance 14):
+/// on a full R2, Check my words.
+#[test]
+fn a_live_switch_holds_the_focused_primary() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    take_word(&mut page.flow, WORDS[23]);
+    page.settle();
+    a_live_switch_holds(&mut page, "primary");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Primary], "the check");
+}
+
+/// The dialog's way back across a live switch while it shows, with no
+/// recreation: b saved in the sevens, the window widened under the
+/// dialog, Keep gives focus back to b in QWERTY, not w.
+#[test]
+fn a_dialogs_way_back_across_a_live_switch_is_the_same_letter() {
+    use interweave_human_ui_slint::IdentityInput;
+    use slint::platform::Key;
+    let mut page = Identity::at_r2();
+    width(&page.view, 330.0);
+    page.settle();
+    for letter in ["a", "c", "t"] {
+        page.key(letter);
+    }
+    page.enter();
+    assert_eq!(page.word(0), Some("act"), "control: a word entered");
+    // a, the first enabled key in the sevens, then b, navigating.
+    page.tab();
+    page.key(Key::Escape);
+    assert!(page.flow.discard_asked(), "control: the dialog shows");
+    width(&page.view, 400.0);
+    page.settle();
+    page.take();
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Dialog(false)]);
     page.enter();

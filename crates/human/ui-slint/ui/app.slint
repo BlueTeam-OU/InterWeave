@@ -2429,8 +2429,20 @@ component IdentityScreen inherits FocusScope {
     property <bool> saved-alpha;
     changed at-alpha => { root.publish(); }
     changed saved-alpha => { root.publish(); }
-    // A kept stop's index in this page's keypad layout: a key kept from
-    // a window of the other layout is the same letter here, at its
+    // A live switch rebuilds the keypad under a focused key: focus stays
+    // on its letter, in the mode it had, and nothing is typed or
+    // announced; a stop off the keypad is not rebuilt and is left where
+    // it is (section 4.3; trace.rs a_live_switch_keeps_*,
+    // a_live_switch_holds_*). Under the dialog the way back maps when
+    // the dialog closes (a_dialogs_way_back_across_a_live_switch_*).
+    changed keys-alpha => {
+        if (root.at-seg == 3 && root.at-alpha != root.keys-alpha) {
+            root.go(3, root.kept-key(3, root.at-idx, root.at-alpha));
+        }
+    }
+    // A stop's index in this page's keypad layout: a key taken in the
+    // other layout -- before a live switch, under the dialog, or in a
+    // window before a recreation -- is the same letter here, at its
     // `other` place (`IdKey.other`); any other stop is where it was. The
     // rows are QWERTY's 10, 9 and 7 and the alphabet's sevens
     // (identity.rs).
@@ -2788,7 +2800,7 @@ component IdentityScreen inherits FocusScope {
             } else if (notice-new) {
                 root.go(0, root.banner-idx());
             } else if (root.at-seg >= 0) {
-                root.again(root.at-seg, root.at-idx);
+                root.again(root.at-seg, root.kept-key(root.at-seg, root.at-idx, root.at-alpha));
             }
             return;
         }
@@ -2845,7 +2857,7 @@ component IdentityScreen inherits FocusScope {
         if (root.dialog-shown) {
             root.dialog-shown = false;
             root.typing = root.saved-typing;
-            root.again(root.saved-seg, root.saved-idx);
+            root.again(root.saved-seg, root.kept-key(root.saved-seg, root.saved-idx, root.saved-alpha));
         } else if (notice-new) {
             root.go(0, root.banner-idx());
         } else if (to-check) {
@@ -2864,7 +2876,7 @@ component IdentityScreen inherits FocusScope {
                 root.again(2, at);
             }
         } else if (root.at-seg >= 0) {
-            root.again(root.at-seg, root.at-idx);
+            root.again(root.at-seg, root.kept-key(root.at-seg, root.at-idx, root.at-alpha));
         }
     }
     // A chip taken, by a tap or a press: typing, an exception to "a press
