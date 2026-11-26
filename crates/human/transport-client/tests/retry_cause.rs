@@ -7,7 +7,8 @@
 //! answers each open as scripted.
 //!
 //! What this does NOT prove: the assertion's `Overloaded`, which is
-//! classified a refusal on this base (`problem.rs`'s `classify_assertion`);
+//! proved over the scripted admin port in `tests/hiding.rs`
+//! (`no_daemon_to_answer_is_reconnecting_and_the_next_reconnect_asserts`);
 //! the accessor reads whichever answer put the session on the timer.
 //!
 //! Every key here is TEST-ONLY (`interweave_test_support::endpoint_keys`).

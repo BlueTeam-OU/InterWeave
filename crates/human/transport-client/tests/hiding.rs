@@ -378,9 +378,13 @@ async fn an_answered_error_refuses_the_lease_and_try_again_asserts_again() {
 /// No daemon to answer -- the admin connection cannot be made, or ends
 /// before the answer -- and a daemon with no room now (`Overloaded`) are
 /// today's `Reconnecting`, never a refusal: no lease is asked, and the
-/// next reconnect asserts again. Mutations: an
-/// unreachable daemon classified `NotHidden`; the lease asked after a
-/// failed assertion.
+/// next reconnect asserts again. Only the `Overloaded` answer reads as
+/// retrying for room (`TransportClient::retrying_for_room`; identities
+/// §5.2, "No room at the daemon"), and the lease that follows clears it.
+/// Mutations: an unreachable daemon classified `NotHidden`; the lease
+/// asked after a failed assertion; the assertion's failure not
+/// recorded as the retry's cause -- `Overloaded` does not read as room;
+/// any failure recorded as `Overloaded` -- the others do.
 #[tokio::test]
 async fn no_daemon_to_answer_is_reconnecting_and_the_next_reconnect_asserts() {
     for (open_fails, answer) in [
@@ -407,6 +411,8 @@ async fn no_daemon_to_answer_is_reconnecting_and_the_next_reconnect_asserts() {
         };
         assert_eq!(attempt, 1, "{case}");
         assert_eq!(log.leased(), 0, "no lease: {case}");
+        let for_room = matches!(answer, Answer::Fails(TransportError::Overloaded));
+        assert_eq!(client.retrying_for_room(), for_room, "{case}");
         log.with(|s| {
             s.open_fails = None;
             s.answers.clear();
@@ -415,6 +421,7 @@ async fn no_daemon_to_answer_is_reconnecting_and_the_next_reconnect_asserts() {
         client.tick(next_at).await;
         let next = u64::from(open_fails.is_none()) + 1;
         assert_eq!(log.steps(), asserted_then_leased(next), "{case}");
+        assert!(!client.retrying_for_room(), "leased: {case}");
     }
 }
 
