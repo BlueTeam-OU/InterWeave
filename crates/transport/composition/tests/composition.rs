@@ -390,6 +390,106 @@ async fn a_static_entry_for_an_untrusted_peer_produces_no_connection() {
     target.shutdown().await.expect("clean shutdown");
 }
 
+/// A configured address is known from the moment the runtime serves
+/// (`contracts/TRANSPORT.md` §send, ruled 2026-11-26): a send made as
+/// `start` returns, under an interval no tick reaches in the test, to a
+/// peer named only by the static-bootstrap entry, and to one held only
+/// in the peer cache, is not answered `PeerUnknown`. Neither listens, so
+/// each is dialled and refused. A session's send reads the substrate's
+/// book directly, so a round only the driver ran answered both
+/// `PeerUnknown`. The control: a trusted peer nothing names is
+/// `PeerUnknown`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_configured_peer_is_not_unknown_before_the_first_tick() {
+    use interweave_discovery_cache::{CacheLimits, PeerCache};
+    use interweave_local_client_api::{
+        DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionRequest,
+    };
+    use interweave_transport_api::{DirectDestination, MessageId, Payload, TransportError};
+
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let scratch = tempfile::tempdir().expect("scratch");
+    let cache_file = scratch.path().join("peers.json");
+    let (_, statically) = id();
+    let (_, cached) = id();
+    let (_, unknown) = id();
+    // A port nothing listens on: the dial is refused, the peer is known.
+    let silent = |peer: &TransportIdentity| format!("/ip4/{ip}/tcp/9/p2p/{}", peer.as_str());
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .expect("after the epoch")
+        .as_millis();
+    let now = u64::try_from(now).expect("in range");
+    let mut cache = PeerCache::load(&cache_file, CacheLimits::default()).expect("loads");
+    cache
+        .record_success(&cached, &format!("/ip4/{ip}/tcp/9"), now)
+        .expect("in bounds");
+    cache.flush(now).expect("written");
+
+    let (a_id, _) = id();
+    let with_cache = "    - type: peer-cache\n      enabled: true\n      priority: 20\n";
+    let subject = ComposedRuntime::start(
+        &a_id,
+        // `unknown` is trusted, so the control's answer is the book's,
+        // not admission's `UnauthorizedPeer`.
+        &profile(
+            &[&statically, &cached, &unknown],
+            &[silent(&statically)],
+            with_cache,
+        ),
+        CompositionOptions {
+            listen: vec![format!("/ip4/{ip}/tcp/0")],
+            peer_cache_file: Some(cache_file),
+            discovery_interval: Duration::from_secs(3_600),
+            ..CompositionOptions::default()
+        },
+    )
+    .await
+    .expect("a composes");
+    let session = subject
+        .sessions()
+        .open(
+            SessionRequest::new(
+                "human-client",
+                Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
+                [DataCapability::Commands],
+            )
+            .expect("in bounds"),
+        )
+        .await
+        .expect("a leases");
+    let direct = |peer: &TransportIdentity, n: u8| {
+        session.send_direct(
+            DirectDestination {
+                peer: peer.clone(),
+                endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
+            },
+            MessageId::from_bytes([n; 16]),
+            Payload::at_ceiling(None, b"before the first tick".to_vec()).expect("in bounds"),
+        )
+    };
+    for (peer, n, what) in [(&statically, 1, "static"), (&cached, 2, "cached")] {
+        let sent = tokio::time::timeout(PATIENCE, direct(peer, n))
+            .await
+            .expect("answered");
+        assert!(
+            matches!(&sent, Err(e) if *e != TransportError::PeerUnknown),
+            "the {what} peer is known and unreachable: {sent:?}"
+        );
+    }
+    let sent = tokio::time::timeout(PATIENCE, direct(&unknown, 3))
+        .await
+        .expect("answered");
+    assert_eq!(
+        sent,
+        Err(TransportError::PeerUnknown),
+        "the control: a trusted peer nothing names"
+    );
+
+    drop(session);
+    subject.shutdown().await.expect("clean shutdown");
+}
+
 /// The peer cache persists what this node reached and a restart comes
 /// back to it (`providers/peer-cache.md`; #137 review F3): A reaches B
 /// through its static bootstrap, shuts down, and a new A holding only

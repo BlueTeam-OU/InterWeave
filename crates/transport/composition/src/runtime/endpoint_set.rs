@@ -288,6 +288,13 @@ impl Driver {
     /// delta or the added entry's member written, then the directory's
     /// answer source set, both before the answer. Not audited, as
     /// `set_enabled` is not.
+    ///
+    /// An endpoint an add left ahead is set too, as its rename is: the
+    /// registry's not-registered is agreement, the overlay keeps the
+    /// value, the directory -- which does not hold the endpoint -- has
+    /// nothing to update, and the endpoint stays unregistered until the
+    /// add is sent again or the next start
+    /// (`a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add`).
     pub(super) async fn set_endpoint_advertise(
         &mut self,
         endpoint: EndpointId,
@@ -302,17 +309,74 @@ impl Driver {
             if fault {
                 return Err(TransportError::BackendUnavailable);
             }
-            commander
+            match commander
                 .set_endpoint_advertise(endpoint, advertise)
                 .await
                 .map_err(|_| TransportError::BackendUnavailable)?
+            {
+                Err(TransportError::EndpointUnknown) => Ok(()),
+                answer => answer,
+            }
         };
         self.set_endpoints("set_advertise", moved, publish).await
+    }
+
+    /// `admin.endpoints.set_default {endpoint?}`: the overlay's move
+    /// written, then the substrate's default set.
+    ///
+    /// AN ENDPOINT THE RUNTIME DOES NOT REGISTER is `EndpointUnknown`
+    /// with NOTHING WRITTEN, asked of the registry before the overlay
+    /// moves -- an add left ahead among them, enabled or not. A default
+    /// is the runtime's from the answer on and an unregistered endpoint
+    /// serves none; moved first, the overlay was written, the publish
+    /// refused, and the move put back, and a put-back that failed left
+    /// the overlay holding a default the runtime never served
+    /// (LOCAL-IPC.md, ruled 2026-11-26;
+    /// `a_set_of_an_add_left_ahead_is_kept_and_registered_by_the_retried_add`).
+    /// The writing methods are answered one at a time, so nothing moves
+    /// between the read and the move. The other setters stay judged by
+    /// the overlay.
+    pub(super) async fn set_default_endpoint(
+        &mut self,
+        endpoint: Option<EndpointId>,
+    ) -> Result<(), TransportError> {
+        let commander = self.swarm.commander();
+        if let Some(id) = &endpoint {
+            let registered = commander
+                .list_endpoints()
+                .await
+                .map_err(|_| TransportError::BackendUnavailable)?;
+            if !registered.iter().any(|row| &row.endpoint == id) {
+                return Err(TransportError::EndpointUnknown);
+            }
+        }
+        let moved = self
+            .endpoint_overlay
+            .set_default(&self.authored.endpoints, endpoint.as_ref());
+        let fault = self.take_publish_fault();
+        let publish = async move {
+            if fault {
+                return Err(TransportError::BackendUnavailable);
+            }
+            commander
+                .set_default_endpoint(endpoint)
+                .await
+                .map_err(|_| TransportError::BackendUnavailable)?
+        };
+        self.set_endpoints("set_default", moved, publish).await
     }
 
     /// `admin.endpoints.set_alias {endpoint, alias}`: refused `authored`,
     /// `alias_invalid`, `alias_taken` in that order, `unchanged` for the
     /// alias the entry has, else written and the runtime's list told.
+    ///
+    /// An endpoint the overlay holds and the runtime does not register --
+    /// an add left ahead -- is renamed too, as its remove is removed: the
+    /// registry's not-registered is agreement, the overlay keeps the new
+    /// alias and the endpoint stays unregistered until the add is sent
+    /// again or the next start (LOCAL-IPC.md `admin.endpoints.set_alias`,
+    /// ruled 2026-11-26;
+    /// `a_rename_of_an_add_left_ahead_is_renamed_and_loads_under_the_new_alias`).
     pub(super) async fn set_endpoint_alias(
         &mut self,
         endpoint: EndpointId,
@@ -347,10 +411,14 @@ impl Driver {
             if fault {
                 return Err(TransportError::BackendUnavailable);
             }
-            commander
+            match commander
                 .set_endpoint_alias(id, Some(alias))
                 .await
                 .map_err(|_| TransportError::BackendUnavailable)?
+            {
+                Err(TransportError::EndpointUnknown) => Ok(()),
+                answer => answer,
+            }
         };
         let (published, unwritten) = self
             .set_endpoints_noting("set_alias", Ok(Some(next)), publish)

@@ -197,6 +197,8 @@ For an authorized target:
 - `PeerUnreachable`: candidate information exists, but connection/protocol negotiation fails or misses deadline;
 - `RemoteEndpointUnavailable`: remote direct v2 responds with coarse `no_route`; the local API does not claim whether the endpoint was unknown, offline, disabled, policy-denied, or default-unavailable.
 
+Reachability information the profile configures is known from the moment the runtime serves a session: what an enabled static-bootstrap provider (its authored entries and the bootstrap-peers overlay's alike) and an enabled peer-cache provider emit as their initial state (`discovery/COMPOSITION.md` §Phasing) is in place before the first `send` can be asked, so a direct send to such a peer is not answered `PeerUnknown` because the first discovery round has not yet run. `PeerUnknown` is a not-dispatched category (§Error model) a client reads as nothing to wait for, so it is not the answer to a race with the runtime's own start; `PeerUnreachable` is not put in its place and no category is added. What only a running provider learns — mDNS, Kademlia — is unchanged: a peer known through those alone is `PeerUnknown` until one of them has reported it. (Ruled 2026-11-26: as this gap was found, a send arriving between start and the first discovery round was answered `PeerUnknown` for a configured peer.)
+
 A direct send never commands discovery providers to perform an ad hoc global search.
 
 ### peers()
