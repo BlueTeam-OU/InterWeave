@@ -342,14 +342,19 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     /// Bring `to` in front, as the desktop's window does: the model side
     /// drains the old front's acts and hands them to `send` as that
     /// identity's, then the switch (`ModelSide::switch`), for the root to
-    /// cross to the facade ([`crate::Hub::cross`]). False, and nothing
-    /// sent, when `to` is in front or not held -- with one identity held,
-    /// always (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`).
-    pub fn switch(&mut self, to: &EndpointId, send: impl FnMut(Crossing)) -> bool {
-        let switched = self.side.switch(to, send);
-        if switched {
-            self.fronted(to);
-        }
+    /// cross to the facade ([`crate::Hub::cross`]), each crossing carried
+    /// as [`Self::take_identity_acts`] carries them: a switch handed back
+    /// names no model made later with `to`, and a command handed back is
+    /// failed to its identity's model. False, and nothing sent, when `to`
+    /// is in front or not held -- with one identity held, always
+    /// (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`).
+    pub fn switch(
+        &mut self,
+        to: &EndpointId,
+        cross: impl FnMut(Crossing) -> Result<(), Crossing>,
+    ) -> bool {
+        let mut switched = false;
+        self.carry(cross, |side, send| switched = side.switch(to, send));
         switched
     }
 
@@ -375,12 +380,25 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     /// (`a_switch_intent_reaches_the_facade_after_the_old_fronts_commands`).
     pub fn take_identity_acts(
         &mut self,
+        cross: impl FnMut(Crossing) -> Result<(), Crossing>,
+    ) -> bool {
+        self.carry(cross, |side, send| side.take_identity_acts(send))
+    }
+
+    /// Run `act` on the model side, each crossing it sends handed to
+    /// `cross` until one is handed back; the front is recorded only from
+    /// an accepted [`Crossing::Front`], and every command handed back or
+    /// not crossed is failed to its identity's model. True when one was
+    /// handed back.
+    fn carry(
+        &mut self,
         mut cross: impl FnMut(Crossing) -> Result<(), Crossing>,
+        act: impl FnOnce(&mut ModelSide<S, O>, &mut dyn FnMut(Crossing)),
     ) -> bool {
         let mut stopped = false;
         let mut failed: Vec<(EndpointId, Command)> = Vec::new();
         let mut fronted = None;
-        self.side.take_identity_acts(|crossing| {
+        act(&mut self.side, &mut |crossing| {
             let front = match &crossing {
                 Crossing::Front(to) => Some(to.clone()),
                 Crossing::Command { .. } => None,
@@ -576,6 +594,7 @@ mod tests {
         let _ = hub.started(commands, held());
         let cross = |crossing| {
             hub.cross(crossing).expect("a facade takes it");
+            Ok(())
         };
 
         let mut one = view_side();
@@ -601,6 +620,24 @@ mod tests {
         // -- the model made at the stop is named with `me`.
         two.apply(ToView::Running(false)).expect("applied");
         assert_eq!(two.side().front(), Some(&other()), "named with the new");
+
+        // A switch no facade takes names no model made later with it
+        // (round 2 F7). Mutation: `switch` recording the front whatever
+        // `cross` answers -- the model made at the stop is named `other`.
+        let stopped = crate::Hub::new();
+        let mut three = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        three
+            .apply(ToView::Held(Held {
+                held: vec![me(), other()],
+                front: me(),
+            }))
+            .expect("applied");
+        assert!(
+            three.switch(&other(), |c| stopped.cross(c)),
+            "switched here"
+        );
+        three.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(three.side().front(), Some(&me()), "handed back: as it was");
     }
 
     #[test]
