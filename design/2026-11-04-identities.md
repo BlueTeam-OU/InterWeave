@@ -90,7 +90,8 @@ acceptance case in §14 that needs one says so:
   the same three on Android. §6.2 relies on these behaviours of the add
   and the remove, which D1 must name. An add sent again with the key,
   alias and client kinds of an entry the profile already holds answers
-  `unchanged`, creates nothing new and registers the endpoint, so a
+  `unchanged`, creates nothing new and leaves the endpoint registered,
+  registering it if it was not yet (an add left ahead), so a
   retry is one identity; with a different alias or different client
   kinds it is refused `exists`. An add whose key file is absent when
   the daemon applies it is refused (`key_missing`) and creates nothing,
@@ -559,7 +560,8 @@ no card is named by it.
    d. 6). The record is how the client knows later that a key is one
    the form made: `endpoint-keys/` is not the client's alone, since a
    deployment mints keys there with no daemon (ADR-0067 d. 4). So a
-   key file that no record names is never deleted by the client. A key
+   key file that no record names is never deleted by the form or by
+   the settle below (Remove, §7, deletes only an identity's key). A key
    that Replace minted (identity-key §5.3 step 1) is named by no such
    record (ruled 2026-11-25, REPLY 01a21460, Q3). If the record cannot
    be written, nothing is sealed, and Create ends as "Refused, with
@@ -576,7 +578,9 @@ no card is named by it.
    (step 3), as a later rename does (the alias rule above).
    The record is deleted when the id becomes an identity (the add
    answers `added` or `unchanged`, or a list finds the id), which comes
-   before step 3, or when its discard ends (below).
+   before step 3; when the form is left with nothing created and the
+   key is deleted; or when its discard's remove answers `removed` or
+   `EndpointUnknown` (below). It is never deleted otherwise.
 3. It writes the identity's card.
 4. **Done**: Your identities opens, the new row focused, and
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
@@ -605,8 +609,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   Create, focus on it. The key stays with the form (step 2), and the
   next Create takes the alias again from what the Name field says
   then.
-  These are the only cases in which the client knows that nothing was
-  created (D1; ruled 2026-11-25, REPLY 01a21460, Q1).
+  These and `bound` (above) are the only cases in which the client
+  knows that nothing was created (D1; ruled 2026-11-25, REPLY 01a21460, Q1).
 - **The add answers that the id is held**: `unchanged` (an earlier add
   landed, D1) is handled as Found: the record is deleted and the client
   goes on with step 3; nothing is shown as refused. `exists` (the id is
@@ -669,7 +673,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
     ahead of the running device (D1). On `removed` or
     `EndpointUnknown` it deletes the record. If the key path or the
     platform key cannot be emptied, no remove is sent and the record
-    is kept. On any other answer of the remove, the record is kept.
+    is kept. On any other answer of the remove, or none, the record
+    is kept.
     A kept record is settled again at the next start and the next
     opening of Your identities.
   Nothing is shown for a settle. The person has left the form, and an
