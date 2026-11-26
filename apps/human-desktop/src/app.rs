@@ -222,24 +222,30 @@ impl<S: Surface, O: Opener> App<S, O> {
                 FromFacade::Closed => {}
             }
         }
-        // The front's, by name once the facade said what it holds: before
-        // that the one model is the front's, whichever it is.
-        let front = self.side.front().cloned();
-        let mut stopped = false;
-        for command in self.side.turn() {
-            if !facade.command(front.clone(), command) {
-                log("the transport side has stopped");
-                stopped = true;
-                break;
-            }
-        }
+        // The person's acts on the identities before the turn: a switch
+        // drains and sends the old front's acts as its own ahead of its
+        // crossing, and the turn below then draws the new front's model
+        // and asks as it, with no second wake needed to show the switch.
         // Try again names its identity, whichever is in front.
+        let mut stopped = false;
         self.side.take_identity_acts(|crossing| {
             if !stopped && !facade.cross(crossing) {
                 log("the transport side has stopped");
                 stopped = true;
             }
         });
+        // The front's, by name once the facade said what it holds: before
+        // that the one model is the front's, whichever it is.
+        let front = self.side.front().cloned();
+        for command in self.side.turn() {
+            if stopped {
+                break;
+            }
+            if !facade.command(front.clone(), command) {
+                log("the transport side has stopped");
+                stopped = true;
+            }
+        }
         self.log_problems();
     }
 
