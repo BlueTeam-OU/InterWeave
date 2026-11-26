@@ -658,9 +658,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
     next item says.
   - after an add of its key ended unknown, or while an add was running
     (the app ended during Create): the key and the record are kept,
-    since an add still running, or one whose answer was lost, may yet
-    use the key, and the record is
-    settled as the next item says.
+    since that add may have landed, and the key would then be the
+    identity's; the settle, not the leaving, decides which it is, and
+    the record is settled as the next item says.
 - **A pending-add record is settled** at the client's next start and
   whenever Your identities opens, so also right after Back, which
   opens Your identities. The settle handles every record except the
