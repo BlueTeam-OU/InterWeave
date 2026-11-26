@@ -72,6 +72,11 @@ expect "command grep"               1 a.sh "$HDR"$'\ncmd | command grep -q PAT'
 expect "env grep"                   1 a.sh "$HDR"$'\ncmd | env LC_ALL=C grep -q PAT'
 expect "backslash grep"             1 a.sh "$HDR"$'\ncmd | \\grep -q PAT'
 expect "a quoted -q"                1 a.sh "$HDR"$'\ncmd | grep "-q" PAT'
+expect "env with an option"         1 a.sh "$HDR"$'\ncmd | env -i grep -q PAT'
+expect "command -p grep"            1 a.sh "$HDR"$'\ncmd | command -p grep -q PAT'
+expect "trailing |& then grep"      1 a.sh "$HDR"$'\ncmd |&\n  grep -q PAT'
+expect "a non-ASCII name"           1 $'t\303\251.sh' "$HDR"$'\ncmd | grep -q PAT'
+expect "a name holding ="           1 'a=b.sh' "$HDR"$'\ncmd | grep -q PAT'
 
 echo "check_no_grep_q_pipe: passing shapes"
 expect "here-string"                0 a.sh "$HDR"$'\ngrep -q PAT <<<"$x"'
@@ -136,6 +141,11 @@ fixture a.sh "$HDR"$'\ncmd | grep PAT'
 printf 'garbage' > "$FIX/.git/index"
 out="$(bash "$GUARD" --root "$FIX" 2>&1)"; got=$?
 if [ "$got" -eq 2 ]; then ok "a failed git ls-files is 2"; else bad "corrupt index (exit $got): $out"; fi
+# A name git quotes even with core.quotePath off (a newline in it) is
+# refused rather than skipped.
+fixture $'a\nb.sh' "$HDR"$'\ncmd | grep PAT'
+out="$(bash "$GUARD" --root "$FIX" 2>&1)"; got=$?
+if [ "$got" -eq 2 ]; then ok "a name git quotes is 2"; else bad "quoted name (exit $got): $out"; fi
 # A file awk cannot read. root reads anything, so this case needs a
 # login that permissions bind.
 if [ "$(id -u)" -ne 0 ]; then
