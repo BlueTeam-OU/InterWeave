@@ -672,9 +672,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   landed, D1) is handled as Found: the record is deleted and the client
   goes on with step 3; nothing is shown as refused. `exists` (the id is
   held with a different alias or different client kinds, D1) sends the
-  client to the list read of the next item, and what that read finds
-  is handled as the next item says: Found, the form's key gone, or
-  `IdentityAddUnknown`.
+  client to the list read that the next item, "The outcome is
+  unknown", describes, and what that read finds is handled as that
+  item says: Found, the form's key gone, or `IdentityAddUnknown`.
 - **The outcome is unknown**: every other ending of an add. These are
   `Internal` (a write that failed, or an add left ahead of the running
   device, which the client cannot tell apart, D1); any other error,
@@ -738,8 +738,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   that identity-key §3 gives to the file's refusal. The page offers
   Remove (§7), and also Try again where that kind offers it. This note
   does not change decision 7's test of "key file at its key path".
-  The same branch applies when the daemon could not read the file only
-  for a moment (it answered `key_missing`, and the file can be read
+  The same branch applies when the daemon could not read the file for
+  a moment only (it answered `key_missing`, and the file can be read
   again by the time the client opens it): that open succeeds, and the
   identity works as any identity does, its page showing no kind. A
   new form makes a new key. **Alternative named:** keep
@@ -765,13 +765,16 @@ Outcomes other than Done, each with nothing half-made shown as made:
   path is empty is "The form's key is gone"; the id not listed is an
   unknown outcome
   (`IdentityAddUnknown`, above), since the endpoint may have been
-  removed since its add. That reading ends no add, so it is not an add
-  that ended unknown (step 2). So when no add of the form's key ended
-  unknown before it, the next add takes its alias from what the Name
-  field says then, since the add that answered `added` named an
-  endpoint that is gone, and a refusal of it other than `exists`,
-  `bound` or `key_missing` is "Refused, with nothing created", where
-  the person can change the name. If the read fails, or the delete fails again,
+  removed since its add. That not-listed reading is a list read and
+  ends no add, so it does not count as an add that ended unknown
+  (step 2). Two rules hold for the next add when no add of the
+  form's key ended unknown before it: the next add takes its alias
+  from what the Name field says at that time, since the add that
+  answered `added` named an endpoint that no longer exists; and a
+  refusal of the next add other than `exists`, `bound` or
+  `key_missing` is "Refused, with nothing created", where the person
+  can change the name. If the read
+  fails, or the delete fails again,
   the same line stays and focus returns to it. The form retries the
   delete itself because the settle skips the record of an open form
   (below), so
@@ -796,12 +799,13 @@ Outcomes other than Done, each with nothing half-made shown as made:
     that was never made, count as deleted already. If a delete fails,
     the record is kept.
     If the app ends, nothing is deleted.
-    In both of these cases the record is then settled as the
-    next item says.
-  - otherwise, whatever the form shows: an add of its key ended
-    unknown or answered `added` or `unchanged`, or a list read the id
-    as Found, or an add was running when the app ended. The key and the record are
-    kept, since an add may have landed, or did, and the key would then
+    A record kept in either of these two ways, a failed delete or the
+    app's end, is then settled as the next item says.
+  - otherwise (an add of its key ended unknown or answered `added` or
+    `unchanged`, or a list read the id as Found, or an add was running
+    when the app ended), whichever text the form shows, the key and the
+    record are kept, since an add may have landed, or did land, and the
+    key would then
     be the identity's; the settle, not the leaving, finds out what
     the id is, and the record is settled as the next item says. This
     holds from `IdentityAddNotFinished`, and also from
@@ -835,14 +839,16 @@ Outcomes other than Done, each with nothing half-made shown as made:
     answer, the record is kept.
     A kept record is settled again at the next start and the next
     opening of Your identities.
-    This branch also takes an id that an add answered `added` for and
-    whose endpoint something outside the client (the command line, for
-    one) removed before the record's delete succeeded (acceptance 11a
-    (e)): until that delete, the id was no identity (§16 Q11), so
-    nothing the person used is lost. The form last said that it could
-    not check whether the identity was created (`IdentityAddUnknown`),
-    or that it was created and not set up (`IdentityAddNotFinished`):
-    the second stops being true when the endpoint is removed, by an act
+    This branch also applies to an id for which an add answered
+    `added`, when something outside the client (the command line, for
+    example) removed the endpoint of that id before the record's delete
+    succeeded
+    (acceptance 11a (e)). Until that delete, the id was no identity
+    (§16 Q11), so nothing the person used is lost. The form last showed
+    `IdentityAddUnknown` (it could not check whether the identity was
+    created) or `IdentityAddNotFinished` (the identity was created and
+    not set up). What `IdentityAddNotFinished` says stops being true
+    when the endpoint is removed, by an act
     outside the client that the client is not told of.
   Nothing is shown for a settle. The person has left the form, and an
   identity found here appears in Your identities as any identity does.
@@ -1552,14 +1558,16 @@ pass before it lands.
     sealed and before the add): `IdentityAddKeyGone` in Create's place,
     focused, never `IdentityAddFailed`. Back deletes the platform key on Android, then
     the record, and sends no remove; the key file stays in the place it
-    was moved to. (q) Desktop: as (n) up to `IdentityAddUnknown`; then
-    the key file set to mode 0000 (owned by this user, so a read of it
+    was moved to. (q) Desktop: as (n) until `IdentityAddUnknown`
+    shows; then the key file set to mode 0000 (owned by this user, so a
+    read of it
     is refused), the list read made to fail again, and Create chosen:
     the add is sent and refused `key_missing`, and
     `IdentityAddKeyGone` shows in Create's place, focused. Back deletes
-    nothing: the key file, still at mode 0000, and the record stay. The
-    settle on Your identities' opening finds the id listed and a file
-    at its key path, deletes the record and sends no remove. The id is
+    nothing: the key file (still at mode 0000) and the record both
+    stay. The settle that runs when Your identities opens finds the id
+    listed and a file at its key path, deletes the record and sends no
+    remove. The id is
     then an identity: its row is named by its alias, with
     `IdentityCardNotSaved` under it, and its page shows `KeyDamaged`
     (identity-key §3) with Remove (§7). Needs
