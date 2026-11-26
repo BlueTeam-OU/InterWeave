@@ -546,6 +546,18 @@ the administrative remove of an identity's Remove, whose failed or lost
 answer is an outcome the client does not know, and says that the add is
 settled the other way from a replacement's add.
 
+**What "the same add" carries.** The 2026-11-25 note settled a replaces
+record by sending the same add again, and the record is content-free,
+so after a restart nothing held the alias and the client kinds of the
+first add (named by this change's review as standing before it). The
+add is the same in its key. Its alias is chosen again as the form that
+creates an identity chooses one, and its kinds are an identity's. Where
+the endpoint list is as it was, that is the first add's alias and an
+entry left ahead answers `unchanged`; where it is another, the daemon
+refuses the add, and `refused` already discards the record, the
+discard's remove taking the entry left ahead out of the overlay. Both
+end without a third identity, so the record stays content-free.
+
 **An id a record still names.** The 2026-11-26 note deleted the
 pending-add record when the add answered `added` or `unchanged` and did
 not say what a failed delete left (ux-designer's question on
