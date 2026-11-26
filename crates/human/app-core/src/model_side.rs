@@ -9,8 +9,9 @@ use std::collections::{HashSet, VecDeque};
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, IdentityIntent, Intent, StartBusy, TrustInput, UiModel,
-    UnlockFacts, ViewEvent, WindowEvent, WindowInput,
+    ConnectGate, ConversationKey, HeldChange, HeldIdentity, HeldProblem, IdentityIntent,
+    IdentityKey, Intent, StartBusy, TrustInput, UiModel, UnlockFacts, ViewEvent, WindowEvent,
+    WindowInput,
 };
 use interweave_transport_api::EndpointId;
 
@@ -43,6 +44,12 @@ pub trait Surface {
     /// next render is of `new`'s. Nothing by default: a surface holding
     /// nothing per identity has nothing to change.
     fn front_changed(&mut self, _old: &EndpointId, _new: &EndpointId, _left: &UiModel) {}
+    /// What the person did to the identity switch, the switcher and their
+    /// rows since the last call ([`ModelSide::take_identity_acts`]). None
+    /// by default: a surface that draws no switch reports nothing.
+    fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+        Vec::new()
+    }
 }
 
 /// Opens a link a person activated, outside the client: a browser, a mail
@@ -290,6 +297,66 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             }
         }
         true
+    }
+
+    /// The held identities as the facade side read them, told to every
+    /// model held, in front or behind
+    /// ([`interweave_human_ui_model::Identities::held_changed`]): each
+    /// model is its own identity's, so each is told it is in front of its
+    /// own ([`interweave_human_ui_model::Identities::start`]) the first
+    /// time it is not. The front's [`HeldChange`] is returned
+    /// (`the_held_identities_reach_every_model_each_in_front_of_its_own`).
+    ///
+    /// # Errors
+    /// A list the model refuses ([`HeldProblem`]): every model keeps what
+    /// it held.
+    pub fn held_changed(&mut self, held: &[HeldIdentity]) -> Result<HeldChange, HeldProblem> {
+        let own = |identity: Option<&EndpointId>| identity.map(|e| IdentityKey::new(e.as_str()));
+        let tell = |model: &mut UiModel, own: Option<IdentityKey>| {
+            let identities = model.identities_mut();
+            let change = identities.held_changed(held.to_vec());
+            if change.is_ok()
+                && let Some(own) = own
+                && identities.front() != Some(&own)
+            {
+                identities.start(Some(own));
+            }
+            change
+        };
+        // The front's first: a refused list is refused alike by every
+        // model, so none is told when the front's is not.
+        let change = tell(&mut self.model, own(self.identity.as_ref()))?;
+        for (identity, behind) in &mut self.behind {
+            let _ = tell(&mut behind.model, own(Some(identity)));
+        }
+        Ok(change)
+    }
+
+    /// Hand over what the person did to the identities, as crossings:
+    /// Try again on an identity that could not start becomes a
+    /// [`Command::Reopen`] run as THAT identity, whichever is in front
+    /// (identities §5.2;
+    /// `try_again_reopens_the_identity_it_names_and_no_other`). A Try
+    /// again naming an identity not held sends nothing. The other acts
+    /// are taken and not carried out: a switch a person makes is not
+    /// routed by this root yet.
+    pub fn take_identity_acts(&mut self, mut send: impl FnMut(Crossing)) {
+        for intent in self.surface.take_identity_intents() {
+            if let IdentityIntent::TryAgain(key) = intent {
+                let held = self
+                    .identity
+                    .iter()
+                    .chain(self.behind.iter().map(|(e, _)| e))
+                    .find(|e| e.as_str() == key.as_str())
+                    .cloned();
+                if let Some(identity) = held {
+                    send(Crossing::Command {
+                        identity,
+                        command: Command::Reopen,
+                    });
+                }
+            }
+        }
     }
 
     /// The identity in front, once named ([`Self::hold`]).
@@ -1734,6 +1801,79 @@ mod tests {
             .into_iter()
             .find(|(_, id)| id == e)
             .map_or("?", |(n, _)| n)
+    }
+
+    /// A surface whose person pressed `intents`, handed over at the
+    /// first take.
+    struct Pressed(Vec<IdentityIntent>);
+
+    impl Surface for Pressed {
+        fn render(&mut self, _model: &UiModel) {}
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            Vec::new()
+        }
+        fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+            std::mem::take(&mut self.0)
+        }
+    }
+
+    fn key_of(endpoint: &EndpointId) -> IdentityKey {
+        IdentityKey::new(endpoint.as_str())
+    }
+
+    /// Try again names its identity, and that identity's re-open is sent
+    /// as its own whichever is in front: one behind the front is
+    /// reopened as itself; one not held sends nothing; the other acts
+    /// send nothing. Mutations: the crossing naming the front -- the
+    /// identity behind is reopened as the first; `take_identity_acts`
+    /// not draining the surface -- nothing is sent.
+    #[test]
+    fn try_again_reopens_the_identity_it_names_and_no_other() {
+        let mut side = ModelSide::new(
+            Pressed(vec![
+                IdentityIntent::OpenSwitcher,
+                IdentityIntent::TryAgain(key_of(&second())),
+                IdentityIntent::TryAgain(key_of(&endpoint_id("gone"))),
+            ]),
+            Nothing,
+        );
+        side.hold(&[first(), second()], &first());
+        let mut sent = Vec::new();
+        side.take_identity_acts(|c| sent.push(c));
+        assert_eq!(
+            sent,
+            [Crossing::Command {
+                identity: second(),
+                command: Command::Reopen,
+            }]
+        );
+        side.take_identity_acts(|c| sent.push(c));
+        assert_eq!(sent.len(), 1, "taken once");
+    }
+
+    /// The held identities reach every model, the front's and each
+    /// behind, and each model is in front of its own identity; a refused
+    /// list changes no model. Mutations: `held_changed` telling the
+    /// front's model alone -- the model behind holds none; not starting
+    /// each model on its own -- the model behind has the first in front.
+    #[test]
+    fn the_held_identities_reach_every_model_each_in_front_of_its_own() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.hold(&[first(), second()], &first());
+        let list = vec![held(first().as_str(), true), held(second().as_str(), false)];
+        side.held_changed(&list).expect("taken");
+        for identity in [first(), second()] {
+            let identities = side.model_of(&identity).expect("held").identities();
+            assert_eq!(identities.held(), list.as_slice(), "{identity:?}");
+            assert_eq!(identities.front(), Some(&key_of(&identity)));
+        }
+        let twice = vec![list[0].clone(), list[0].clone()];
+        assert!(side.held_changed(&twice).is_err());
+        assert_eq!(
+            side.model_of(&second()).expect("held").identities().held(),
+            list.as_slice(),
+            "kept"
+        );
     }
 
     fn held(key: &str, is_first: bool) -> interweave_human_ui_model::HeldIdentity {

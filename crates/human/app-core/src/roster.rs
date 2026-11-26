@@ -28,16 +28,24 @@
 //! - a change of the identity in front swaps it and writes the last-front
 //!   row, and a change to the identity in front or to one not held writes
 //!   nothing
-//!   (`set_front_swaps_and_writes_the_row_and_an_unchanged_front_writes_nothing`).
+//!   (`set_front_swaps_and_writes_the_row_and_an_unchanged_front_writes_nothing`);
+//! - an identity other than the first whose key cannot be opened is held
+//!   and opens no session and asserts nothing until its key opens
+//!   (`an_added_identity_without_its_key_is_held_and_never_leased`);
+//! - what each identity's row says is told at start and when it changes
+//!   (`the_held_identities_are_told_at_start_and_on_change_alone`), in
+//!   identities §5.2's states
+//!   (`each_session_state_is_told_as_its_identity_state`), a Try again's
+//!   start kept until an attempt is answered
+//!   (`a_try_again_reopens_its_identity_alone_and_is_told_starting`).
 //!
 //! It is the facade half: a model per identity is the model side's
 //! ([`crate::ModelSide`]), which runs a switch's own steps on its thread
 //! and sends the roster the new front after the old front's commands
 //! ([`crate::ModelSide::switch`]). What the roster holds is what
-//! the root hands it: in the batch this lands in, the composition hands it
-//! the first identity alone (plan §30, the note of 2026-11-25), and a
-//! roster of one behaves as the facade side `main` composed
-//! (`a_roster_of_one_behaves_as_its_facade_side`).
+//! the root hands it: the desktop hands it the profile's held list
+//! ([`crate::held_list`]), and a roster of one behaves as the facade side
+//! `main` composed (`a_roster_of_one_behaves_as_its_facade_side`).
 //!
 //! Turns and commands run one identity after another, each awaited before
 //! the next begins: a trust or address act opens its own short admin
@@ -49,12 +57,14 @@
 //! no other identity's turn (transport-client's
 //! `an_assertion_that_blocks_takes_no_lease_until_it_answers`).
 
-use interweave_human_client_api::ClientEvent;
+use std::collections::{BTreeMap, BTreeSet};
+
+use interweave_human_client_api::{ClientEvent, SessionProblem, SessionState};
 use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{
     AssertingBinding, ClientConfig, SessionBinding, TransportClient,
 };
-use interweave_human_ui_model::IDENTITY_CAP;
+use interweave_human_ui_model::{HeldIdentity, IDENTITY_CAP, IdentityKey, IdentityState};
 use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::{ChannelId, EndpointId};
 
@@ -82,6 +92,10 @@ pub struct RosterConfig {
     /// The profile's default endpoint, if any: in front when the store
     /// names no identity held, if it is held itself.
     pub default: Option<EndpointId>,
+    /// Each held identity's alias, where its entry has one; an identity
+    /// absent here has none, and is told with an empty alias, never one
+    /// made up (identities §6.1).
+    pub aliases: BTreeMap<EndpointId, String>,
 }
 
 /// Why a roster was not built.
@@ -135,6 +149,47 @@ pub struct Roster<B: SessionBinding, A: AdminBinding> {
     /// Why the last-front row was unreadable at start, kept beside the
     /// fallback it caused ([`Self::front_unread`]).
     front_unread: Option<StoreError>,
+    aliases: BTreeMap<EndpointId, String>,
+    /// The identities a Try again re-opened, while that re-open runs:
+    /// told `Starting { after_try_again: true }` (identities §5.2).
+    tried_again: BTreeSet<EndpointId>,
+    /// The held identities as last told ([`Self::held_if_changed`]).
+    told: Option<Vec<HeldIdentity>>,
+    /// Something ran that may change what is told: a turn with updates,
+    /// or a command. Set at build, so the first ask tells.
+    stale: bool,
+}
+
+/// What an identity's row says it can do now (identities §5.2;
+/// architect-cto's ruling B of 2026-11-26 and ux U4), from its session,
+/// whether that session re-opens because the daemon had no room for it,
+/// whether its key holds its session back, and whether a Try again
+/// started the re-open. An identity waiting for its key holds no lease:
+/// its row reads unavailable, and its page names the key
+/// (`KeyProblem`, identity-key §4.1)
+/// (`each_session_state_is_told_as_its_identity_state`).
+pub(crate) const fn identity_state(
+    session: &SessionState,
+    for_room: bool,
+    waits_for_key: bool,
+    after_try_again: bool,
+) -> IdentityState {
+    if waits_for_key {
+        return IdentityState::Unavailable;
+    }
+    match session {
+        SessionState::Ready { .. } => IdentityState::Ready,
+        // No room at the daemon: no words of its own and no Try again,
+        // since the client already retries.
+        SessionState::Reconnecting { .. } if for_room => IdentityState::Unavailable,
+        SessionState::Reconnecting { .. } => IdentityState::Starting { after_try_again },
+        SessionState::Refused {
+            problem: SessionProblem::NotHidden,
+        } => IdentityState::NotHidden,
+        SessionState::Refused { .. } | SessionState::StorageDegraded | SessionState::Closed => {
+            IdentityState::Unavailable
+        }
+    }
 }
 
 impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
@@ -212,10 +267,11 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             } else {
                 client.without_status()
             };
-            held.push(Held {
-                endpoint,
-                side: FacadeSide::new(client, wall.clone()),
-            });
+            let mut side = FacadeSide::new(client, wall.clone());
+            if !is_first {
+                side.lease_only_with_key();
+            }
+            held.push(Held { endpoint, side });
         }
         let mut roster = Self {
             held,
@@ -223,6 +279,10 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             default: config.default,
             store: own,
             front_unread: None,
+            aliases: config.aliases,
+            tried_again: BTreeSet::new(),
+            told: None,
+            stale: true,
         };
         // An unreadable row is read as no row, so a start is not refused
         // over it (`the_front_at_start_is_the_last_held_else_the_default_else_the_first`);
@@ -327,6 +387,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         let mut routed = Vec::with_capacity(self.held.len());
         for i in self.order() {
             let updates = self.held[i].side.turn(now).await;
+            self.stale |= !updates.is_empty();
             routed.push((i, updates));
         }
         self.route(routed)
@@ -340,7 +401,17 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         now: u64,
     ) -> Option<Routed> {
         let i = self.index(identity)?;
+        let reopen = matches!(command, Command::Reopen);
         let updates = self.held[i].side.execute(command, now).await;
+        if reopen
+            && matches!(
+                self.held[i].side.client().session_state(),
+                SessionState::Reconnecting { .. }
+            )
+        {
+            self.tried_again.insert(identity.clone());
+        }
+        self.stale = true;
         Some(self.route(vec![(i, updates)]))
     }
 
@@ -391,10 +462,164 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         }
     }
 
+    /// The held identities as the view is told them
+    /// ([`interweave_human_ui_model::Identities::held_changed`]), in held
+    /// order, when they may have changed since last told and did: `None`
+    /// otherwise. Read again only after a turn that brought updates or a
+    /// command, so an idle client reads and tells nothing
+    /// (`the_held_identities_are_told_at_start_and_on_change_alone`).
+    pub fn held_if_changed(&mut self) -> Option<Vec<HeldIdentity>> {
+        if !std::mem::take(&mut self.stale) {
+            return None;
+        }
+        let now = self.held_identities();
+        if self.told.as_ref() == Some(&now) {
+            return None;
+        }
+        self.told = Some(now.clone());
+        Some(now)
+    }
+
+    /// Each held identity as its row reads it: its card's name and unread
+    /// count from the store (a read that fails keeps what was last told),
+    /// its alias, its state ([`identity_state`]), whether it is the first
+    /// or the default, whether a message of it was not sent.
+    fn held_identities(&mut self) -> Vec<HeldIdentity> {
+        let mut out = Vec::with_capacity(self.held.len());
+        for (i, held) in self.held.iter().enumerate() {
+            let endpoint = &held.endpoint;
+            let client = held.side.client();
+            let session = client.session_state();
+            if !matches!(session, SessionState::Reconnecting { .. }) {
+                self.tried_again.remove(endpoint);
+            }
+            let key = IdentityKey::new(endpoint.as_str());
+            let before = self
+                .told
+                .as_ref()
+                .and_then(|told| told.iter().find(|h| h.key == key));
+            let card_name = match self.store.own_card(endpoint) {
+                Ok(card) => card.map(|card| {
+                    card.surname
+                        .as_ref()
+                        .map_or_else(|| card.name.clone(), |s| format!("{} {s}", card.name))
+                }),
+                Err(_) => before.and_then(|h| h.card_name.clone()),
+            };
+            let unread = match self
+                .store
+                .handle_speaking_as(endpoint.clone())
+                .unread_counts()
+            {
+                Ok(counts) => {
+                    u32::try_from(counts.iter().map(|c| c.unread).sum::<u64>()).unwrap_or(u32::MAX)
+                }
+                Err(_) => before.map_or(0, |h| h.unread),
+            };
+            out.push(HeldIdentity {
+                key,
+                card_name,
+                alias: self.aliases.get(endpoint).cloned().unwrap_or_default(),
+                state: identity_state(
+                    session,
+                    client.retrying_for_room(),
+                    held.side.waits_for_key(),
+                    self.tried_again.contains(endpoint),
+                ),
+                is_first: i == 0,
+                is_default: self.default.as_ref() == Some(endpoint),
+                unread,
+                not_sent: held.side.not_sent(),
+            });
+        }
+        out
+    }
+
     /// Close every identity's session: their leases are released.
     pub async fn close(&mut self) {
         for held in &mut self.held {
             held.side.close().await;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Each session state is told as identities §5.2 names it: Ready
+    /// ready; re-opening, Starting, after a Try again or not; re-opening
+    /// because the daemon had no room, unavailable with no Try again;
+    /// refused `NotHidden`, could not start; any other refusal, a store
+    /// that cannot keep messages and a closed session, unavailable; and
+    /// a key that holds the session back, unavailable whatever the
+    /// session. Mutations: each arm moved to its neighbour's state --
+    /// the row for it fails.
+    #[test]
+    fn each_session_state_is_told_as_its_identity_state() {
+        let ready = SessionState::Ready { endpoint: None };
+        let reconnecting = SessionState::Reconnecting {
+            attempt: 1,
+            next_at: 9,
+        };
+        let refused = |problem| SessionState::Refused { problem };
+        let starting = |after_try_again| IdentityState::Starting { after_try_again };
+        let cases = [
+            (&ready, false, false, false, IdentityState::Ready),
+            (&reconnecting, false, false, false, starting(false)),
+            (&reconnecting, false, false, true, starting(true)),
+            (
+                &reconnecting,
+                true,
+                false,
+                false,
+                IdentityState::Unavailable,
+            ),
+            (&reconnecting, true, false, true, IdentityState::Unavailable),
+            (
+                &refused(SessionProblem::NotHidden),
+                false,
+                false,
+                false,
+                IdentityState::NotHidden,
+            ),
+            (
+                &refused(SessionProblem::EndpointInUse),
+                false,
+                false,
+                false,
+                IdentityState::Unavailable,
+            ),
+            (
+                &refused(SessionProblem::NotAvailableToThisClient),
+                false,
+                false,
+                false,
+                IdentityState::Unavailable,
+            ),
+            (
+                &SessionState::StorageDegraded,
+                false,
+                false,
+                false,
+                IdentityState::Unavailable,
+            ),
+            (
+                &SessionState::Closed,
+                false,
+                false,
+                false,
+                IdentityState::Unavailable,
+            ),
+            (&ready, false, true, false, IdentityState::Unavailable),
+            (&reconnecting, false, true, true, IdentityState::Unavailable),
+        ];
+        for (session, room, key, again, told) in cases {
+            assert_eq!(
+                identity_state(session, room, key, again),
+                told,
+                "{session:?} room {room} key {key} again {again}"
+            );
         }
     }
 }
