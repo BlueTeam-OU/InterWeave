@@ -132,7 +132,13 @@ fn facade(
         channels: profile.channels.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
     };
-    let client = client(binding.clone(), binding, store, config)?;
+    let client = client(
+        binding.clone(),
+        binding,
+        store,
+        config,
+        &profile.store_identity,
+    )?;
     let mut facade = FacadeSide::new(client, wall_ms);
     // The identity's own key, by the desktop's rule: a file this build
     // refuses is said by its kind and left as it is, and the client runs
@@ -160,17 +166,29 @@ fn facade(
 /// purpose stays as authored however often a script runs; the graphical
 /// clients assert before every lease (ADR-0061 decision 5)
 /// (`tests::the_command_line_facade_leases_with_no_advertise_assertion`).
+///
+/// Each trust connection it opens asks `first`'s seed before its read or
+/// write -- the profile's first identity, the one the store opens as,
+/// whichever identity the run speaks as (ADR-0067 decision 6) -- and
+/// the run's trust acts name the identity it speaks as
+/// (`tests::the_command_line_facade_seeds_the_first_identity_before_trust`).
 fn client<B, A>(
     data: B,
     admin: A,
     store: HumanStore,
     config: ClientConfig,
+    first: &interweave_transport_api::EndpointId,
 ) -> Result<TransportClient<B, A>, StoreError>
 where
     B: interweave_human_transport_client::SessionBinding,
     A: interweave_local_client_api::AdminBinding,
 {
-    TransportClient::for_command_line(data, admin, store, config, Box::new(wall_ms), 0)
+    Ok(
+        TransportClient::for_command_line(data, admin, store, config, Box::new(wall_ms), 0)?
+            .seeding(interweave_human_transport_client::FirstSeed::new(
+                first.clone(),
+            )),
+    )
 }
 
 /// What stops `listen`: an interrupt or a terminate. Registered when it is
@@ -490,6 +508,7 @@ mod tests {
                 channels: Vec::new(),
                 max_payload_bytes: super::MAX_PAYLOAD_BYTES,
             },
+            &human,
         )
         .expect("an empty store")
         .without_status();
@@ -521,6 +540,71 @@ mod tests {
             .await
             .expect("the directory");
         assert_eq!(listed.endpoints, [human], "as authored");
+    }
+
+    /// The facade this client composes asks the first identity's trust
+    /// seed on each trust connection before its read or write, though the
+    /// run speaks as another identity, and every read and write names the
+    /// identity the run speaks as; the operator's list is never asked.
+    /// Mutation: `client` built without `seeding`.
+    #[tokio::test]
+    async fn the_command_line_facade_seeds_the_first_identity_before_trust() {
+        use interweave_human_store::{HumanStore, StoreOptions};
+        use interweave_human_transport_client::ClientConfig;
+        use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeTrustCall};
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
+        let second = interweave_test_support::endpoint_keys::endpoint_id("second");
+        let config = || FakeConfig {
+            peer: interweave_profile_identity::ProfileIdentity::generate()
+                .transport_identity()
+                .expect("peer id"),
+            endpoints: vec![
+                FakeEndpoint::open(human.clone(), false),
+                FakeEndpoint::open(second.clone(), false),
+            ],
+            default_endpoint: Some(human.clone()),
+            queue_bound: 16,
+        };
+        let (a, b) = FakeNetwork::pair(config(), config());
+        let store = HumanStore::open_in_memory(&human, StoreOptions::default())
+            .expect("store")
+            .speaking_as(second.clone());
+        let client = super::client(
+            a.clone(),
+            a.clone(),
+            store,
+            ClientConfig {
+                client_kind: super::startup::CLIENT_KIND.to_owned(),
+                endpoints: vec![second.clone()],
+                channels: Vec::new(),
+                max_payload_bytes: super::MAX_PAYLOAD_BYTES,
+            },
+            &human,
+        )
+        .expect("an empty store")
+        .without_status();
+        let _ = client.identity_trust().await.expect("read");
+        let _ = client
+            .set_identity_trust(b.peer().clone(), false)
+            .await
+            .expect("revoked");
+        let log = a.trust_log();
+        let ports: std::collections::BTreeSet<u64> = log.iter().map(|(port, _)| *port).collect();
+        assert_eq!(ports.len(), 2, "{log:?}");
+        for port in ports {
+            let first = log.iter().find(|(on, _)| *on == port).map(|(_, call)| call);
+            assert_eq!(first, Some(&FakeTrustCall::Seed(human.clone())), "{log:?}");
+        }
+        assert!(
+            log.iter().all(|(_, call)| match call {
+                FakeTrustCall::Seed(endpoint) => *endpoint == human,
+                FakeTrustCall::EndpointRead(endpoint, _)
+                | FakeTrustCall::EndpointSet(endpoint, ..) => *endpoint == second,
+                FakeTrustCall::OperatorRead | FakeTrustCall::OperatorSet(..) => false,
+            }),
+            "{log:?}"
+        );
+        assert_eq!(a.operator_list(), [b.peer().clone()]);
     }
 
     #[tokio::test]
