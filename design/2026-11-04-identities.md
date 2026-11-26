@@ -577,19 +577,13 @@ no card is named by it.
    (step 3), as a later rename does (the alias rule above).
    The record is deleted when the id becomes an identity (the add
    answers `added` or `unchanged`, or a list reads the id as Found,
-   below), which comes before step 3. If that delete fails, the
-   identity exists all the same, but the card is not written while
-   the record names its id: a record that outlives its form is
-   settled again later, and if the identity's key path had emptied by
-   then the settle would discard the id (below), so the record must
-   never name an identity with a card behind it (what else the store
-   may hold for that id meanwhile is §16 Q11). Create then ends as
-   "The endpoint exists and the card could not be written" says. The
-   record goes at the settle that Your identities runs on opening,
-   which finds the id listed with its key, or, failing that, when the
-   identity's page is opened to try again, which deletes the record
-   before it writes the card; while the record cannot be deleted, the
-   card is not written and `IdentityCardNotSaved` stays. The record is
+   below), which comes before step 3. Until that delete succeeds the
+   id is no identity to the client: it opens no data session for it,
+   holds no lease on it and writes nothing to the store under it (no
+   card, no message, no contact, no trust act), and it shows the id
+   nowhere, not in Your identities, the switcher or the switch (§16
+   Q11, ruled). If the delete fails, Create has not finished, and the
+   form says so ("Created, not finished", below). The record is
    also deleted when the form is left with nothing created and the key
    is deleted, and when the settle discards the record and the remove
    it sends answers `removed` or `EndpointUnknown` (below). It is never
@@ -646,8 +640,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   `BackendUnavailable` included (the device can answer it in place of
   `unchanged`, D1); after an earlier add of the form's key ended
   unknown, a refusal for any reason other than `bound` or
-  `key_missing`, or a Create stopped before its add; the connection to the daemon dropping; or no
-  answer within **the add's wait, 30 seconds**
+  `key_missing`, or a Create stopped before its add; the connection to
+  the daemon dropping; or no answer within **the add's wait, 30 seconds**
   (a hypothesis: well past a key's sealing and one configuration write
   on the slowest supported phone; falsified if rust-ui-dev measures an
   add that lands later than that). The client knows the EndpointId it
@@ -696,11 +690,30 @@ Outcomes other than Done, each with nothing half-made shown as made:
   **Alternative named:** make a new key on this form. Rejected: an
   earlier add may have landed with the old key, and step 2's rule that
   one form makes one identity rests on its one key.
+- **Created, not finished**: the add answered `added` or `unchanged`,
+  or a list read the id as Found, and the record's delete then failed
+  (step 2). The endpoint exists, but the id is no identity yet, so
+  nothing says it was created as Done would: the form stays filled,
+  and `IdentityAddNotFinished` ("{name} was created, but InterWeave
+  could not finish setting it up. Choose Create to finish.") shows
+  above Create, focus on it, Back enabled. Create there sends no add:
+  it tries the record's delete again, with step 1's progress, and on
+  success goes on with step 3 and Done; on a failure the same line
+  stays and focus returns to it. The form retries the delete itself
+  because the settle skips the record of an open form (below), so
+  nothing else would retry it while the form stays open. Back, or the
+  app ending, keeps the key and the record (the next item); the
+  settle then deletes the record once it can, and from that moment the
+  id is an identity, shown in Your identities named by its alias, with
+  `IdentityCardNotSaved` under its row, since its card was never
+  written (the last item of this list). **Alternative named:** Done
+  with the card held back until the record goes. Rejected: Done would
+  open Your identities on a row the client may not show (§16 Q11).
 - **The form is left** (Back, or the app ends):
   - when no add of its key ended unknown (no add was sent, or each
     was refused with nothing created, or `key_missing`): on Back, the
-    client deletes the key file and, on Android, the platform key, then the record; a key
-    path that holds nothing, and a platform key that was never made,
+    client deletes the key file and, on Android, the platform key, then
+    the record; a key path that holds nothing, and a platform key that was never made,
     count as deleted already. If a delete fails, the record is kept.
     If the app ends, nothing is deleted.
     In both of these cases the record is then settled as the
@@ -710,6 +723,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
     since that add may have landed, and the key would then be the
     identity's; the settle, not the leaving, decides which it is, and
     the record is settled as the next item says.
+  - when the form shows created, not finished (the item above): the key
+    and the record are kept, since the key is the identity's, and the
+    record is settled as the next item says.
 - **A pending-add record is settled** at the client's next start and
   whenever Your identities opens, so also right after Back, which
   opens Your identities. The settle handles every record except the
@@ -717,9 +733,11 @@ Outcomes other than Done, each with nothing half-made shown as made:
   the endpoints:
   - The list fails: nothing is deleted and the record is kept, to be
     settled again.
-  - The id is listed and its key file is at its key path: the id is an
-    identity, named by its alias until it has a card (the card case
-    below), and the record is deleted.
+  - The id is listed and its key file is at its key path: the record
+    is deleted, and from then on the id is an identity, named by its
+    alias until it has a card (the card case below). If the delete
+    fails, the record is kept, the id stays no identity (step 2), and
+    the next settle tries again.
   - Otherwise (the id is absent from a list that answered, or its key
     path is empty, whether the id is listed or not) the record is
     discarded, with no second add. The client first empties the key
@@ -749,8 +767,7 @@ Outcomes other than Done, each with nothing half-made shown as made:
   nothing waits for a form that was left; and the add would need the
   alias and kinds stored after the form is gone.
 - **The endpoint exists and the card could not be written** (store
-  degraded or failed, or the pending-add record could not be deleted,
-  step 2): the identity exists and is named by its alias
+  degraded or failed): the identity exists and is named by its alias
   until it has a card (ADR-0061 d. 1, "named by its label"). Your
   identities opens with the row focused and `IdentityCardNotSaved`
   under it ("The name and photo were not saved. Open this identity
@@ -1098,7 +1115,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F4 | Your identities opens | the title | keyboard |
 | F5 | the add form opens | the Name field | keyboard |
 | F6 | Create ends Done | the new identity's row | keyboard |
-| F7 | Create refused, failed or unknown | the line above Create (`IdentityAddFailed`, `IdentityAddUnknown`) | keyboard |
+| F7 | Create refused, failed, unknown or not finished | the line above Create (`IdentityAddFailed`, `IdentityAddUnknown`, `IdentityAddNotFinished`) | keyboard, with acceptance 11a (a) and (c) for the last |
 | F8 | Create at the bound | `IdentityLimit` | keyboard |
 | F9 | Create done, card not saved | the new row; `IdentityCardNotSaved` is read with it | keyboard |
 | F10 | the identity Remove dialog opens | Cancel | keyboard |
@@ -1246,6 +1263,7 @@ front.
 | `IdentityAlias` | Name to use on the command line: {alias} | an identity's page | the name used in commands, with the alias; the alias last, nothing touching it |
 | `ConfirmIdentityAdded` | {name} was created. It does not trust any peer yet. | snackbar | {name} added; it trusts no one yet |
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
+| `IdentityAddNotFinished` | {name} was created, but InterWeave could not finish setting it up. Choose Create to finish. | the add form, above Create | it exists, but is not ready yet; Create finishes it and makes nothing new |
 | `IdentityAddKeyGone` | {name} cannot be created from this form, because the key InterWeave made for it is missing. Go back and create the identity again. | the add form, in Create's place | this form can no longer create it, since its key is missing; leave and start a new form |
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
@@ -1445,14 +1463,22 @@ pass before it lands.
     remove sent, and the moved-aside file stays where it was put. Needs
     D1 and ADR-0061 decision 7 (A 2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
-    its alias, with `IdentityCardNotSaved`. Again with the record's
-    delete made to fail after the add answers `added`: the same, with
-    no card row and the record still there; then, with the delete no
-    longer made to fail, the opening of Your identities deletes the
-    record, and Open on the row followed by Save writes the card. A
-    third run keeps the delete failing, opens the identity's page and
-    chooses Save: no card row is written and `IdentityCardNotSaved`
-    stays. Needs D1.
+    its alias, with `IdentityCardNotSaved`. Needs D1.
+11a. Add with the record's delete made to fail after the add answers
+    `added`, three runs, each observed from the daemon's list, the
+    store and the lease table. (a) `IdentityAddNotFinished` shows above
+    Create, focused; the id is listed, no lease is held on it, no store
+    row names it, and it is in neither Your identities nor the
+    switcher. With the delete no longer made to fail, Create sends no
+    add, deletes the record, writes the card and ends Done. (b) As (a)
+    up to `IdentityAddNotFinished`, then Back with the delete still
+    made to fail: Your identities shows no new row, and the key file
+    and the record stay. With the delete no longer made to fail, the
+    next opening of Your identities deletes the record and shows the
+    row, named by its alias, with `IdentityCardNotSaved`. (c) As (a),
+    then a second Create with the delete still made to fail: the same
+    line stays, focus returns to it, and no add is sent. Needs D1 and
+    ADR-0061 decision 7 as #767 amends it.
 12. Add offers no configured endpoint that is not an identity (an
     agent's), and lists none as an identity. *(`human-client-ui.md` §13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
@@ -1800,18 +1826,14 @@ Asked by rust-ui-dev-02 for the step 1 wiring (QUESTION 01a2119d,
   cross-fade; under reduced motion, no fade (§5.4, §12).
 
 Asked of architect-cto with this note's j192 revision (QUESTION
-01a2159d-1c32, 2026-11-26), open:
+01a2159d-1c32, 2026-11-26), and ruled the same day:
 
 - **Q11** a pending-add record whose delete failed after its add
-  answered `added` or `unchanged` (§6.2 step 2) names an identity
-  that exists. The card is not written while the record stands, but
-  the identity receives: if its inbound messages, contacts or trust
-  rows are written to the store meanwhile, and its key path empties
-  before a settle deletes the record, the settle's empty-key-path
-  branch (ADR-0061 decision 7, A 2026-11-26) discards the id and §7's
-  clean-up rule then deletes those rows, unread messages included,
-  with nothing shown. Asked: does the client admit nothing to the
-  store for an id a pending-add record names, as Remove's window does,
-  or does the settle not discard a listed id that has rows in the
-  store, leaving it an identity whose key is missing (ADR-0067
-  decision 2) for the person to remove?
+  answered `added` or `unchanged`: what the store may hold for its id
+  meanwhile. Ruled (REPLY 01a2159d-f506): the id is no identity to
+  the client until the record is deleted, so the client opens no data
+  session for it, holds no lease and admits nothing to the store
+  under it, and the settle's empty-key-path branch can destroy nothing.
+  §6.2 says what the form shows ("Created, not finished") and that the
+  open form retries the delete itself; the decision text is ADR-0061
+  decision 7 and `STATE.md` as #767 amends them.
