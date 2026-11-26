@@ -736,7 +736,11 @@ Outcomes other than Done, each with nothing half-made shown as made:
   whose page shows the key state of that file's refusal
   (identity-key §3), with Try again where that state offers it, and
   Remove (§7); this note does not change decision 7's test of "key
-  file at its key path". A new form makes a
+  file at its key path". The same branch applies when the daemon could
+  not read the file only for a moment (it answered `key_missing`, and
+  the file can be read again by the time the client opens it): that
+  open succeeds, and the identity works as any identity does, with no
+  key state shown. A new form makes a
   new key. **Alternative named:** keep
   `IdentityAddUnknown` and Create.
   Rejected: "Choose Create to try again" would then be a promise no
@@ -760,7 +764,13 @@ Outcomes other than Done, each with nothing half-made shown as made:
   path is empty is "The form's key is gone"; the id not listed is an
   unknown outcome
   (`IdentityAddUnknown`, above), since the endpoint may have been
-  removed since its add. If the read fails, or the delete fails again,
+  removed since its add. That reading ends no add, so it is not an add
+  that ended unknown (step 2). So when no add of the form's key ended
+  unknown before it, the next add takes its alias from what the Name
+  field says then, since the add that answered `added` named an
+  endpoint that is gone, and a refusal of it other than `exists`,
+  `bound` or `key_missing` is "Refused, with nothing created", where
+  the person can change the name. If the read fails, or the delete fails again,
   the same line stays and focus returns to it. The form retries the
   delete itself because the settle skips the record of an open form
   (below), so
@@ -824,6 +834,15 @@ Outcomes other than Done, each with nothing half-made shown as made:
     answer, the record is kept.
     A kept record is settled again at the next start and the next
     opening of Your identities.
+    This branch also takes an id that an add answered `added` for and
+    whose endpoint something outside the client (the command line, for
+    one) removed before the record's delete succeeded (acceptance 11a
+    (e)): until that delete, the id was no identity (§16 Q11), so
+    nothing the person used is lost. The form last said that it could
+    not check whether the identity was created (`IdentityAddUnknown`),
+    or that it was created and not set up (`IdentityAddNotFinished`):
+    the second stops being true when the endpoint is removed, by an act
+    outside the client that the client is not told of.
   Nothing is shown for a settle. The person has left the form, and an
   identity found here appears in Your identities as any identity does.
   The settle reaches only keys a pending-add record names, so a key
