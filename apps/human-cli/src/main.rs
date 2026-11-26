@@ -132,14 +132,7 @@ fn facade(
         channels: profile.channels.clone(),
         max_payload_bytes: MAX_PAYLOAD_BYTES,
     };
-    let client = TransportClient::new(
-        binding.clone(),
-        binding,
-        store,
-        config,
-        Box::new(wall_ms),
-        0,
-    )?;
+    let client = client(binding.clone(), binding, store, config)?;
     let mut facade = FacadeSide::new(client, wall_ms);
     // The identity's own key, by the desktop's rule: a file this build
     // refuses is said by its kind and left as it is, and the client runs
@@ -158,6 +151,26 @@ fn facade(
         }
     }
     Ok(facade)
+}
+
+/// This client's facade: the one built with no advertise assertion
+/// (`TransportClient::for_command_line`). Plan §30's note: a run leases
+/// the one entry `--endpoint` names, authored or added, with no
+/// assertion, so a deployed profile that authors an entry advertised on
+/// purpose stays as authored however often a script runs; the graphical
+/// clients assert before every lease (ADR-0061 decision 5)
+/// (`tests::the_command_line_facade_leases_with_no_advertise_assertion`).
+fn client<B, A>(
+    data: B,
+    admin: A,
+    store: HumanStore,
+    config: ClientConfig,
+) -> Result<TransportClient<B, A>, StoreError>
+where
+    B: interweave_human_transport_client::SessionBinding,
+    A: interweave_local_client_api::AdminBinding,
+{
+    TransportClient::for_command_line(data, admin, store, config, Box::new(wall_ms), 0)
 }
 
 /// What stops `listen`: an interrupt or a terminate. Registered when it is
@@ -443,6 +456,72 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use std::time::Duration;
+
+    /// The facade this client composes leases an entry authored
+    /// advertised and leaves it so: no `set_advertise` is asked, and a
+    /// trusted peer's directory query lists it, on the first open and
+    /// after a daemon restart (plan §30's note). Mutation: `client` built
+    /// with `TransportClient::new`.
+    #[tokio::test]
+    async fn the_command_line_facade_leases_with_no_advertise_assertion() {
+        use interweave_human_store::{HumanStore, StoreOptions};
+        use interweave_human_transport_client::{ClientConfig, SessionState};
+        use interweave_local_client_api::{
+            DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionRequest,
+        };
+        use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork};
+        let human = interweave_test_support::endpoint_keys::endpoint_id("human");
+        let authored = || FakeConfig {
+            peer: interweave_profile_identity::ProfileIdentity::generate()
+                .transport_identity()
+                .expect("peer id"),
+            endpoints: vec![FakeEndpoint::open(human.clone(), true)],
+            default_endpoint: Some(human.clone()),
+            queue_bound: 16,
+        };
+        let (a, b) = FakeNetwork::pair(authored(), authored());
+        let mut client = super::client(
+            a.clone(),
+            a.clone(),
+            HumanStore::open_in_memory(&human, StoreOptions::default()).expect("store"),
+            ClientConfig {
+                client_kind: super::startup::CLIENT_KIND.to_owned(),
+                endpoints: vec![human.clone()],
+                channels: Vec::new(),
+                max_payload_bytes: super::MAX_PAYLOAD_BYTES,
+            },
+        )
+        .expect("an empty store")
+        .without_status();
+        client.tick(0).await;
+        a.restart();
+        let _ = client.drain(16, 1).await;
+        let SessionState::Reconnecting { next_at, .. } = client.session_state().clone() else {
+            panic!(
+                "the restart ended the session: {:?}",
+                client.session_state()
+            );
+        };
+        client.tick(next_at).await;
+        assert!(
+            matches!(client.session_state(), SessionState::Ready { .. }),
+            "{:?}",
+            client.session_state()
+        );
+        assert!(a.advertise_sets().is_empty(), "{:?}", a.advertise_sets());
+        let asker = b
+            .open(
+                SessionRequest::new("human-client", None, [DataCapability::EndpointsQuery])
+                    .expect("a request"),
+            )
+            .await
+            .expect("a session");
+        let listed = asker
+            .query_endpoints(a.peer().clone())
+            .await
+            .expect("the directory");
+        assert_eq!(listed.endpoints, [human], "as authored");
+    }
 
     #[tokio::test]
     async fn a_signal_before_listen_first_polls_its_stop_ends_it_cleanly() {

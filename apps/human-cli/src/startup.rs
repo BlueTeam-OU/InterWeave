@@ -435,7 +435,7 @@ channels: {{ desired: [] }}
         // `listen --endpoint spare`: what it receives, and a send left
         // pending.
         {
-            let mut listen = TransportClient::new(
+            let mut listen = TransportClient::for_command_line(
                 b.clone(),
                 b.clone(),
                 open_store(&narrowed).expect("store"),
