@@ -914,12 +914,17 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
                 Ok(())
             }
             Command::ReadTrust => {
-                updates.push(Update::TrustRead(Box::pin(self.client.trust()).await));
+                updates.push(Update::TrustRead(
+                    Box::pin(self.client.identity_trust()).await,
+                ));
                 Ok(())
             }
             Command::SetTrust(change) => {
-                let answer =
-                    Box::pin(self.client.set_trust(change.peer.clone(), change.allowed)).await;
+                let answer = Box::pin(
+                    self.client
+                        .set_identity_trust(change.peer.clone(), change.allowed),
+                )
+                .await;
                 updates.push(Update::TrustSet {
                     change: change.clone(),
                     answer,

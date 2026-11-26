@@ -701,6 +701,85 @@ async fn crossings_run_as_the_identity_they_name_whatever_is_in_front() {
     assert_eq!(roster.front(), &second());
 }
 
+/// Every held identity's trust connection asks the FIRST identity's seed
+/// before its read or write -- the second's, made with the second in
+/// front, included -- and never the second's: an added identity is given
+/// its own set at its add. The second's acts name the second.
+/// `first_seeded` is false until a seed is answered, then true.
+/// Mutation: `Roster::new` seeding each client with its own endpoint --
+/// the second is seeded.
+#[tokio::test]
+async fn every_identitys_trust_connection_seeds_the_first_alone() {
+    use interweave_local_client_api::TrustSeed;
+    use interweave_local_client_fake::FakeTrustCall;
+    let (a, b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a.clone());
+    let mut roster = build(&spy, memory(), config(vec![second()], None));
+    roster.turn(0).await;
+    assert!(matches!(
+        roster.set_front(&second()),
+        SwitchOutcome::Switched { .. }
+    ));
+    assert!(!roster.first_seeded(), "nothing asked yet");
+    roster
+        .execute(&second(), Command::ReadTrust, 1)
+        .await
+        .expect("held");
+    assert!(roster.first_seeded());
+    roster
+        .execute(
+            &second(),
+            Command::SetTrust(interweave_human_ui_model::TrustChange {
+                peer: b.peer().clone(),
+                allowed: false,
+            }),
+            2,
+        )
+        .await
+        .expect("held");
+    roster
+        .execute(&human(), Command::ReadTrust, 3)
+        .await
+        .expect("held");
+    assert_eq!(
+        a.seeds(),
+        vec![
+            (human(), TrustSeed::Seeded),
+            (human(), TrustSeed::Present),
+            (human(), TrustSeed::Present)
+        ]
+    );
+    let log = a.trust_log();
+    let ports: BTreeSet<u64> = log.iter().map(|(port, _)| *port).collect();
+    assert_eq!(ports.len(), 3, "{log:?}");
+    for port in ports {
+        let first = log.iter().find(|(on, _)| *on == port).map(|(_, c)| c);
+        assert_eq!(first, Some(&FakeTrustCall::Seed(human())), "{log:?}");
+    }
+    let named: Vec<EndpointId> =
+        log.iter()
+            .filter_map(|(_, call)| match call {
+                FakeTrustCall::EndpointRead(endpoint, _)
+                | FakeTrustCall::EndpointSet(endpoint, ..) => Some(endpoint.clone()),
+                _ => None,
+            })
+            .collect();
+    assert_eq!(
+        named,
+        [
+            second(),
+            second(),
+            second(),
+            second(),
+            second(),
+            human(),
+            human()
+        ],
+        "the second's read (2), set and read-back (3), then the first's read (2)"
+    );
+    assert_eq!(a.operator_trust_calls(), 0);
+}
+
 /// A roster holds at most `IDENTITY_CAP` identities, the first among
 /// them. Mutation: the bound check off by one (`> IDENTITY_CAP + 1`) --
 /// one more is built.
