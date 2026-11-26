@@ -1799,8 +1799,8 @@ Asked by rust-ui-dev-02 for the step 1 wiring (QUESTION 01a2119d,
 - **U6** motion on a switch: the new rows fade in, and there is no
   cross-fade; under reduced motion, no fade (§5.4, §12).
 
-Asked of architect-cto with this note's j192 revision (the QUESTION's
-id is recorded here once it is sent), open:
+Asked of architect-cto with this note's j192 revision (QUESTION
+01a2159d-1c32, 2026-11-26), open:
 
 - **Q11** a pending-add record whose delete failed after its add
   answered `added` or `unchanged` (§6.2 step 2) names an identity
