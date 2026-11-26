@@ -327,19 +327,22 @@ the same text as its reason:
   ends; drafts can be typed. There is no time-out of the design's own:
   while the call blocks, the identity stays Starting (exit gate:
   "with it made to block, no lease is granted until it returns").
-  A call the client gives up on (a time-out of the transport's, not of
-  the design's) is a call that blocked: the client takes no lease and
-  asks again at the pace at which it reconnects a lost session
-  (architect-cto's REPLY 01a216e9, item A), and between the attempts
-  the identity stays Starting, unbroken — no Try again, no words of its
-  own, no focus moved. The session's Reconnecting is the client's, not
-  a state the person is shown; a daemon that is not there reads
-  Starting the same way. Try again belongs to an answered refusal
-  (Could not start, below): asking again is already happening, and
-  nothing the person does here makes it sooner. When a retry that Try
-  again began gives up the same way, its Starting form stays: Try
-  again in its place, disabled, with its progress indicator, until an
-  attempt is answered.
+  A call the client gives up on (a time-out set by the transport, not
+  by the design) is handled as a call that blocked: the client takes no
+  lease and asks again at the pace at which it reconnects a lost
+  session (architect-cto's REPLY 01a216e9, item A), and between the
+  attempts the identity stays Starting without a break: no Try again,
+  no words of its own, and focus does not move. The session's
+  Reconnecting state is the client's own and is never shown to the
+  person; while the daemon is absent, the identity stays Starting in
+  the same way. Try again is offered for an answered refusal (Could
+  not start, below), not for a call that the client gives up on: the
+  client is already asking again, and nothing the person does here
+  makes the next attempt sooner. When a retry that Try again began
+  gives up in the same way, the row and the line stay as they are
+  through that retry's Starting (Could not start, below): Try again in
+  its place, disabled, with its progress indicator, until an attempt
+  is answered.
 - **Could not start** (`IdentityNotHidden`): the advertise assertion
   failed, so the client took no lease. "{identity} is not connected.
   This device could not make sure that {identity} stays unlisted." With **Try again**
@@ -693,25 +696,27 @@ Outcomes other than Done, each with nothing half-made shown as made:
   item says: Found, the form's key gone, or `IdentityAddUnknown`.
   When that read finds anything other than Found, or fails, the add
   that was answered `exists` counts as an add that ended unknown
-  (step 2). So does a first add answered `exists`, with no add of the
-  form's key ended unknown before it: Back from the
-  `IdentityAddUnknown` that follows keeps the key and the record
-  ("The form is left", below; acceptance 10 (r)).
-  An `exists` can come back on every Create. This happens when an add
-  was left ahead of the running device (`Internal`, below), and the
-  entry it wrote was then given another alias from the command line.
-  Each Create sends the alias of the first add that ended unknown
-  (step 2). The daemon answers `exists` again, and the list read after
-  it lacks the id, since the running device does not serve it. So
-  `IdentityAddUnknown` shows again, and "Choose Create to try again"
-  is not kept until the daemon's next start. That start loads the
-  entry, and the next Create's list read finds the id as Found
-  (acceptance 10 (m)). Back ends it sooner: the settle discards the
-  id, since the remove is judged by the overlay and answers
-  `removed`, and a new form makes a new key. This note accepts the
-  repeat. It needs an act outside the client on an add whose outcome
-  was already unknown, and whoever renamed the entry from the command
-  line knows that it was made. **Alternative named:** a line of
+  (step 2). This holds also when the add answered `exists` is the form's
+  first add, before which no add of the form's key ended unknown: Back
+  from the `IdentityAddUnknown` that follows keeps the key and the
+  record ("The form is left", below; acceptance 10 (r)). In one case,
+  `exists` comes back on every Create that follows it. This happens when
+  an add was left ahead of the running device (`Internal`, below), and
+  the entry that this add wrote was then given a different alias from
+  the command line. Each Create sends the alias of the first add that
+  ended unknown (step 2). The daemon answers `exists` again, and the
+  list read after that answer lacks the id, since the running device
+  does not serve it. So `IdentityAddUnknown` shows again, and no Create
+  does what `IdentityAddUnknown`'s "Choose Create to try again" promises
+  until the daemon next starts. That start loads the entry, and the next
+  Create's list read finds the id as Found (acceptance 10 (m)). Back
+  ends the repeat sooner: the settle discards the id, and the settle's
+  remove answers `removed`, since the remove is judged by the overlay; a
+  new form then makes a new key. This specification accepts the repeat.
+  The repeat needs someone outside the client to act on an add whose
+  outcome was already unknown, and whoever renamed the entry from the
+  command line knows that the entry was made.
+  **Alternative named:** a line of
   its own after a second `exists`, asking the person to restart
   InterWeave. Rejected for now: a new string and a new state for a
   case that only the command line reaches. If a run shows the case
@@ -821,8 +826,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   `key_missing` is "Refused, with nothing created", where the person
   can change the name. If the read
   fails, or the delete fails again,
-  `IdentityAddNotFinished` stays above Create and focus returns to
-  it. The form retries the
+  `IdentityAddNotFinished` stays above Create, and focus returns to
+  `IdentityAddNotFinished`. The form retries the
   delete itself because the settle skips the record of an open form
   (below), so
   nothing else would retry it while the form stays open. Back, or the
@@ -855,10 +860,10 @@ Outcomes other than Done, each with nothing half-made shown as made:
     key would then
     be the identity's; the settle, not the leaving, finds out what
     the id is, and the record is settled as the next item says. The
-    key and the record are kept when the form shows
-    `IdentityAddNotFinished`, and also when it shows
-    `IdentityAddKeyGone` or `IdentityAddUnknown` after a Create chosen
-    on `IdentityAddNotFinished`.
+    key and the record are kept in this way when the form is left
+    while it shows `IdentityAddNotFinished`, and also when it is left
+    while it shows, after a Create chosen on `IdentityAddNotFinished`,
+    either `IdentityAddKeyGone` or `IdentityAddUnknown`.
 - **A pending-add record is settled** at the client's next start and
   whenever Your identities opens, so also right after Back, which
   opens Your identities. The settle handles every record except the
@@ -1591,8 +1596,9 @@ pass before it lands.
     first add's alias again and answers `exists`, the list still lacks
     the id, and `IdentityAddUnknown` shows again, focused; no card is
     written and the record stays. The daemon is then restarted and
-    Create chosen a third time: its list read finds the id as Found,
-    sends no add, deletes the record and writes the card. In a variant
+    Create chosen a third time: Create's list read finds the id as
+    Found, and Create sends no add, deletes the record and writes the
+    card. In a variant
     of (m), the daemon is restarted between that add and the list read
     after it, and the restart loads the entry: the list reads the id as
     Found and the card is written. (n) A pending-add record whose id is
@@ -1628,14 +1634,15 @@ pass before it lands.
     `IdentityCardNotSaved` under it, and its page shows `KeyDamaged`
     (identity-key §3) with Remove (§7). (r) A first add answered
     `exists`, with no earlier add of the form's key: after the key is
-    sealed and before the add is sent, the key file is added from the
-    command line with another alias, and the list read after the
-    form's add is made to fail. `IdentityAddUnknown` shows, focused,
-    never `IdentityAddFailed`. Then Back: the key file and the record
-    are kept on Back, and no remove is sent then. The settle that
-    runs when Your identities opens finds the id listed with its key
-    file at its key path and deletes the record. The id is then an
-    identity, named by the command line's alias, with
+    sealed and before the add is sent, an endpoint is added from the
+    command line with the form's key file and a different alias, and the
+    list read after the form's add is made to fail.
+    `IdentityAddUnknown` shows, focused, never `IdentityAddFailed`.
+    Then Back is chosen: it keeps the key file and the record, and
+    sends no remove. The settle that runs when Your identities opens
+    finds the id listed with its key file at its key path and deletes
+    the record. The id is then an identity, named by the alias given
+    on the command line, with
     `IdentityCardNotSaved` under its row. Needs
     D1 and ADR-0061 decision 7 (A 2026-11-26).
 11. Add with the card write made to fail: the identity exists, named by
@@ -1743,11 +1750,12 @@ pass before it lands.
     authored and the assertion made to fail, the identity shows
     `IdentityNotHidden` with Try again and no lease is granted; made to
     block, it shows `IdentityStarting` and no lease is granted until it
-    returns; made to block past the client's time-out for two attempts,
-    then to succeed, the row and the composer line read
-    `IdentityStarting` without a break from before the first attempt
-    until the lease, with no Try again and focus not moved, and then the
-    composer line reads `ComposerAs` (§5.2); after a daemon restart with the delta removed, the re-lease
+    returns; made to block past the client's time-out on each of two
+    attempts and to succeed on the third, the row and the composer line
+    read `IdentityStarting` without a break from before the first
+    attempt until the lease, no Try again is shown and focus does not
+    move, and then the composer line reads `ComposerAs` (§5.2); after a
+    daemon restart with the delta removed, the re-lease
     asserts again with the same two results; a trusted peer's directory
     query lists no identity of this device. Needs D1. *(`human-client-ui.md` §13 bullet 19;
     exit gate.)*
@@ -1900,8 +1908,8 @@ pass before it lands.
     entry takes the first identity's alias; (c) a file larger than the
     overlay's bound. Each time the start-up refusal window shows
     `RefusalIdentitiesUnreadable` with the overlay's full path, offers
-    no Try again and no Delete stored data, only Close, with focus on
-    Close, and no Chats, switcher or
+    no Try again and no Delete stored data, only Close, which has
+    focus; no Chats, switcher or
     identity is shown; after it is closed the exit status is 78
     (`EX_CONFIG`), and the overlay's bytes and modification time are
     unchanged. (d) The overlay readable but with group read permission:
