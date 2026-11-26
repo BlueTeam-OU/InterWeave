@@ -11,8 +11,9 @@
 use std::time::Duration;
 
 use interweave_local_client_api::{
-    AdminPort, DataCapability, DataSessionBinding, DataSessionPort, EndpointAddChange,
-    EndpointRemoveChange, EndpointSetKind, SessionRequest, TrustChange, TrustDirection,
+    AdminPort, AliasChange, DataCapability, DataSessionBinding, DataSessionPort, EndpointAddChange,
+    EndpointAddRefusal, EndpointRemoveChange, EndpointSetKind, SessionRequest, TrustChange,
+    TrustDirection,
 };
 use interweave_transport_api::{
     DirectDestination, EndpointId, MessageId, Payload, TransportError, TransportEvent,
@@ -488,6 +489,84 @@ async fn a_remove_of_an_add_left_ahead_is_removed_and_gone_at_the_restart() {
         lease(&again, &work).await,
         Err(TransportError::EndpointUnknown)
     );
+    drop(port);
+    again.stop().await.expect("stops");
+}
+
+/// A rename of an add left ahead (LOCAL-IPC.md, `admin.endpoints.
+/// set_alias`, ruled 2026-11-26): the overlay holds the entry, so it is
+/// `renamed` and written, and it registers nothing -- the list still
+/// lacks the id. An add with the alias the entry had is then `exists`;
+/// one with the new alias is `unchanged` and registers it under that
+/// alias; a restart loads it under the new alias. The control: before
+/// the rename the runtime never listed it, and the overlay on disk held
+/// the old alias.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_rename_of_an_add_left_ahead_is_renamed_and_loads_under_the_new_alias() {
+    let p = paths();
+    let (identity, _) = id();
+    let runtime = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("composes");
+    let port = admin(&runtime).await;
+    let (work, key) = mint(&p);
+    assert_eq!(
+        add_left_ahead(&runtime, &port, &key).await,
+        Err(TransportError::Internal)
+    );
+    assert!(row_of(&port, &work).await.is_none(), "control: not served");
+    let on_disk = |p: &endpoint_set_common::Profile| {
+        String::from_utf8(bytes(p).expect("an overlay")).expect("utf-8")
+    };
+    assert!(on_disk(&p).contains("\"work\""), "control: the old alias");
+
+    assert_eq!(
+        port.set_endpoint_alias(work.clone(), "office".to_owned())
+            .await,
+        Ok(AliasChange::Renamed)
+    );
+    assert!(on_disk(&p).contains("\"office\""), "written");
+    assert!(!on_disk(&p).contains("\"work\""), "nothing put back");
+    assert!(
+        row_of(&port, &work).await.is_none(),
+        "the rename registers nothing"
+    );
+    assert_eq!(
+        lease(&runtime, &work).await,
+        Err(TransportError::EndpointUnknown),
+        "not leasable after the rename"
+    );
+
+    let refused = port
+        .add_endpoint(key.clone(), "work".to_owned(), vec![])
+        .await;
+    assert!(
+        matches!(
+            refused,
+            Ok(EndpointAddChange::Refused {
+                reason: EndpointAddRefusal::Exists,
+                ..
+            })
+        ),
+        "the old alias: {refused:?}"
+    );
+    assert!(row_of(&port, &work).await.is_none(), "still not served");
+    assert_eq!(
+        port.add_endpoint(key, "office".to_owned(), vec![]).await,
+        Ok(EndpointAddChange::Unchanged(work.clone()))
+    );
+    let row = row_of(&port, &work).await.expect("registered by the add");
+    assert_eq!(row.alias.as_deref(), Some("office"));
+    assert_eq!(lease(&runtime, &work).await, Ok(()), "leasable");
+    drop(port);
+    runtime.stop().await.expect("stops");
+
+    let again = ComposedRuntime::start(&identity, &profile(), options(&p))
+        .await
+        .expect("restarts");
+    let port = admin(&again).await;
+    let row = row_of(&port, &work).await.expect("loaded at the restart");
+    assert_eq!(row.alias.as_deref(), Some("office"));
     drop(port);
     again.stop().await.expect("stops");
 }

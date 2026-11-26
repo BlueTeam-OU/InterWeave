@@ -313,6 +313,14 @@ impl Driver {
     /// `admin.endpoints.set_alias {endpoint, alias}`: refused `authored`,
     /// `alias_invalid`, `alias_taken` in that order, `unchanged` for the
     /// alias the entry has, else written and the runtime's list told.
+    ///
+    /// An endpoint the overlay holds and the runtime does not register --
+    /// an add left ahead -- is renamed too, as its remove is removed: the
+    /// registry's not-registered is agreement, the overlay keeps the new
+    /// alias and the endpoint stays unregistered until the add is sent
+    /// again or the next start (LOCAL-IPC.md `admin.endpoints.set_alias`,
+    /// ruled 2026-11-26;
+    /// `a_rename_of_an_add_left_ahead_is_renamed_and_loads_under_the_new_alias`).
     pub(super) async fn set_endpoint_alias(
         &mut self,
         endpoint: EndpointId,
@@ -347,10 +355,14 @@ impl Driver {
             if fault {
                 return Err(TransportError::BackendUnavailable);
             }
-            commander
+            match commander
                 .set_endpoint_alias(id, Some(alias))
                 .await
                 .map_err(|_| TransportError::BackendUnavailable)?
+            {
+                Err(TransportError::EndpointUnknown) => Ok(()),
+                answer => answer,
+            }
         };
         let (published, unwritten) = self
             .set_endpoints_noting("set_alias", Ok(Some(next)), publish)
