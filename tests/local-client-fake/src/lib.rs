@@ -281,6 +281,14 @@ impl FakeNode {
         lock(&self.0.state).shutdown_requests.clone()
     }
 
+    /// What `admin.endpoints.set_advertise` was asked and answered, oldest
+    /// first: how a test sees the human client's assertion before a
+    /// lease.
+    #[must_use]
+    pub fn advertise_sets(&self) -> Vec<(EndpointId, bool)> {
+        lock(&self.0.state).advertise_sets.clone()
+    }
+
     /// Sessions open on this node: how a test watches a dropped session
     /// go.
     #[must_use]
@@ -449,6 +457,9 @@ struct State {
     queue_bound: usize,
     stopped: bool,
     shutdown_requests: Vec<Duration>,
+    /// What `admin.endpoints.set_advertise` was asked and applied, oldest
+    /// first.
+    advertise_sets: Vec<(EndpointId, bool)>,
     /// What [`FakeNode::set_health`] last set.
     health: Health,
     /// The pair's path while it is connected: direct from pairing, then
@@ -543,6 +554,7 @@ impl Node {
                 added: Vec::new(),
                 ingress: None,
                 last_writes: BTreeMap::new(),
+                advertise_sets: Vec::new(),
             }),
             injected: Mutex::new(VecDeque::new()),
             tag,
@@ -1182,6 +1194,24 @@ impl AdminPort for FakeAdmin {
             }
         }
         state.default = endpoint;
+        Ok(())
+    }
+
+    async fn set_endpoint_advertise(
+        &self,
+        endpoint: EndpointId,
+        advertise: bool,
+    ) -> Result<(), TransportError> {
+        self.require(AdminCapability::Endpoints)?;
+        let mut state = self.node.running()?;
+        let configured = state
+            .endpoints
+            .get_mut(&endpoint)
+            .ok_or(TransportError::EndpointUnknown)?;
+        // In force in the directory's answers before the answer, as the
+        // runtime's is; kept across a restart, as its overlay is.
+        configured.advertise = advertise;
+        state.advertise_sets.push((endpoint, advertise));
         Ok(())
     }
 

@@ -6,6 +6,7 @@
 
 use interweave_human_store::StoreError;
 use interweave_human_transport_client::SessionBinding;
+use interweave_human_ui_model::HeldIdentity;
 use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::EndpointId;
 
@@ -41,6 +42,12 @@ pub trait Facade {
     /// read, so the start fell back to another: said once, by class.
     fn front_unread(&self) -> bool {
         false
+    }
+    /// The held identities as the view is told them, when they changed
+    /// since last told; `None` otherwise, and from a facade that names
+    /// none.
+    fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
+        None
     }
 }
 
@@ -79,6 +86,9 @@ impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
     }
     fn front_unread(&self) -> bool {
         Roster::front_unread(self).is_some()
+    }
+    fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
+        Roster::held_if_changed(self)
     }
 }
 

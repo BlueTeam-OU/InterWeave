@@ -20,7 +20,9 @@ mod client;
 mod problem;
 mod queue;
 
-pub use client::{CancelledSend, ClientConfig, SessionBinding, TransportClient, WallClock};
+pub use client::{
+    AssertingBinding, CancelledSend, ClientConfig, SessionBinding, TransportClient, WallClock,
+};
 // The caller-facing vocabulary lives in `interweave-human-client-api`,
 // where the UI model can name it without reaching this crate's store
 // (plan §17 P2); re-exported so a caller of the facade needs one crate.

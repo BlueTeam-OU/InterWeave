@@ -93,8 +93,8 @@ use interweave_human_chat_protocol::{
 };
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
-    ClientConfig, ClientEvent, Destination, Origin, OutboundStatus, Received, SessionBinding,
-    SessionState, TransportClient,
+    AssertingBinding, ClientConfig, ClientEvent, Destination, Origin, OutboundStatus, Received,
+    SessionBinding, SessionState, TransportClient,
 };
 use interweave_human_ui_model::{ConversationKey, UiModel};
 use interweave_local_client_api::{AddressChange, AdminBinding, AdminCapability, AdminPort as _};
@@ -234,7 +234,7 @@ struct Side<B: SessionBinding + AdminBinding> {
     _store_dir: tempfile::TempDir,
 }
 
-impl<B: SessionBinding + AdminBinding + Clone> Side<B> {
+impl<B: SessionBinding + AssertingBinding + Clone> Side<B> {
     fn new(binding: B) -> Self {
         // Owner-only at creation, whatever the umask (ADR-0028 A 2026-10-08).
         let store_dir = tempfile::Builder::new()
@@ -642,7 +642,7 @@ async fn relayed_and_direct<R: Device, C: Device>(mut r: R, mut c: C) {
 /// each envelope either facade decoded equals, field by field, the one
 /// the other composed. Answers that indicator and what the Android
 /// side's runtime handed it.
-async fn chat<B: SessionBinding + AdminBinding + Clone>(
+async fn chat<B: SessionBinding + AssertingBinding + Clone>(
     side: &mut Side<B>,
     device: &dyn Device,
     peer: &TransportIdentity,

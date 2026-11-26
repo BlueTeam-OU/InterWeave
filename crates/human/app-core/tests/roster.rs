@@ -14,16 +14,18 @@
 
 mod common;
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use interweave_human_app_core::{
-    Command, Crossing, FacadeSide, Roster, RosterConfig, RosterError, SwitchOutcome, Update,
+    Command, Crossing, FacadeSide, KeySource, Roster, RosterConfig, RosterError, SwitchOutcome,
+    Update,
 };
 use interweave_human_client_api::{ClientEvent, Connectivity, SessionState};
+use interweave_human_store::identity_key::{self, FilesystemCustody};
 use interweave_human_store::{HumanStore, OwnCard, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
-use interweave_human_ui_model::{ConversationKey, IDENTITY_CAP};
+use interweave_human_ui_model::{ConversationKey, HeldIdentity, IDENTITY_CAP, IdentityState};
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, DataSessionBinding, DataSessionPort, SessionEvent,
     SessionLosses, SessionRequest,
@@ -90,12 +92,15 @@ enum Asked {
 }
 
 /// The fake's bindings, recording every ask, and answering `Overloaded`
-/// to an open of an endpoint in `overloaded`.
+/// to an open of an endpoint in `overloaded`, `EndpointInUse` to one in
+/// `in_use`, and `Timeout` to as many opens of one as `time_outs` counts.
 #[derive(Clone)]
 struct Spy {
     node: FakeNode,
     asked: Arc<Mutex<Vec<Asked>>>,
     overloaded: Arc<Mutex<BTreeSet<EndpointId>>>,
+    in_use: Arc<Mutex<BTreeSet<EndpointId>>>,
+    time_outs: Arc<Mutex<BTreeMap<EndpointId, u32>>>,
 }
 
 impl Spy {
@@ -104,6 +109,34 @@ impl Spy {
             node,
             asked: Arc::default(),
             overloaded: Arc::default(),
+            in_use: Arc::default(),
+            time_outs: Arc::default(),
+        }
+    }
+
+    /// The next `n` opens of `endpoint` time out.
+    fn time_out(&self, endpoint: &EndpointId, n: u32) {
+        self.time_outs
+            .lock()
+            .expect("map")
+            .insert(endpoint.clone(), n);
+    }
+
+    /// Admin connections asked for `admin.endpoints`: the advertise
+    /// assertions, one before each lease.
+    fn assertions(&self) -> usize {
+        self.asked()
+            .iter()
+            .filter(|a| matches!(a, Asked::Admin(c) if c.contains(&AdminCapability::Endpoints)))
+            .count()
+    }
+
+    fn refuse_in_use(&self, endpoint: &EndpointId, on: bool) {
+        let mut set = self.in_use.lock().expect("set");
+        if on {
+            set.insert(endpoint.clone());
+        } else {
+            set.remove(endpoint);
         }
     }
 
@@ -157,6 +190,15 @@ impl DataSessionBinding for Spy {
             self.log(Asked::Open(e.clone()));
             if self.overloaded.lock().expect("set").contains(e) {
                 return Err(TransportError::Overloaded);
+            }
+            if self.in_use.lock().expect("set").contains(e) {
+                return Err(TransportError::EndpointInUse);
+            }
+            if let Some(left) = self.time_outs.lock().expect("map").get_mut(e)
+                && *left > 0
+            {
+                *left -= 1;
+                return Err(TransportError::Timeout);
             }
         }
         let inner = self.node.open(request).await?;
@@ -262,6 +304,7 @@ fn config(others: Vec<EndpointId>, default: Option<EndpointId>) -> RosterConfig 
         max_payload_bytes: 49_152,
         others,
         default,
+        aliases: BTreeMap::new(),
     }
 }
 
@@ -854,4 +897,219 @@ async fn a_roster_of_one_behaves_as_its_facade_side() {
         alone.0
     );
     assert_eq!(of_one, alone);
+}
+
+/// A private profile directory and its paths, for the key files.
+fn key_paths() -> (tempfile::TempDir, interweave_profile_config::ProfilePaths) {
+    use std::os::unix::fs::PermissionsExt as _;
+    let dir = tempfile::tempdir().expect("tempdir");
+    std::fs::set_permissions(dir.path(), std::fs::Permissions::from_mode(0o700)).expect("chmod");
+    let paths = interweave_profile_config::ProfilePaths::resolve_embedded(
+        "default",
+        interweave_profile_config::TrustBoundary::new(dir.path()).expect("a boundary"),
+    )
+    .expect("paths");
+    (dir, paths)
+}
+
+fn told<'a>(held: &'a [HeldIdentity], endpoint: &EndpointId) -> &'a HeldIdentity {
+    held.iter()
+        .find(|h| h.key.as_str() == endpoint.as_str())
+        .expect("told")
+}
+
+/// An identity added whose key file is missing is asserted and leased
+/// as the first identity is (ADR-0067 decisions 3 and 5): its session
+/// opens once and is asserted once, however many turns run, reaches
+/// ready, and its row is told ready -- the key's state is its page's,
+/// not the row's. No key is made in its place. Mutations: the session
+/// held back while the key cannot be used (`FacadeSide::turn` skipping
+/// the tick) -- the second is never opened; the row told unavailable for
+/// a key problem -- its state is not ready.
+#[tokio::test]
+async fn an_added_identity_without_its_key_is_leased_and_given_no_key() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a);
+    let mut roster = build(&spy, memory(), config(vec![second()], None));
+    let (_dir, paths) = key_paths();
+    for e in [human(), second()] {
+        roster
+            .side_mut(&e)
+            .expect("held")
+            .set_key_source(KeySource::new(
+                paths.clone(),
+                e.clone(),
+                Box::new(FilesystemCustody),
+            ));
+    }
+    assert!(
+        roster
+            .side_mut(&second())
+            .expect("held")
+            .key_problem()
+            .is_some(),
+        "the premise: its key cannot be used"
+    );
+    let mut now = 0;
+    for _ in 0..6 {
+        roster.turn(now).await;
+        now += 60_000;
+    }
+    assert_eq!(spy.opens(), [human(), second()], "{:?}", spy.asked());
+    assert_eq!(spy.assertions(), 2, "one each: {:?}", spy.asked());
+    assert!(matches!(
+        session(&roster, &second()),
+        SessionState::Ready { .. }
+    ));
+    let held = roster.held_if_changed().expect("told");
+    assert_eq!(held.len(), 2, "never dropped");
+    assert_eq!(told(&held, &second()).state, IdentityState::Ready);
+    assert_eq!(told(&held, &human()).state, IdentityState::Ready);
+    assert!(
+        !identity_key::key_path(&paths, &second()).exists(),
+        "no key made in its place"
+    );
+}
+
+/// The held identities are told at start and when what they say
+/// changes, never at a turn or a command that changed nothing: the
+/// first is first and the default the profile's, the alias the entry's
+/// or empty, the card's name the store's; an identity the daemon has no
+/// room for is unavailable. An idle turn reads nothing: a card written
+/// past the roster is told after the next command, not before.
+/// Mutations: `held_if_changed` reading at every ask -- the idle turns
+/// tell the card; telling an unchanged list -- the Reopen that changed
+/// nothing tells; the alias or the default not carried -- their
+/// assertions fail.
+#[tokio::test]
+async fn the_held_identities_are_told_at_start_and_on_change_alone() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second(), third()]), node(&[human()]));
+    let spy = Spy::new(a);
+    spy.overload(&third(), true);
+    let mut store = memory();
+    card(&mut store, &second(), 10);
+    // A handle of the same open, to write behind the roster's back.
+    let mut rows = store.handle_speaking_as(human());
+    let mut config = config(vec![second(), third()], Some(second()));
+    config.aliases.insert(second(), "work".to_owned());
+    let mut roster = build(&spy, store, config);
+
+    let start = roster.held_if_changed().expect("told at start");
+    let keys: Vec<&str> = start.iter().map(|h| h.key.as_str()).collect();
+    assert_eq!(
+        keys,
+        [human().as_str(), second().as_str(), third().as_str()]
+    );
+    assert!(start.iter().all(|h| h.state
+        == IdentityState::Starting {
+            after_try_again: false
+        }));
+    assert_eq!(roster.held_if_changed(), None, "nothing ran");
+
+    roster.turn(0).await;
+    let held = roster.held_if_changed().expect("the sessions changed");
+    let first = told(&held, &human());
+    assert!(first.is_first && !first.is_default);
+    assert_eq!(
+        (first.alias.as_str(), first.card_name.as_deref()),
+        ("", None)
+    );
+    assert_eq!(first.state, IdentityState::Ready);
+    let work = told(&held, &second());
+    assert!(work.is_default && !work.is_first);
+    assert_eq!(work.alias, "work");
+    assert_eq!(work.card_name.as_deref(), Some("x"));
+    assert_eq!(told(&held, &third()).state, IdentityState::Unavailable);
+
+    // Written past the roster: an idle turn reads nothing, so it is not
+    // told until something runs.
+    card(&mut rows, &human(), 20);
+    for _ in 0..20 {
+        roster.turn(1).await;
+        assert_eq!(roster.held_if_changed(), None, "an idle turn tells nothing");
+    }
+    roster.execute(&human(), Command::Reopen, 1).await;
+    let held = roster.held_if_changed().expect("read after a command");
+    assert_eq!(told(&held, &human()).card_name.as_deref(), Some("x"));
+    roster.execute(&human(), Command::Reopen, 1).await;
+    assert_eq!(
+        roster.held_if_changed(),
+        None,
+        "a command that changed nothing"
+    );
+}
+
+/// Try again re-opens the identity it names and no other: refused, it
+/// re-opens told `Starting` after a Try again, and stays so through
+/// attempts that time out, unanswered, until one is answered (identities
+/// §5.2, ux-designer-01 at ae39cbd16, acceptance 15); then ready. The
+/// identity beside it is not re-opened. Mutations: `execute` not
+/// recording the Try again -- `after_try_again` is false; forgetting it
+/// at the next retry -- the timed-out attempts read `false`; never
+/// forgetting it -- a later re-open of the runtime's own reads as a Try
+/// again (the last assertion).
+#[tokio::test]
+async fn a_try_again_reopens_its_identity_alone_and_is_told_starting() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a);
+    spy.refuse_in_use(&second(), true);
+    let mut roster = build(&spy, memory(), config(vec![second()], None));
+    roster.turn(0).await;
+    assert!(matches!(
+        session(&roster, &second()),
+        SessionState::Refused { .. }
+    ));
+    let held = roster.held_if_changed().expect("told");
+    assert_eq!(told(&held, &second()).state, IdentityState::Unavailable);
+
+    spy.refuse_in_use(&second(), false);
+    spy.time_out(&second(), 2);
+    let opened = spy.opens().len();
+    roster.execute(&second(), Command::Reopen, 1).await;
+    let held = roster.held_if_changed().expect("told");
+    let after_try_again = IdentityState::Starting {
+        after_try_again: true,
+    };
+    assert_eq!(told(&held, &second()).state, after_try_again);
+    assert_eq!(told(&held, &human()).state, IdentityState::Ready);
+    let mut now = 1;
+    for attempt in 1..=2 {
+        roster.turn(now).await;
+        let SessionState::Reconnecting { next_at, .. } = session(&roster, &second()) else {
+            panic!("timed out: {:?}", session(&roster, &second()));
+        };
+        // Unchanged, so not told again; told, it would say the same.
+        if let Some(held) = roster.held_if_changed() {
+            assert_eq!(told(&held, &second()).state, after_try_again, "{attempt}");
+        }
+        now = next_at;
+    }
+    roster.turn(now).await;
+    assert_eq!(
+        spy.opens()[opened..],
+        [second(), second(), second()],
+        "the named one alone"
+    );
+    let held = roster.held_if_changed().expect("told");
+    assert_eq!(told(&held, &second()).state, IdentityState::Ready);
+
+    // The runtime goes: every session re-opens on its own timer, which
+    // is no Try again's.
+    spy.node.stop();
+    now += 1;
+    while !matches!(
+        session(&roster, &second()),
+        SessionState::Reconnecting { .. }
+    ) {
+        roster.turn(now).await;
+        now += 1_000;
+        assert!(now < 120_000, "{:?}", session(&roster, &second()));
+    }
+    let held = roster.held_if_changed().expect("told");
+    assert_eq!(
+        told(&held, &second()).state,
+        IdentityState::Starting {
+            after_try_again: false
+        }
+    );
 }

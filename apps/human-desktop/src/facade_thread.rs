@@ -19,6 +19,7 @@ use interweave_human_app_core::{
     Command, Crossing, Facade, RosterError, Routed, SwitchOutcome, Update,
 };
 use interweave_human_store::StoreError;
+use interweave_human_ui_model::HeldIdentity;
 use interweave_transport_api::EndpointId;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
 
@@ -112,6 +113,10 @@ pub enum FromFacade {
     /// The facade could not be built, for the class it carries. Nothing
     /// is sent or received this session.
     FacadeFailed(FacadeFault),
+    /// The held identities as their rows read them, sent at start and
+    /// when they change, never at a turn that changed nothing
+    /// (`Roster::held_if_changed`).
+    Held(Vec<HeldIdentity>),
     /// The session is closed and the thread is ending.
     Closed,
 }
@@ -244,6 +249,9 @@ impl FacadeThread {
                             Err(_) => out(FromFacade::ListingFailed),
                         }
                     }
+                    if let Some(held) = side.held_identities() {
+                        out(FromFacade::Held(held));
+                    }
                     let routed = |routed: Routed| {
                         for (identity, updates) in routed {
                             for update in updates {
@@ -303,6 +311,11 @@ impl FacadeThread {
                             break;
                         }
                         routed(side.turn(now()).await);
+                        // After the commands and the turn: either may
+                        // change what an identity's row says.
+                        if let Some(held) = side.held_identities() {
+                            out(FromFacade::Held(held));
+                        }
                         if probed.is_none_or(|at| at.elapsed() >= DAEMON_PROBE) {
                             probed = Some(Instant::now());
                             let answer = daemon_present();

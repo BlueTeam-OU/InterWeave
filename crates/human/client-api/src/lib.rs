@@ -73,6 +73,12 @@ pub enum SessionProblem {
     /// The endpoint is unknown, disabled, refuses this client kind, or
     /// the connection lacks a capability: not available to this client.
     NotAvailableToThisClient,
+    /// The daemon answered the advertise assertion made before the lease
+    /// (`admin.endpoints.set_advertise` to false, ADR-0061 decision 5)
+    /// with anything but success, so no lease was taken: the identity
+    /// could be listed in the endpoint directory (`identities` design
+    /// §5.2, `IdentityNotHidden`). Try again asserts again.
+    NotHidden,
     /// Anything else.
     Internal,
 }
@@ -208,7 +214,9 @@ pub enum SessionState {
         /// The endpoint it holds.
         endpoint: Option<EndpointId>,
     },
-    /// The binding ended; the facade re-opens on its own.
+    /// The binding ended, or none is open yet; the facade re-opens on
+    /// its own. A graphical client stays here while the advertise
+    /// assertion made before its lease is unanswered.
     Reconnecting {
         /// Re-open attempts so far.
         attempt: u32,

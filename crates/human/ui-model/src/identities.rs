@@ -92,7 +92,9 @@ pub struct HeldIdentity {
     pub key: IdentityKey,
     /// Its card's name, once it has a card.
     pub card_name: Option<String>,
-    /// Its alias, local, the name it takes with no card (identities §6.1).
+    /// Its alias, local, the name it takes with no card (identities §6.1);
+    /// empty for an identity with none, a first identity authored without
+    /// one, which is then named by its short key ([`Self::name`]).
     pub alias: String,
     /// Whether it can act now.
     pub state: IdentityState,
@@ -108,12 +110,15 @@ pub struct HeldIdentity {
 
 impl HeldIdentity {
     /// The name it is shown by: its card's name, else its alias
-    /// (identities §6.1). An empty card name is no name.
+    /// (identities §6.1), else its short key, `ShortEndpoint` as `ShortPeer`
+    /// is built ([`IdentityKey::short`]): nothing is invented in an alias's
+    /// place. An empty card name or alias is none.
     #[must_use]
-    pub fn name(&self) -> &str {
+    pub fn name(&self) -> std::borrow::Cow<'_, str> {
         match &self.card_name {
-            Some(name) if !name.is_empty() => name,
-            _ => &self.alias,
+            Some(name) if !name.is_empty() => name.into(),
+            _ if !self.alias.is_empty() => self.alias.as_str().into(),
+            _ => self.key.short().into(),
         }
     }
 }
@@ -142,7 +147,7 @@ impl Said {
     }
 
     fn naming(text: UiText, identity: &HeldIdentity) -> Self {
-        Self::of(text).with("identity", isolated(identity.name()))
+        Self::of(text).with("identity", isolated(&identity.name()))
     }
 
     /// The placeholder English, filled.
@@ -932,7 +937,7 @@ impl Identities {
     /// held (cards §5.7.5); with one, a notification names no identity.
     #[must_use]
     pub fn notification_subtext(&self, key: &IdentityKey) -> Option<String> {
-        self.named(key).map(|h| h.name().to_owned())
+        self.named(key).map(|h| h.name().into_owned())
     }
 
     /// The group summary's lines (identities §9), one an identity with
@@ -1015,9 +1020,9 @@ impl Identities {
             }
         }
         Some(SwitchView {
-            name: front.name().to_owned(),
-            least: least(front.name()),
-            leasts: self.held.iter().map(|h| least(h.name())).collect(),
+            name: front.name().into_owned(),
+            least: least(&front.name()),
+            leasts: self.held.iter().map(|h| least(&h.name())).collect(),
             badge,
             accessible,
         })
@@ -1034,7 +1039,7 @@ impl Identities {
             .iter()
             .map(|h| SwitcherRow {
                 key: h.key.clone(),
-                name: h.name().to_owned(),
+                name: h.name().into_owned(),
                 second_line: h.key.short(),
                 second_line_label: Self::id_label_of(&h.key),
                 unread: h.unread,
@@ -1143,7 +1148,7 @@ impl Identities {
     /// (N6-N8): the identity in front's name.
     #[must_use]
     pub fn subtitle(&self) -> Option<String> {
-        self.front_named().map(|h| h.name().to_owned())
+        self.front_named().map(|h| h.name().into_owned())
     }
 
     /// `IdentityNotInFront` under an identity's page's app bar, when
@@ -1153,7 +1158,7 @@ impl Identities {
         let front = self.front_named()?;
         let page = self.named(page)?;
         (front.key != page.key).then(|| {
-            Said::naming(UiText::IdentityNotInFront, page).with("front", isolated(front.name()))
+            Said::naming(UiText::IdentityNotInFront, page).with("front", isolated(&front.name()))
         })
     }
 
@@ -1276,6 +1281,21 @@ mod tests {
         assert_eq!(h.name(), "alias-a");
         h.card_name = Some(String::new());
         assert_eq!(h.name(), "alias-a");
+    }
+
+    /// With neither a card name nor an alias -- a first identity authored
+    /// without one -- the name is the short key, nothing invented.
+    /// Mutation: `name` answering the empty alias -- the name is empty.
+    #[test]
+    fn with_no_card_name_and_no_alias_the_name_is_the_short_key() {
+        let mut h = ident("a");
+        h.card_name = None;
+        h.alias = String::new();
+        assert_eq!(h.name(), h.key.short());
+        h.card_name = Some(String::new());
+        assert_eq!(h.name(), h.key.short());
+        h.card_name = Some("Name a".to_owned());
+        assert_eq!(h.name(), "Name a", "a card name before the key");
     }
 
     #[test]
