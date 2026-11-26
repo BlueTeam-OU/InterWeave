@@ -3,9 +3,10 @@
 //! Which of a profile's endpoints a desktop-hosted human client may lease:
 //! one rule for every root that connects to a shared daemon -- the window
 //! and the command line -- so the two never disagree on which identity a
-//! profile offers them. Android's service leases the one endpoint its
-//! profile names, and keeps its own rule
-//! (`crates/human/android-platform/src/service.rs` `human_endpoint`).
+//! profile offers them. Android's service keeps its own rule for its
+//! first identity -- the endpoint its profile names
+//! (`crates/human/android-platform/src/service.rs` `human_endpoint`) --
+//! and holds after it the added entries [`held_list`] reads.
 
 use interweave_human_store::identity_key::{
     self, FilesystemCustody, IdentityKey, IdentityKeyFileError, KeyCipher,
