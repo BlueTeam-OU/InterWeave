@@ -327,6 +327,14 @@ pub(crate) enum Request {
     /// were gone. Test builds only.
     #[cfg(feature = "test-hooks")]
     FailPublishes(usize, oneshot::Sender<()>),
+    /// The next add's publish waits, after telling the first sender it
+    /// started, until the receiver resolves. Test builds only.
+    #[cfg(feature = "test-hooks")]
+    HoldAddPublish(
+        oneshot::Sender<()>,
+        oneshot::Receiver<()>,
+        oneshot::Sender<()>,
+    ),
     /// Whether the operator's door holds a bootstrap address. Test
     /// builds only.
     #[cfg(feature = "test-hooks")]
@@ -346,6 +354,35 @@ pub(crate) enum Request {
     /// a runtime that ends on its own. Test builds only.
     #[cfg(feature = "test-hooks")]
     EndDriver(oneshot::Sender<()>),
+}
+
+/// An add's publish held open (`ComposedRuntime::hold_next_add_publish`).
+/// Dropping it releases the publish as [`Self::release`] does.
+#[cfg(feature = "test-hooks")]
+#[derive(Debug)]
+pub struct PublishHold {
+    reached: oneshot::Receiver<()>,
+    release: oneshot::Sender<()>,
+}
+
+#[cfg(feature = "test-hooks")]
+impl PublishHold {
+    /// Resolves once the held add has reached its publish: the driver
+    /// is inside that add's answer, and waits there.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` when the hold was dropped unreached (the
+    /// driver ended, or the add was refused before its publish).
+    pub async fn reached(&mut self) -> Result<(), TransportError> {
+        (&mut self.reached)
+            .await
+            .map_err(|_| TransportError::BackendUnavailable)
+    }
+
+    /// Let the held publish go on.
+    pub fn release(self) {
+        let _ = self.release.send(());
+    }
 }
 
 /// A failure a test makes the next overlay write meet, on either
@@ -697,6 +734,8 @@ impl ComposedRuntime {
             #[cfg(feature = "test-hooks")]
             publish_faults: 0,
             #[cfg(feature = "test-hooks")]
+            add_publish_hold: None,
+            #[cfg(feature = "test-hooks")]
             kept_forgets: 0,
             outcomes: LastOutcomes::default(),
             refusals: ReconnectRefusals::default(),
@@ -958,6 +997,23 @@ impl ComposedRuntime {
         self.ask(|reply| Request::FailPublishes(count, reply)).await
     }
 
+    /// Hold the next `admin.endpoints.add`'s substrate publish open --
+    /// its key read and its overlay written, its answer not yet sent --
+    /// until the returned [`PublishHold`] is released or dropped: how a
+    /// test puts another request beside an add in flight. TEST BUILDS
+    /// ONLY.
+    ///
+    /// # Errors
+    /// `BackendUnavailable` once the runtime has stopped.
+    #[cfg(feature = "test-hooks")]
+    pub async fn hold_next_add_publish(&self) -> Result<PublishHold, TransportError> {
+        let (reached_tx, reached) = oneshot::channel();
+        let (release, release_rx) = oneshot::channel();
+        self.ask(|reply| Request::HoldAddPublish(reached_tx, release_rx, reply))
+            .await?;
+        Ok(PublishHold { reached, release })
+    }
+
     /// Make the next overlay writes, trust or endpoint, meet `faults`, one each, in
     /// order: how a test reaches a write that fails after its rename,
     /// which no permission can produce. TEST BUILDS ONLY.
@@ -1062,6 +1118,9 @@ struct Driver {
     /// (test builds).
     #[cfg(feature = "test-hooks")]
     publish_faults: usize,
+    /// The hold the next add's publish waits on (test builds).
+    #[cfg(feature = "test-hooks")]
+    add_publish_hold: Option<(oneshot::Sender<()>, oneshot::Receiver<()>)>,
     /// How many of the next book removals answer "kept" (test builds).
     #[cfg(feature = "test-hooks")]
     kept_forgets: usize,
@@ -1525,6 +1584,11 @@ impl Driver {
             #[cfg(feature = "test-hooks")]
             Request::FailPublishes(count, reply) => {
                 self.publish_faults = count;
+                let _ = reply.send(());
+            }
+            #[cfg(feature = "test-hooks")]
+            Request::HoldAddPublish(reached, release, reply) => {
+                self.add_publish_hold = Some((reached, release));
                 let _ = reply.send(());
             }
             #[cfg(feature = "test-hooks")]
