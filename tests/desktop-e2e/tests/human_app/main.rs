@@ -27,6 +27,7 @@ mod daemon_link;
 mod display;
 mod endpoints;
 mod harness;
+mod identities;
 mod kept_disable;
 mod lifecycle;
 mod opening;
