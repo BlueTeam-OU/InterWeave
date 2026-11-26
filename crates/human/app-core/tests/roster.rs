@@ -918,14 +918,16 @@ fn told<'a>(held: &'a [HeldIdentity], endpoint: &EndpointId) -> &'a HeldIdentity
         .expect("told")
 }
 
-/// An identity added whose key file is missing is held in the
-/// key-missing state: told, unavailable, never leased and never asserted
-/// however many turns run, and given no key; the first identity, its key
-/// missing as well, leases as before Stage 22. Mutations: the roster not
-/// building the others `lease_only_with_key` -- the second is opened and
-/// asserted; `FacadeSide::turn` ticking whatever the key -- the same.
+/// An identity added whose key file is missing is asserted and leased
+/// as the first identity is (ADR-0067 decisions 3 and 5): its session
+/// opens once and is asserted once, however many turns run, reaches
+/// ready, and its row is told ready -- the key's state is its page's,
+/// not the row's. No key is made in its place. Mutations: the session
+/// held back while the key cannot be used (`FacadeSide::turn` skipping
+/// the tick) -- the second is never opened; the row told unavailable for
+/// a key problem -- its state is not ready.
 #[tokio::test]
-async fn an_added_identity_without_its_key_is_held_and_never_leased() {
+async fn an_added_identity_without_its_key_is_leased_and_given_no_key() {
     let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
     let spy = Spy::new(a);
     let mut roster = build(&spy, memory(), config(vec![second()], None));
@@ -940,16 +942,28 @@ async fn an_added_identity_without_its_key_is_held_and_never_leased() {
                 Box::new(FilesystemCustody),
             ));
     }
+    assert!(
+        roster
+            .side_mut(&second())
+            .expect("held")
+            .key_problem()
+            .is_some(),
+        "the premise: its key cannot be used"
+    );
     let mut now = 0;
     for _ in 0..6 {
         roster.turn(now).await;
         now += 60_000;
     }
-    assert_eq!(spy.opens(), [human()], "{:?}", spy.asked());
-    assert_eq!(spy.assertions(), 1, "the first's alone: {:?}", spy.asked());
+    assert_eq!(spy.opens(), [human(), second()], "{:?}", spy.asked());
+    assert_eq!(spy.assertions(), 2, "one each: {:?}", spy.asked());
+    assert!(matches!(
+        session(&roster, &second()),
+        SessionState::Ready { .. }
+    ));
     let held = roster.held_if_changed().expect("told");
     assert_eq!(held.len(), 2, "never dropped");
-    assert_eq!(told(&held, &second()).state, IdentityState::Unavailable);
+    assert_eq!(told(&held, &second()).state, IdentityState::Ready);
     assert_eq!(told(&held, &human()).state, IdentityState::Ready);
     assert!(
         !identity_key::key_path(&paths, &second()).exists(),

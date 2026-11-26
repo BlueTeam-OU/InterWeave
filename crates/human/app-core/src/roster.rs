@@ -29,9 +29,9 @@
 //!   row, and a change to the identity in front or to one not held writes
 //!   nothing
 //!   (`set_front_swaps_and_writes_the_row_and_an_unchanged_front_writes_nothing`);
-//! - an identity other than the first whose key cannot be opened is held
-//!   and opens no session and asserts nothing until its key opens
-//!   (`an_added_identity_without_its_key_is_held_and_never_leased`);
+//! - an identity other than the first whose key cannot be opened is
+//!   asserted and leased as the first is, and given no key in its place
+//!   (`an_added_identity_without_its_key_is_leased_and_given_no_key`);
 //! - what each identity's row says is told at start and when it changes
 //!   (`the_held_identities_are_told_at_start_and_on_change_alone`), in
 //!   identities §5.2's states
@@ -163,20 +163,15 @@ pub struct Roster<B: SessionBinding, A: AdminBinding> {
 /// What an identity's row says it can do now (identities §5.2;
 /// architect-cto's ruling B of 2026-11-26 and ux U4), from its session,
 /// whether that session re-opens because the daemon had no room for it,
-/// whether its key holds its session back, and whether a Try again
-/// started the re-open. An identity waiting for its key holds no lease:
-/// its row reads unavailable, and its page names the key
-/// (`KeyProblem`, identity-key §4.1)
+/// and whether a Try again started the re-open. The key's state is not
+/// an input: an identity whose key cannot be used is leased as any
+/// other, and its page names the key (`KeyProblem`, identity-key §4.2)
 /// (`each_session_state_is_told_as_its_identity_state`).
 pub(crate) const fn identity_state(
     session: &SessionState,
     for_room: bool,
-    waits_for_key: bool,
     after_try_again: bool,
 ) -> IdentityState {
-    if waits_for_key {
-        return IdentityState::Unavailable;
-    }
     match session {
         SessionState::Ready { .. } => IdentityState::Ready,
         // No room at the daemon: no words of its own and no Try again,
@@ -267,10 +262,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             } else {
                 client.without_status()
             };
-            let mut side = FacadeSide::new(client, wall.clone());
-            if !is_first {
-                side.lease_only_with_key();
-            }
+            let side = FacadeSide::new(client, wall.clone());
             held.push(Held { endpoint, side });
         }
         let mut roster = Self {
@@ -523,7 +515,6 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 state: identity_state(
                     session,
                     client.retrying_for_room(),
-                    held.side.waits_for_key(),
                     self.tried_again.contains(endpoint),
                 ),
                 is_first: i == 0,
@@ -551,9 +542,8 @@ mod tests {
     /// ready; re-opening, Starting, after a Try again or not; re-opening
     /// because the daemon had no room, unavailable with no Try again;
     /// refused `NotHidden`, could not start; any other refusal, a store
-    /// that cannot keep messages and a closed session, unavailable; and
-    /// a key that holds the session back, unavailable whatever the
-    /// session. Mutations: each arm moved to its neighbour's state --
+    /// that cannot keep messages and a closed session, unavailable.
+    /// Mutations: each arm moved to its neighbour's state --
     /// the row for it fails.
     #[test]
     fn each_session_state_is_told_as_its_identity_state() {
@@ -565,20 +555,13 @@ mod tests {
         let refused = |problem| SessionState::Refused { problem };
         let starting = |after_try_again| IdentityState::Starting { after_try_again };
         let cases = [
-            (&ready, false, false, false, IdentityState::Ready),
-            (&reconnecting, false, false, false, starting(false)),
-            (&reconnecting, false, false, true, starting(true)),
-            (
-                &reconnecting,
-                true,
-                false,
-                false,
-                IdentityState::Unavailable,
-            ),
-            (&reconnecting, true, false, true, IdentityState::Unavailable),
+            (&ready, false, false, IdentityState::Ready),
+            (&reconnecting, false, false, starting(false)),
+            (&reconnecting, false, true, starting(true)),
+            (&reconnecting, true, false, IdentityState::Unavailable),
+            (&reconnecting, true, true, IdentityState::Unavailable),
             (
                 &refused(SessionProblem::NotHidden),
-                false,
                 false,
                 false,
                 IdentityState::NotHidden,
@@ -587,12 +570,10 @@ mod tests {
                 &refused(SessionProblem::EndpointInUse),
                 false,
                 false,
-                false,
                 IdentityState::Unavailable,
             ),
             (
                 &refused(SessionProblem::NotAvailableToThisClient),
-                false,
                 false,
                 false,
                 IdentityState::Unavailable,
@@ -601,24 +582,20 @@ mod tests {
                 &SessionState::StorageDegraded,
                 false,
                 false,
-                false,
                 IdentityState::Unavailable,
             ),
             (
                 &SessionState::Closed,
                 false,
                 false,
-                false,
                 IdentityState::Unavailable,
             ),
-            (&ready, false, true, false, IdentityState::Unavailable),
-            (&reconnecting, false, true, true, IdentityState::Unavailable),
         ];
-        for (session, room, key, again, told) in cases {
+        for (session, room, again, told) in cases {
             assert_eq!(
-                identity_state(session, room, key, again),
+                identity_state(session, room, again),
                 told,
-                "{session:?} room {room} key {key} again {again}"
+                "{session:?} room {room} again {again}"
             );
         }
     }

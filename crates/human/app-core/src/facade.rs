@@ -101,11 +101,12 @@ pub struct FacadeSide<B: interweave_human_transport_client::SessionBinding, A: A
     /// Where the key lives, when the root gave it ([`Self::set_key_source`]):
     /// what opens it again.
     key_source: Option<crate::KeySource>,
-    /// Why the key could not be used, while it cannot.
+    /// Why the key could not be used, while it cannot. The session does
+    /// not wait on it: an identity whose key is missing or refused is
+    /// asserted and leased as any other, and only sharing its card stops
+    /// (ADR-0067 decisions 3 and 5;
+    /// `an_added_identity_without_its_key_is_leased_and_given_no_key`).
     key_problem: Option<interweave_human_ui_model::KeyProblem>,
-    /// Whether the session is held back while the key cannot be used
-    /// ([`Self::lease_only_with_key`]).
-    lease_needs_key: bool,
     /// The last Accept or Decline, held for its Undo until its snackbar
     /// closes ([`Command::ForgetCard`]) or the next one replaces it: one
     /// snackbar is up at a time, so one is held (message-swipe design
@@ -315,7 +316,6 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
             identity: None,
             key_source: None,
             key_problem: None,
-            lease_needs_key: false,
             card_undo: None,
             contact_undo: None,
             contact_holds: 0,
@@ -381,26 +381,6 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
     pub fn set_key_source(&mut self, source: crate::KeySource) {
         self.key_source = Some(source);
         self.open_key();
-    }
-
-    /// Open no session while the identity's key cannot be used: an
-    /// identity added to the profile whose key file is missing or refused
-    /// is held in the key-missing state, neither leased nor asserted
-    /// (ADR-0061 decision 6; architect-cto's REPLY 01a216b6), and leases
-    /// once a [`Command::RetryKey`] opens its key. Its store is read and
-    /// written as any identity's meanwhile. The first identity is not
-    /// built so: it leases with its key missing, as before Stage 22
-    /// (app-core's roster test
-    /// `an_added_identity_without_its_key_is_held_and_never_leased`).
-    pub const fn lease_only_with_key(&mut self) {
-        self.lease_needs_key = true;
-    }
-
-    /// Whether the session is held back for the key
-    /// ([`Self::lease_only_with_key`]): no open, no assertion.
-    #[must_use]
-    pub const fn waits_for_key(&self) -> bool {
-        self.lease_needs_key && self.key_problem.is_some()
     }
 
     /// Whether a message of this identity waits for the person: a pending
@@ -607,11 +587,8 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
         let mut updates = Vec::new();
         self.card_rows_due(&mut updates);
         self.shares_due(&mut updates);
-        // Boxed: the facade's futures are large. Held back while the key
-        // is (`lease_only_with_key`): the tick is what opens and asserts.
-        if !self.waits_for_key() {
-            Box::pin(self.client.tick(now)).await;
-        }
+        // Boxed: the facade's futures are large.
+        Box::pin(self.client.tick(now)).await;
         let received = Box::pin(self.client.drain_inbound(DRAIN_PER_TURN, now)).await;
         for inbound in received {
             updates.push(match inbound {
