@@ -77,13 +77,17 @@ obj none.so
 
 # The fixtures are what the test says they are: readelf, not the script,
 # is asked, so a stub that linked without its versions fails here.
-readelf -V -W "$SANDBOX/new.so" | grep -q 'Name: GLIBC_2.43' \
+elf_out="$(readelf -V -W "$SANDBOX/new.so")"; elf_rc=$?
+[[ $elf_rc -eq 0 ]] && grep -q 'Name: GLIBC_2.43' <<<"$elf_out" \
     && pass "fixture: new.so needs GLIBC_2.43" || fail "fixture: new.so does not need GLIBC_2.43"
-readelf -W --dyn-syms "$SANDBOX/weak.so" | grep -q 'WEAK .*v_2_43@GLIBC_2.43' \
+elf_out="$(readelf -W --dyn-syms "$SANDBOX/weak.so")"; elf_rc=$?
+[[ $elf_rc -eq 0 ]] && grep -q 'WEAK .*v_2_43@GLIBC_2.43' <<<"$elf_out" \
     && pass "fixture: weak.so's v_2_43@GLIBC_2.43 is a weak symbol" \
     || fail "fixture: weak.so's v_2_43 is not a weak GLIBC_2.43 symbol" "$(readelf -W --dyn-syms "$SANDBOX/weak.so")"
-readelf -V -W "$SANDBOX/none.so" | grep -q 'Version needs' \
-    && fail "fixture: none.so has version needs" || pass "fixture: none.so needs no version"
+elf_out="$(readelf -V -W "$SANDBOX/none.so")"; elf_rc=$?
+if [[ $elf_rc -ne 0 ]]; then fail "fixture: readelf cannot read none.so (exit $elf_rc)"
+elif grep -q 'Version needs' <<<"$elf_out"; then fail "fixture: none.so has version needs"
+else pass "fixture: none.so needs no version"; fi
 
 # run <floor> <file>...: sets out, err and status.
 run() {
