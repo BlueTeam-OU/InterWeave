@@ -541,8 +541,9 @@ mod closing_tests {
     /// answered under it; one naming a held identity runs as that one,
     /// whatever is in front; one naming an identity not held is not run
     /// and answers nothing. Mutations: `None` run as the first held
-    /// rather than the front fails the first assert; an unheld command
-    /// run as the front fails the last two.
+    /// rather than the front fails the "as the front" assert; an unheld
+    /// command run as the front fails the "not held: nothing answered"
+    /// and "not held: not run" asserts.
     #[test]
     fn a_command_runs_as_the_identity_it_names_else_the_front() {
         let mut facade = Recorder::new(vec![me(), other()], other());

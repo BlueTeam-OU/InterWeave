@@ -465,7 +465,8 @@ mod tests {
     /// naming the new front; with one identity held it cannot happen and
     /// sends nothing. Two models are held here with no start said: the
     /// front-only facts are not told. Mutation: `switch` not handing
-    /// the model side's crossings on fails the third assert.
+    /// the model side's crossings on fails the `ToFacade::Front(other())`
+    /// assert.
     #[test]
     fn a_switch_crosses_to_the_hub_and_with_one_held_none_can() {
         let hub = crate::Hub::new();
@@ -486,8 +487,12 @@ mod tests {
             front: me(),
         }))
         .expect("applied");
-        assert!(two.switch(&other(), cross));
-        assert_eq!(rx.try_recv().ok(), Some(crate::ToFacade::Front(other())));
+        assert!(two.switch(&other(), cross), "two held: switched");
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(crate::ToFacade::Front(other())),
+            "the switch crossed"
+        );
         assert_eq!(two.side().front(), Some(&other()));
     }
 

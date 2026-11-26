@@ -1148,8 +1148,9 @@ mod tests {
     /// again -- is told the identities that facade holds before anything
     /// else of that start, and so before any update; a later facade's
     /// start names its own; and while none runs, none is named. Mutation:
-    /// no `Held` at an attach fails the first assert; a later start not
-    /// naming its own fails the second.
+    /// no `Held` at an attach fails the "named at the attach" assert; a
+    /// later start not naming its own fails the "named at a later start"
+    /// assert.
     #[test]
     fn a_view_attached_late_hears_the_held_identities_before_any_update() {
         let hub = Hub::new();
@@ -1164,7 +1165,7 @@ mod tests {
                 &taken[..],
                 [ToView::Held(h), ToView::Start(_), ToView::Running(true), ..] if *h == held()
             ),
-            "{taken:?}"
+            "named at the attach: {taken:?}"
         );
         assert!(
             taken.iter().any(|m| matches!(m, ToView::Update(..))),
@@ -1187,7 +1188,7 @@ mod tests {
                 &taken[..],
                 [ToView::Running(false), ToView::Held(h), ToView::Start(_), ..] if h.front == other
             ),
-            "{taken:?}"
+            "named at a later start: {taken:?}"
         );
 
         hub.retire(later);
