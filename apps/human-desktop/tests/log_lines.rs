@@ -44,9 +44,9 @@ use std::time::Duration;
 use interweave_human_app_core::test_hooks::{Fault, StoreFaults};
 use interweave_human_app_core::{Command, FacadeSide, Opener, Surface};
 use interweave_human_desktop::app::{App, SlintSurface};
-use interweave_human_desktop::facade_thread::FacadeThread;
+use interweave_human_desktop::facade_thread::{FacadeFault, FacadeThread};
 use interweave_human_store::identity_key::{self, FilesystemCustody, IdentityKey};
-use interweave_human_store::{HumanStore, RowId, StoreError, StoreOptions};
+use interweave_human_store::{HumanStore, RowId, StoreOptions};
 use interweave_human_transport_client::{ClientConfig, TransportClient};
 use interweave_human_ui_model::{
     ConversationKey, Intent, PhotoEdit, RuntimeHost, UiModel, ViewEvent, WindowEvent,
@@ -215,12 +215,12 @@ fn plant(store: &mut HumanStore, from: &TransportIdentity, count: u32) {
 /// How the desktop is built: whether the facade's `make` fails, and
 /// whether the node lets the client lease its endpoint.
 struct Build {
-    make_fails: bool,
+    make_fails: Option<FacadeFault>,
     endpoint_enabled: bool,
 }
 
 const WORKING: Build = Build {
-    make_fails: false,
+    make_fails: None,
     endpoint_enabled: true,
 };
 
@@ -263,8 +263,8 @@ fn desktop_on(
     view.window().show().expect("shown");
     let thread = FacadeThread::spawn(
         move || {
-            if make_fails {
-                return Err(StoreError::Degraded);
+            if let Some(fault) = make_fails {
+                return Err(fault);
             }
             let client = TransportClient::new(
                 a.clone(),
@@ -422,7 +422,7 @@ fn a_refused_session_is_logged_by_its_class() {
     let from = peer();
     let faults = Arc::new(StoreFaults::default());
     let build = Build {
-        make_fails: false,
+        make_fails: None,
         endpoint_enabled: false,
     };
     let mut app = desktop(planted(&from, 1), &faults, &build);
@@ -503,12 +503,32 @@ fn a_facade_that_cannot_be_built_is_logged_as_that_class_alone() {
     let from = peer();
     let faults = Arc::new(StoreFaults::default());
     let build = Build {
-        make_fails: true,
+        make_fails: Some(FacadeFault::Store),
         endpoint_enabled: true,
     };
     let mut app = desktop(planted(&from, 1), &faults, &build);
     let line = until_line(&mut app, "the message store's pending rows");
     assert_eq!(line, "the message store's pending rows could not be read");
+    assert_content_free();
+    assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
+}
+
+/// The facade that cannot be built because more identities are held
+/// than a client holds is logged as its own class, and not as a store
+/// that could not be read (#769 r1 F3). Mutation: `app.rs` logging the
+/// store's line for `FacadeFault::OverBound` -- the exact-line assertion
+/// fails.
+#[test]
+fn a_facade_over_the_identity_bound_is_logged_as_that_class_alone() {
+    let from = peer();
+    let faults = Arc::new(StoreFaults::default());
+    let build = Build {
+        make_fails: Some(FacadeFault::OverBound),
+        endpoint_enabled: true,
+    };
+    let mut app = desktop(planted(&from, 1), &faults, &build);
+    let line = until_line(&mut app, "more identities");
+    assert_eq!(line, "more identities are held than a client holds");
     assert_content_free();
     assert!(app.close(Duration::from_secs(5)), "the facade thread ended");
 }

@@ -73,21 +73,50 @@ pub struct StoreOptions {
     pub max_pages: Option<u32>,
 }
 
-/// Durable ADR-0044 retention storage.
+/// Durable ADR-0044 retention storage, as one local identity speaks it.
 ///
 /// Holds message content in exactly three states and nothing else. See
 /// the crate documentation for what is deliberately absent.
+///
+/// A HANDLE, not the store: the store's connection, its health and its
+/// quota are shared by every handle made from one open
+/// ([`handle_speaking_as`](Self::handle_speaking_as)), and the handle adds
+/// only the identity it speaks as. A client holding several identities
+/// (ADR-0061) opens the store once and holds one handle per identity,
+/// because a second connection of the same process could make
+/// `Core::truncate_wal`'s checkpoint answer busy and turn another
+/// identity's release into a failed one; and because the store is one
+/// store, under one custody and one key in memory, whose health is one
+/// for every identity (STATE.md, Store health). Each call has the
+/// connection to itself for its whole length, as a single handle always
+/// had: a call holds the lock from its first statement to its last, so
+/// another handle's statements never land inside its transaction, on
+/// whichever thread that handle runs
+/// (`handles_on_two_threads_never_interleave_their_calls`).
 #[derive(Debug)]
 pub struct HumanStore {
-    conn: Connection,
+    core: std::sync::Arc<std::sync::Mutex<Core>>,
     /// The local identity this handle speaks as (STATE.md schema v14):
     /// every row it writes carries it as `local_endpoint_id`, and every
     /// read, count, probe and bound is of its rows alone -- another
     /// identity's rows are never consulted (ADR-0061 decision 9). The id
     /// the open was handed (the first identity's) unless
     /// [`HumanStore::speaking_as`] re-scoped the handle before it was
-    /// used; never the migration's target as such, which is the open's
-    /// argument alone.
+    /// used, or the one [`HumanStore::handle_speaking_as`] made it for;
+    /// never the migration's target as such, which is the open's argument
+    /// alone.
+    identity: EndpointId,
+}
+
+/// What every handle of one open shares: the one connection, its health
+/// and its quota.
+#[derive(Debug)]
+struct Core {
+    conn: Connection,
+    /// The identity of the handle whose call holds the lock: set by
+    /// [`HumanStore::lock`] before every call, so each statement a call
+    /// makes is scoped to the handle that made it
+    /// (`two_live_handles_read_and_write_their_own_identitys_rows_alone`).
     identity: EndpointId,
     health: StorageHealth,
     /// The page ceiling asked for (`StoreOptions::max_pages`), kept
@@ -142,6 +171,10 @@ const WALK_KEPT: &str = "SELECT row_id, app_message_id, source_peer, source_endp
 /// kept under (STATE.md schema v10).
 const INBOUND_KIND_SETTING: &str = "inbound_kind_version";
 
+/// The `settings` key of the identity last in front of the client
+/// (STATE.md, one client process, several identities, A 2026-11-25).
+const LAST_FRONT_SETTING: &str = "last_front";
+
 /// How long a statement waits for another connection's write before it
 /// fails busy. Two connections of one process may hold one store: on
 /// Android a facade left running past its stop's grace finishes its
@@ -157,8 +190,9 @@ const BUSY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
 /// clean close"). DEFENCE IN DEPTH, NOT SEPARATELY PINNED: SQLite's own
 /// close of the last connection checkpoints and removes the WAL as well,
 /// so no test can tell this truncate apart; `tests/released_content.rs`
-/// pins the outcome (absent after a clean close), not this line.
-impl Drop for HumanStore {
+/// pins the outcome (absent after a clean close), not this line. The close
+/// is the last handle's drop: the core and its connection go with it.
+impl Drop for Core {
     fn drop(&mut self) {
         let _ = self.truncate_wal();
     }
@@ -528,13 +562,22 @@ impl HumanStore {
         // checkpoints and deletes the WAL as it closes -- the refusal
         // destroying what it refused (#214's re-review).
         let existing: i64 = conn.pragma_query_value(None, "user_version", |row| row.get(0))?;
-        let mut store = Self::from_connection(conn, identity, options)?;
-        store.scrub_at_open(existing > 0)?;
-        Ok(store)
+        let mut core = Core::from_connection(conn, identity, options)?;
+        core.scrub_at_open(existing > 0)?;
+        Ok(Self::from_core(core))
+    }
+
+    fn from_core(core: Core) -> Self {
+        let identity = core.identity.clone();
+        Self {
+            core: std::sync::Arc::new(std::sync::Mutex::new(core)),
+            identity,
+        }
     }
 
     /// The local identity this handle speaks as: the id its open was
-    /// handed, or the one [`speaking_as`](Self::speaking_as) gave it.
+    /// handed, or the one [`speaking_as`](Self::speaking_as) gave it or
+    /// [`handle_speaking_as`](Self::handle_speaking_as) made it for.
     #[must_use]
     pub const fn identity(&self) -> &EndpointId {
         &self.identity
@@ -561,6 +604,46 @@ impl HumanStore {
         self
     }
 
+    /// A second handle on this store, speaking as `identity`: the same
+    /// connection, health and quota as this handle, no second open
+    /// (`two_identities_handles_share_one_connection`). This handle is
+    /// unchanged and stays usable, so a client holding several identities
+    /// holds one handle per identity from one open; each speaks as its
+    /// own and reads, writes, counts and bounds its own rows alone, as
+    /// [`speaking_as`](Self::speaking_as) says
+    /// (`two_live_handles_read_and_write_their_own_identitys_rows_alone`).
+    ///
+    /// The store is not the identity's: its health is one for every
+    /// handle, so a store that cannot durably commit unread content is
+    /// degraded for each of them, and a recheck under one clears it for
+    /// all (`a_degraded_store_is_degraded_for_every_handle`). A release
+    /// under one still leaves the log empty while another handle lives
+    /// (`a_release_under_one_handle_truncates_the_log_while_another_lives`).
+    /// The store closes when its last handle is dropped.
+    #[must_use]
+    pub fn handle_speaking_as(&self, identity: EndpointId) -> Self {
+        Self {
+            core: std::sync::Arc::clone(&self.core),
+            identity,
+        }
+    }
+
+    /// The core, for one call, scoped to this handle's identity. A call
+    /// that panicked while holding the lock left the connection with its
+    /// transaction rolled back by the transaction's drop, so a poisoned
+    /// lock is taken as it is rather than making every other identity's
+    /// handle unusable (`a_call_that_panics_leaves_every_other_handle_usable`).
+    fn lock(&self) -> std::sync::MutexGuard<'_, Core> {
+        let mut core = self
+            .core
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if core.identity != self.identity {
+            core.identity.clone_from(&self.identity);
+        }
+        core
+    }
+
     /// What schema v14 discarded when it upgraded this store (STATE.md
     /// §Migrations: the eight counts of [`DiscardedAtV14`]), until the
     /// person acknowledges it and the client deletes it with
@@ -574,6 +657,437 @@ impl HumanStore {
     /// A storage error, or [`StoreError::Corrupt`] for a row this build
     /// did not write.
     pub fn discarded_at_v14(&self) -> Result<Option<DiscardedAtV14>, StoreError> {
+        self.lock().discarded_at_v14()
+    }
+
+    /// Delete the row [`Self::discarded_at_v14`] reads: the client's, on the
+    /// person's acknowledgement of it and on nothing else -- not at the
+    /// open that first shows it, so a process that ends there loses no
+    /// notice (STATE.md §Migrations). Deleting it again is not an error.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn forget_discarded_at_v14(&mut self) -> Result<(), StoreError> {
+        self.lock().forget_discarded_at_v14()
+    }
+
+    /// The identity last in front of the client, as [`Self::set_last_front`]
+    /// wrote it (STATE.md, one client process, several identities, A
+    /// 2026-11-25): one content-free row of `settings`, the `EndpointId` and
+    /// nothing else. The row is the client's, not an identity's, so every
+    /// handle of one open reads the same one
+    /// (`the_last_front_row_is_one_for_every_handle`). `None` with no row:
+    /// a store never switched, or one recreated after a discard, which
+    /// takes the row with it. Whether the id is still held is not the
+    /// store's to say: the root resolves a missing row, or one naming an
+    /// identity it does not hold, to the default or the first.
+    ///
+    /// # Errors
+    /// A storage error, or [`StoreError::Corrupt`] for a row that is not a
+    /// derived `EndpointId`, which this build does not write
+    /// (`a_last_front_row_that_is_no_endpoint_is_corrupt`).
+    pub fn last_front(&self) -> Result<Option<EndpointId>, StoreError> {
+        self.lock().last_front()
+    }
+
+    /// Write `identity` as the one last in front: at the switch, in place
+    /// of the row before it.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn set_last_front(&mut self, identity: &EndpointId) -> Result<(), StoreError> {
+        self.lock().set_last_front(identity)
+    }
+
+    /// Open a store that exists only for this process.
+    ///
+    /// For tests of logic that does not involve restart. Anything
+    /// claiming a restart survives must use [`HumanStore::open`] against
+    /// a real file and reopen it — an in-memory database cannot prove
+    /// durability, since it has none.
+    ///
+    /// # Errors
+    /// Returns [`StoreError`] if the schema cannot be created.
+    pub fn open_in_memory(
+        identity: &EndpointId,
+        options: StoreOptions,
+    ) -> Result<Self, StoreError> {
+        let conn = crate::engine::open_in_memory()?;
+        Core::from_connection(conn, identity, options).map(Self::from_core)
+    }
+
+    /// Whether new unread content can still be committed durably.
+    #[must_use]
+    pub fn health(&self) -> StorageHealth {
+        self.lock().health()
+    }
+
+    /// Re-test the storage medium and clear degradation if it recovered.
+    ///
+    /// COMMITS a real row of the largest size a message can be, then
+    /// commits its deletion, rather than reading a pragma or writing and
+    /// rolling back: a full or read-only database answers `SELECT`
+    /// perfectly well, a write that is rolled back is satisfied in the
+    /// page cache and never reaches the medium, and a small row can fit
+    /// where a 48 KiB message cannot. So the evidence is the durable
+    /// commit of a payload-sized row under this store's own
+    /// `synchronous=FULL`, and only that. Pinned by
+    /// `recheck_health_stays_degraded_while_durable_writes_fail` (the
+    /// medium refusing the write at commit) and
+    /// `recheck_health_clears_degradation_when_the_medium_recovers`.
+    ///
+    /// The probe row is reserved metadata under `settings`, which no
+    /// content read enumerates, and is gone again before this returns; a
+    /// probe whose insert committed but whose deletion did not leaves
+    /// the row for the next probe to overwrite and reports the failure.
+    ///
+    /// A PASSING PROBE IS NOT ALWAYS HEALTH. A store opened above its
+    /// quota runs under the looser ceiling SQLite set (its size), and
+    /// stays degraded until its used pages fit the quota asked for; this
+    /// then compacts the file with `VACUUM` -- a full rewrite -- and
+    /// applies the quota, read back (`within_quota`).
+    ///
+    /// # Errors
+    /// Returns the underlying [`StoreError`] if the probe fails, having
+    /// first recorded the degradation, or if compacting or applying the
+    /// quota fails, which leaves the store degraded as it was.
+    pub fn recheck_health(&mut self) -> Result<StorageHealth, StoreError> {
+        self.lock().recheck_health()
+    }
+
+    /// Commit a pending-outbound record.
+    ///
+    /// Call this **before** invoking transport. The order is the contract
+    /// (`RETENTION.md` §2): sending first would lose the message if the
+    /// process died between the transport call and the record.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Degraded`] while storage is degraded,
+    /// [`StoreError::PayloadTooLarge`] above the transport ceiling,
+    /// [`StoreError::TimestampOutOfRange`] if `created_at` cannot be
+    /// represented, or a storage error.
+    pub fn commit_pending_outbound(&mut self, new: &NewOutbound) -> Result<RowId, StoreError> {
+        self.lock().commit_pending_outbound(new)
+    }
+
+    /// Commit again a pending record an explicit cancel deleted, when the
+    /// person takes the cancel back (`RETENTION.md` §2, case 16).
+    ///
+    /// Everything the record carries goes back unchanged -- both ids, the
+    /// destination, the media type, the stored bytes, the creation time
+    /// and the attempt count with its last attempt's time -- so the
+    /// restored send is a retry of the same message and, after a restart,
+    /// `may_have_reached` is rebuilt from the carried count as it would
+    /// have been for the cancelled record. Only `row_id` is new: a row id
+    /// is never reused, and `cancelled.row_id` is ignored. Like a commit,
+    /// it is durable when this returns, so call it before any attempt.
+    ///
+    /// # Errors
+    /// As [`Self::commit_pending_outbound`]: [`StoreError::Degraded`]
+    /// while storage is degraded, a duplicate while another pending row
+    /// holds the same `app_message_id`, or a storage error.
+    pub fn restore_pending_outbound(
+        &mut self,
+        cancelled: &PendingOutbound,
+    ) -> Result<RowId, StoreError> {
+        self.lock().restore_pending_outbound(cancelled)
+    }
+
+    /// Record that a send attempt was made.
+    ///
+    /// Metadata only. The message stays pending and stays durable —
+    /// a failed attempt is exactly the case the durable copy exists for.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::TimestampOutOfRange`] if `at_ms` cannot be
+    /// represented, or a storage error.
+    pub fn record_attempt(&mut self, row_id: RowId, at_ms: u64) -> Result<(), StoreError> {
+        self.lock().record_attempt(row_id, at_ms)
+    }
+
+    /// Record that transport will do no more with this message.
+    ///
+    /// The durable pending copy is deleted, because the state machine
+    /// says [`Durability::Remove`]. It may remain in RAM for the current
+    /// session so the conversation still renders.
+    ///
+    /// Idempotent: a duplicate terminal event for a row that is already
+    /// gone succeeds, since the required end state is the one that
+    /// already holds.
+    ///
+    /// # Errors
+    /// Returns a storage error.
+    pub fn transport_terminal(
+        &mut self,
+        row_id: RowId,
+        cause: TerminalCause,
+    ) -> Result<(), StoreError> {
+        self.lock().transport_terminal(row_id, cause)
+    }
+
+    /// Every message still waiting to reach a transport-terminal state.
+    ///
+    /// What a restart reloads. Ordered by creation so the client retries
+    /// in the order the human composed.
+    ///
+    /// # Errors
+    /// Returns a storage error, or [`StoreError::Corrupt`] if a stored
+    /// row no longer parses.
+    pub fn pending_outbound(&self) -> Result<Vec<PendingOutbound>, StoreError> {
+        self.lock().pending_outbound()
+    }
+
+    /// One pending-outbound row, or `None` once it is gone (terminal, or
+    /// never committed). The single-row read a sender needs to attempt
+    /// one message, so nothing reassembles the whole table to find it.
+    ///
+    /// # Errors
+    /// Returns a storage error, or [`StoreError::Corrupt`] if the row no
+    /// longer parses.
+    pub fn pending_outbound_row(
+        &self,
+        row_id: RowId,
+    ) -> Result<Option<PendingOutbound>, StoreError> {
+        self.lock().pending_outbound_row(row_id)
+    }
+
+    /// One page of pending outbound, resuming after `after`.
+    ///
+    /// # Errors
+    /// Returns a storage error, [`StoreError::Corrupt`] if a stored row
+    /// no longer parses, or [`StoreError::TimestampOutOfRange`] if the
+    /// cursor carries a sort key this store cannot represent -- which a
+    /// cursor this store handed out never does.
+    pub fn pending_outbound_page(
+        &self,
+        after: Option<Cursor>,
+        limits: PageLimits,
+    ) -> Result<Page<PendingOutbound>, StoreError> {
+        self.lock().pending_outbound_page(after, limits)
+    }
+
+    /// Commit a received message as unread.
+    ///
+    /// Call this **before** normal UI presentation or notification, so a
+    /// message the user is told about is one the store already holds.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Degraded`] while storage cannot hold unread
+    /// content — the caller must then degrade the human endpoint rather
+    /// than keep accepting a stream it cannot retain —
+    /// [`StoreError::PayloadTooLarge`] above the transport ceiling,
+    /// [`StoreError::TimestampOutOfRange`] if `received_at` cannot be
+    /// represented, or a storage error.
+    pub fn commit_unread_inbound(&mut self, new: &NewInbound) -> Result<RowId, StoreError> {
+        self.lock().commit_unread_inbound(new)
+    }
+
+    /// Enter local read state, deleting the durable unread copy.
+    ///
+    /// Returns the content as a [`ReadEphemeral`] so the current session
+    /// can still render it and the receiver can still choose `Keep`. The
+    /// deletion happens in the same transaction as the read, so there is
+    /// no window in which the row is returned but survives.
+    ///
+    /// Generates nothing to send: `read` is a local UI state, there is no
+    /// read receipt, and it does not prove a human perceived anything.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::NoSuchRow`] if the row is not unread,
+    /// [`StoreError::TimestampOutOfRange`] if `at_ms` cannot be
+    /// represented -- refused BEFORE the durable row is deleted, so the
+    /// caller may retry with a usable clock -- [`StoreError::Corrupt`] for
+    /// a stored row this build cannot decode, which is parsed before it is
+    /// deleted, or a storage error.
+    pub fn mark_read(&mut self, row_id: RowId, at_ms: u64) -> Result<ReadEphemeral, StoreError> {
+        self.lock().mark_read(row_id, at_ms)
+    }
+
+    /// The receiver keeps a message they have read.
+    ///
+    /// Takes a [`ReadEphemeral`] and nothing else. A remote sender has no
+    /// way to produce one, and neither does a notification action on a
+    /// message that was never opened — see that type's documentation for
+    /// why this is enforcement rather than a check.
+    ///
+    /// # Errors
+    /// Returns [`StoreError::Degraded`], [`StoreError::KeepRefused`] if
+    /// the state machine refuses, [`StoreError::TimestampOutOfRange`] if
+    /// `at_ms` cannot be represented, [`StoreError::IdentityConflict`] if
+    /// the upsert matches no row because this peer, on this endpoint and
+    /// channel, already used that `app_message_id` for different
+    /// content, or a storage error.
+    ///
+    /// The two timestamps carried by `held` were refused on the way in, so
+    /// they cannot fail here.
+    ///
+    /// The conflict target is four columns, so the same peer reusing the id
+    /// on a DIFFERENT endpoint or channel is two rows and no conflict -- structural
+    /// rather than tested through this method, since the only test of it
+    /// goes through `commit_unread_inbound`. The collision itself is the
+    /// outcome of this statement's `WHERE` clause.
+    ///
+    /// An earlier version of this block put all of that inside an em-dash
+    /// pair, which left "or a storage error" attached to the wrong clause
+    /// five lines from the list it belongs to -- the same displaced-structure
+    /// defect as the sibling block, reintroduced here by the commit that
+    /// fixed it there. Review findings on PR #86.
+    pub fn keep(&mut self, held: &ReadEphemeral, at_ms: u64) -> Result<RowId, StoreError> {
+        self.lock().keep(held, at_ms)
+    }
+
+    /// The receiver removes `Keep`.
+    ///
+    /// Deletion is immediate — now, not at a later cleanup pass. The
+    /// content comes back as a [`ReadEphemeral`]: the message is read and
+    /// unkept, which is exactly the state `keep` accepts, so the receiver
+    /// can keep it again in this session (agreed Q6, relay seq 11163).
+    /// Across a restart the copy is gone, like any read-unkept message
+    /// (RETENTION.md §9 case 11). `None` when no such row is kept: a
+    /// second Unkeep of one message is not an error.
+    ///
+    /// # Errors
+    /// Returns a storage error, or [`StoreError::Corrupt`] for a row this
+    /// build cannot decode, which is then left in place.
+    pub fn unkeep(
+        &mut self,
+        row_id: RowId,
+        at_ms: u64,
+    ) -> Result<Option<ReadEphemeral>, StoreError> {
+        self.lock().unkeep(row_id, at_ms)
+    }
+
+    /// Every unread inbound message, oldest first.
+    ///
+    /// # Errors
+    /// Returns a storage error, or [`StoreError::Corrupt`] for an
+    /// unparseable stored row.
+    pub fn unread_inbound(&self) -> Result<Vec<StoredInbound>, StoreError> {
+        self.lock().unread_inbound()
+    }
+
+    /// One page of unread inbound, resuming after `after`.
+    ///
+    /// # Errors
+    /// Returns a storage error, [`StoreError::Corrupt`] for an unparseable
+    /// stored row, or [`StoreError::TimestampOutOfRange`] if the cursor
+    /// carries a sort key this store cannot represent -- which a cursor
+    /// this store handed out never does.
+    pub fn unread_inbound_page(
+        &self,
+        after: Option<Cursor>,
+        limits: PageLimits,
+    ) -> Result<Page<StoredInbound>, StoreError> {
+        self.lock().unread_inbound_page(after, limits)
+    }
+
+    /// One page of the unread rows stored as cards ([`InboundKind::Card`]),
+    /// oldest first, resuming after `after`: what judging the card
+    /// proposals again reads, rather than every unread message.
+    ///
+    /// # Errors
+    /// As [`Self::unread_inbound_page`].
+    pub fn unread_cards_page(
+        &self,
+        after: Option<Cursor>,
+        limits: PageLimits,
+    ) -> Result<Page<StoredInbound>, StoreError> {
+        self.lock().unread_cards_page(after, limits)
+    }
+
+    /// Every inbound message the receiver kept, oldest first.
+    ///
+    /// # Errors
+    /// Returns a storage error, or [`StoreError::Corrupt`] for an
+    /// unparseable stored row.
+    pub fn kept_inbound(&self) -> Result<Vec<StoredInbound>, StoreError> {
+        self.lock().kept_inbound()
+    }
+
+    /// One page of kept inbound, resuming after `after`.
+    ///
+    /// # Errors
+    /// Returns a storage error, [`StoreError::Corrupt`] for an
+    /// unparseable stored row, or [`StoreError::TimestampOutOfRange`] if the
+    /// cursor carries a sort key this store cannot represent -- which a
+    /// cursor this store handed out never does.
+    pub fn kept_inbound_page(
+        &self,
+        after: Option<Cursor>,
+        limits: PageLimits,
+    ) -> Result<Page<StoredInbound>, StoreError> {
+        self.lock().kept_inbound_page(after, limits)
+    }
+
+    /// The client's classification version the inbound kinds were made
+    /// under (`inbound_kind_version`, STATE.md schema v10), or `None`
+    /// when no client has classified them yet, as after the v10 migration.
+    ///
+    /// # Errors
+    /// A storage error.
+    pub fn inbound_kind_version(&self) -> Result<Option<String>, StoreError> {
+        self.lock().inbound_kind_version()
+    }
+
+    /// Every unread and kept row classified again by `classify`, and
+    /// `version` recorded, in one transaction: the client runs it at open
+    /// when [`Self::inbound_kind_version`] is not its own, before any
+    /// count is read (STATE.md schema v10). Rows are read a page at a
+    /// time, never all at once, and only a kind that changes is written.
+    /// Every identity's rows, not only this handle's: the version is the
+    /// store's, and a row's kind is its envelope's, whoever it reached.
+    /// A failure leaves every kind and the old version as they were, and
+    /// the next open runs it again.
+    ///
+    /// # Errors
+    /// A storage error, or a row this build cannot read back.
+    pub fn reclassify_inbound(
+        &mut self,
+        version: &str,
+        classify: impl FnMut(&StoredInbound) -> InboundKind,
+    ) -> Result<(), StoreError> {
+        self.lock().reclassify_inbound(version, classify)
+    }
+
+    /// The content a future explicit encrypted backup may include.
+    ///
+    /// Inbound unread and inbound kept, and nothing else. Pending
+    /// outbound is excluded so a restored or second device cannot become
+    /// an implicit delayed-send or replay source (`RETENTION.md` §6) —
+    /// which is why this is a method on the store rather than left to
+    /// whoever writes the backup tool to remember.
+    ///
+    /// # Errors
+    /// Returns a storage error.
+    pub fn backup_eligible_content(&self) -> Result<Vec<StoredInbound>, StoreError> {
+        self.lock().backup_eligible_content()
+    }
+
+    /// One page of backup-eligible content, resuming after `after`.
+    ///
+    /// Walks unread and then kept. The cursor names which table it is in
+    /// because the two have independent row-id spaces, so a position on
+    /// its own would let a resumed backup duplicate or skip.
+    ///
+    /// Pending outbound is deliberately absent, for the reason
+    /// [`Self::backup_eligible_content`] gives.
+    ///
+    /// # Errors
+    /// Returns a storage error, [`StoreError::Corrupt`] for an unparseable
+    /// stored row, or [`StoreError::TimestampOutOfRange`] if the cursor
+    /// carries a sort key this store cannot represent -- inherited from
+    /// both tables it walks, and a cursor this store handed out never does.
+    pub fn backup_eligible_page(
+        &self,
+        after: Option<BackupCursor>,
+        limits: PageLimits,
+    ) -> Result<Page<StoredInbound, BackupCursor>, StoreError> {
+        self.lock().backup_eligible_page(after, limits)
+    }
+}
+
+impl Core {
+    pub(crate) fn discarded_at_v14(&self) -> Result<Option<DiscardedAtV14>, StoreError> {
         let value: Option<String> = self
             .conn
             .query_row(
@@ -591,14 +1105,7 @@ impl HumanStore {
             .transpose()
     }
 
-    /// Delete the row [`Self::discarded_at_v14`] reads: the client's, on the
-    /// person's acknowledgement of it and on nothing else -- not at the
-    /// open that first shows it, so a process that ends there loses no
-    /// notice (STATE.md §Migrations). Deleting it again is not an error.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn forget_discarded_at_v14(&mut self) -> Result<(), StoreError> {
+    pub(crate) fn forget_discarded_at_v14(&mut self) -> Result<(), StoreError> {
         self.conn
             .execute(
                 "DELETE FROM settings WHERE key = ?1",
@@ -608,21 +1115,28 @@ impl HumanStore {
         Ok(())
     }
 
-    /// Open a store that exists only for this process.
-    ///
-    /// For tests of logic that does not involve restart. Anything
-    /// claiming a restart survives must use [`HumanStore::open`] against
-    /// a real file and reopen it — an in-memory database cannot prove
-    /// durability, since it has none.
-    ///
-    /// # Errors
-    /// Returns [`StoreError`] if the schema cannot be created.
-    pub fn open_in_memory(
-        identity: &EndpointId,
-        options: StoreOptions,
-    ) -> Result<Self, StoreError> {
-        let conn = crate::engine::open_in_memory()?;
-        Self::from_connection(conn, identity, options)
+    pub(crate) fn last_front(&self) -> Result<Option<EndpointId>, StoreError> {
+        let value: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT value FROM settings WHERE key = ?1",
+                params![LAST_FRONT_SETTING],
+                |r| r.get(0),
+            )
+            .optional()?;
+        value
+            .map(|v| EndpointId::parse_derived(v).map_err(|e| StoreError::Corrupt(e.to_string())))
+            .transpose()
+    }
+
+    pub(crate) fn set_last_front(&mut self, identity: &EndpointId) -> Result<(), StoreError> {
+        self.conn
+            .execute(
+                "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+                params![LAST_FRONT_SETTING, identity.as_str()],
+            )
+            .map_err(|e| self.note_failure(e))?;
+        Ok(())
     }
 
     fn from_connection(
@@ -824,42 +1338,12 @@ impl HumanStore {
         let _ = self.truncate_wal();
     }
 
-    /// Whether new unread content can still be committed durably.
     #[must_use]
-    pub const fn health(&self) -> StorageHealth {
+    pub(crate) const fn health(&self) -> StorageHealth {
         self.health
     }
 
-    /// Re-test the storage medium and clear degradation if it recovered.
-    ///
-    /// COMMITS a real row of the largest size a message can be, then
-    /// commits its deletion, rather than reading a pragma or writing and
-    /// rolling back: a full or read-only database answers `SELECT`
-    /// perfectly well, a write that is rolled back is satisfied in the
-    /// page cache and never reaches the medium, and a small row can fit
-    /// where a 48 KiB message cannot. So the evidence is the durable
-    /// commit of a payload-sized row under this store's own
-    /// `synchronous=FULL`, and only that. Pinned by
-    /// `recheck_health_stays_degraded_while_durable_writes_fail` (the
-    /// medium refusing the write at commit) and
-    /// `recheck_health_clears_degradation_when_the_medium_recovers`.
-    ///
-    /// The probe row is reserved metadata under `settings`, which no
-    /// content read enumerates, and is gone again before this returns; a
-    /// probe whose insert committed but whose deletion did not leaves
-    /// the row for the next probe to overwrite and reports the failure.
-    ///
-    /// A PASSING PROBE IS NOT ALWAYS HEALTH. A store opened above its
-    /// quota runs under the looser ceiling SQLite set (its size), and
-    /// stays degraded until its used pages fit the quota asked for; this
-    /// then compacts the file with `VACUUM` -- a full rewrite -- and
-    /// applies the quota, read back (`within_quota`).
-    ///
-    /// # Errors
-    /// Returns the underlying [`StoreError`] if the probe fails, having
-    /// first recorded the degradation, or if compacting or applying the
-    /// quota fails, which leaves the store degraded as it was.
-    pub fn recheck_health(&mut self) -> Result<StorageHealth, StoreError> {
+    pub(crate) fn recheck_health(&mut self) -> Result<StorageHealth, StoreError> {
         let probe = (|| -> Result<(), rusqlite::Error> {
             let filler = "x".repeat(MAX_PAYLOAD_BYTES);
             let tx = self.conn.transaction()?;
@@ -943,39 +1427,14 @@ impl HumanStore {
     // ---------------------------------------------------------------
     // Outbound
     // ---------------------------------------------------------------
-
-    /// Commit a pending-outbound record.
-    ///
-    /// Call this **before** invoking transport. The order is the contract
-    /// (`RETENTION.md` §2): sending first would lose the message if the
-    /// process died between the transport call and the record.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Degraded`] while storage is degraded,
-    /// [`StoreError::PayloadTooLarge`] above the transport ceiling,
-    /// [`StoreError::TimestampOutOfRange`] if `created_at` cannot be
-    /// represented, or a storage error.
-    pub fn commit_pending_outbound(&mut self, new: &NewOutbound) -> Result<RowId, StoreError> {
+    pub(crate) fn commit_pending_outbound(
+        &mut self,
+        new: &NewOutbound,
+    ) -> Result<RowId, StoreError> {
         self.insert_pending(new, None, 0)
     }
 
-    /// Commit again a pending record an explicit cancel deleted, when the
-    /// person takes the cancel back (`RETENTION.md` §2, case 16).
-    ///
-    /// Everything the record carries goes back unchanged -- both ids, the
-    /// destination, the media type, the stored bytes, the creation time
-    /// and the attempt count with its last attempt's time -- so the
-    /// restored send is a retry of the same message and, after a restart,
-    /// `may_have_reached` is rebuilt from the carried count as it would
-    /// have been for the cancelled record. Only `row_id` is new: a row id
-    /// is never reused, and `cancelled.row_id` is ignored. Like a commit,
-    /// it is durable when this returns, so call it before any attempt.
-    ///
-    /// # Errors
-    /// As [`Self::commit_pending_outbound`]: [`StoreError::Degraded`]
-    /// while storage is degraded, a duplicate while another pending row
-    /// holds the same `app_message_id`, or a storage error.
-    pub fn restore_pending_outbound(
+    pub(crate) fn restore_pending_outbound(
         &mut self,
         cancelled: &PendingOutbound,
     ) -> Result<RowId, StoreError> {
@@ -1061,15 +1520,7 @@ impl HumanStore {
         }
     }
 
-    /// Record that a send attempt was made.
-    ///
-    /// Metadata only. The message stays pending and stays durable —
-    /// a failed attempt is exactly the case the durable copy exists for.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::TimestampOutOfRange`] if `at_ms` cannot be
-    /// represented, or a storage error.
-    pub fn record_attempt(&mut self, row_id: RowId, at_ms: u64) -> Result<(), StoreError> {
+    pub(crate) fn record_attempt(&mut self, row_id: RowId, at_ms: u64) -> Result<(), StoreError> {
         let result = self.conn.execute(
             "UPDATE pending_outbound
                 SET last_attempt_at = ?2, attempts = attempts + 1
@@ -1086,19 +1537,7 @@ impl HumanStore {
         }
     }
 
-    /// Record that transport will do no more with this message.
-    ///
-    /// The durable pending copy is deleted, because the state machine
-    /// says [`Durability::Remove`]. It may remain in RAM for the current
-    /// session so the conversation still renders.
-    ///
-    /// Idempotent: a duplicate terminal event for a row that is already
-    /// gone succeeds, since the required end state is the one that
-    /// already holds.
-    ///
-    /// # Errors
-    /// Returns a storage error.
-    pub fn transport_terminal(
+    pub(crate) fn transport_terminal(
         &mut self,
         row_id: RowId,
         cause: TerminalCause,
@@ -1134,15 +1573,7 @@ impl HumanStore {
         }
     }
 
-    /// Every message still waiting to reach a transport-terminal state.
-    ///
-    /// What a restart reloads. Ordered by creation so the client retries
-    /// in the order the human composed.
-    ///
-    /// # Errors
-    /// Returns a storage error, or [`StoreError::Corrupt`] if a stored
-    /// row no longer parses.
-    pub fn pending_outbound(&self) -> Result<Vec<PendingOutbound>, StoreError> {
+    pub(crate) fn pending_outbound(&self) -> Result<Vec<PendingOutbound>, StoreError> {
         let page = self.pending_outbound_page(None, PageLimits::default())?;
         if page.next.is_some() {
             return Err(StoreError::TooManyRows {
@@ -1152,14 +1583,7 @@ impl HumanStore {
         Ok(page.items)
     }
 
-    /// One pending-outbound row, or `None` once it is gone (terminal, or
-    /// never committed). The single-row read a sender needs to attempt
-    /// one message, so nothing reassembles the whole table to find it.
-    ///
-    /// # Errors
-    /// Returns a storage error, or [`StoreError::Corrupt`] if the row no
-    /// longer parses.
-    pub fn pending_outbound_row(
+    pub(crate) fn pending_outbound_row(
         &self,
         row_id: RowId,
     ) -> Result<Option<PendingOutbound>, StoreError> {
@@ -1178,14 +1602,7 @@ impl HumanStore {
             .transpose()
     }
 
-    /// One page of pending outbound, resuming after `after`.
-    ///
-    /// # Errors
-    /// Returns a storage error, [`StoreError::Corrupt`] if a stored row
-    /// no longer parses, or [`StoreError::TimestampOutOfRange`] if the
-    /// cursor carries a sort key this store cannot represent -- which a
-    /// cursor this store handed out never does.
-    pub fn pending_outbound_page(
+    pub(crate) fn pending_outbound_page(
         &self,
         after: Option<Cursor>,
         limits: PageLimits,
@@ -1238,20 +1655,7 @@ impl HumanStore {
     // ---------------------------------------------------------------
     // Inbound
     // ---------------------------------------------------------------
-
-    /// Commit a received message as unread.
-    ///
-    /// Call this **before** normal UI presentation or notification, so a
-    /// message the user is told about is one the store already holds.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Degraded`] while storage cannot hold unread
-    /// content — the caller must then degrade the human endpoint rather
-    /// than keep accepting a stream it cannot retain —
-    /// [`StoreError::PayloadTooLarge`] above the transport ceiling,
-    /// [`StoreError::TimestampOutOfRange`] if `received_at` cannot be
-    /// represented, or a storage error.
-    pub fn commit_unread_inbound(&mut self, new: &NewInbound) -> Result<RowId, StoreError> {
+    pub(crate) fn commit_unread_inbound(&mut self, new: &NewInbound) -> Result<RowId, StoreError> {
         self.reject_if_degraded()?;
         check_payload(&new.payload)?;
 
@@ -1320,24 +1724,11 @@ impl HumanStore {
         }
     }
 
-    /// Enter local read state, deleting the durable unread copy.
-    ///
-    /// Returns the content as a [`ReadEphemeral`] so the current session
-    /// can still render it and the receiver can still choose `Keep`. The
-    /// deletion happens in the same transaction as the read, so there is
-    /// no window in which the row is returned but survives.
-    ///
-    /// Generates nothing to send: `read` is a local UI state, there is no
-    /// read receipt, and it does not prove a human perceived anything.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::NoSuchRow`] if the row is not unread,
-    /// [`StoreError::TimestampOutOfRange`] if `at_ms` cannot be
-    /// represented -- refused BEFORE the durable row is deleted, so the
-    /// caller may retry with a usable clock -- [`StoreError::Corrupt`] for
-    /// a stored row this build cannot decode, which is parsed before it is
-    /// deleted, or a storage error.
-    pub fn mark_read(&mut self, row_id: RowId, at_ms: u64) -> Result<ReadEphemeral, StoreError> {
+    pub(crate) fn mark_read(
+        &mut self,
+        row_id: RowId,
+        at_ms: u64,
+    ) -> Result<ReadEphemeral, StoreError> {
         // BEFORE THE DELETE, because this value leaves here inside the
         // `ReadEphemeral` and `keep` refuses it there. Unchecked, a
         // nonsense `at_ms` destroyed the durable unread row and then made
@@ -1408,36 +1799,7 @@ impl HumanStore {
         }
     }
 
-    /// The receiver keeps a message they have read.
-    ///
-    /// Takes a [`ReadEphemeral`] and nothing else. A remote sender has no
-    /// way to produce one, and neither does a notification action on a
-    /// message that was never opened — see that type's documentation for
-    /// why this is enforcement rather than a check.
-    ///
-    /// # Errors
-    /// Returns [`StoreError::Degraded`], [`StoreError::KeepRefused`] if
-    /// the state machine refuses, [`StoreError::TimestampOutOfRange`] if
-    /// `at_ms` cannot be represented, [`StoreError::IdentityConflict`] if
-    /// the upsert matches no row because this peer, on this endpoint and
-    /// channel, already used that `app_message_id` for different
-    /// content, or a storage error.
-    ///
-    /// The two timestamps carried by `held` were refused on the way in, so
-    /// they cannot fail here.
-    ///
-    /// The conflict target is four columns, so the same peer reusing the id
-    /// on a DIFFERENT endpoint or channel is two rows and no conflict -- structural
-    /// rather than tested through this method, since the only test of it
-    /// goes through `commit_unread_inbound`. The collision itself is the
-    /// outcome of this statement's `WHERE` clause.
-    ///
-    /// An earlier version of this block put all of that inside an em-dash
-    /// pair, which left "or a storage error" attached to the wrong clause
-    /// five lines from the list it belongs to -- the same displaced-structure
-    /// defect as the sibling block, reintroduced here by the commit that
-    /// fixed it there. Review findings on PR #86.
-    pub fn keep(&mut self, held: &ReadEphemeral, at_ms: u64) -> Result<RowId, StoreError> {
+    pub(crate) fn keep(&mut self, held: &ReadEphemeral, at_ms: u64) -> Result<RowId, StoreError> {
         self.reject_if_degraded()?;
 
         // Replay the exact transition through the state machine. It
@@ -1526,20 +1888,7 @@ impl HumanStore {
         }
     }
 
-    /// The receiver removes `Keep`.
-    ///
-    /// Deletion is immediate — now, not at a later cleanup pass. The
-    /// content comes back as a [`ReadEphemeral`]: the message is read and
-    /// unkept, which is exactly the state `keep` accepts, so the receiver
-    /// can keep it again in this session (agreed Q6, relay seq 11163).
-    /// Across a restart the copy is gone, like any read-unkept message
-    /// (RETENTION.md §9 case 11). `None` when no such row is kept: a
-    /// second Unkeep of one message is not an error.
-    ///
-    /// # Errors
-    /// Returns a storage error, or [`StoreError::Corrupt`] for a row this
-    /// build cannot decode, which is then left in place.
-    pub fn unkeep(
+    pub(crate) fn unkeep(
         &mut self,
         row_id: RowId,
         at_ms: u64,
@@ -1604,23 +1953,11 @@ impl HumanStore {
         Ok(released)
     }
 
-    /// Every unread inbound message, oldest first.
-    ///
-    /// # Errors
-    /// Returns a storage error, or [`StoreError::Corrupt`] for an
-    /// unparseable stored row.
-    pub fn unread_inbound(&self) -> Result<Vec<StoredInbound>, StoreError> {
+    pub(crate) fn unread_inbound(&self) -> Result<Vec<StoredInbound>, StoreError> {
         self.all_of("unread_inbound", "unread_inbound_page")
     }
 
-    /// One page of unread inbound, resuming after `after`.
-    ///
-    /// # Errors
-    /// Returns a storage error, [`StoreError::Corrupt`] for an unparseable
-    /// stored row, or [`StoreError::TimestampOutOfRange`] if the cursor
-    /// carries a sort key this store cannot represent -- which a cursor
-    /// this store handed out never does.
-    pub fn unread_inbound_page(
+    pub(crate) fn unread_inbound_page(
         &self,
         after: Option<Cursor>,
         limits: PageLimits,
@@ -1628,13 +1965,7 @@ impl HumanStore {
         self.read_inbound_table("unread_inbound", after, limits)
     }
 
-    /// One page of the unread rows stored as cards ([`InboundKind::Card`]),
-    /// oldest first, resuming after `after`: what judging the card
-    /// proposals again reads, rather than every unread message.
-    ///
-    /// # Errors
-    /// As [`Self::unread_inbound_page`].
-    pub fn unread_cards_page(
+    pub(crate) fn unread_cards_page(
         &self,
         after: Option<Cursor>,
         limits: PageLimits,
@@ -1647,23 +1978,11 @@ impl HumanStore {
         )
     }
 
-    /// Every inbound message the receiver kept, oldest first.
-    ///
-    /// # Errors
-    /// Returns a storage error, or [`StoreError::Corrupt`] for an
-    /// unparseable stored row.
-    pub fn kept_inbound(&self) -> Result<Vec<StoredInbound>, StoreError> {
+    pub(crate) fn kept_inbound(&self) -> Result<Vec<StoredInbound>, StoreError> {
         self.all_of("kept_inbound", "kept_inbound_page")
     }
 
-    /// One page of kept inbound, resuming after `after`.
-    ///
-    /// # Errors
-    /// Returns a storage error, [`StoreError::Corrupt`] for an
-    /// unparseable stored row, or [`StoreError::TimestampOutOfRange`] if the
-    /// cursor carries a sort key this store cannot represent -- which a
-    /// cursor this store handed out never does.
-    pub fn kept_inbound_page(
+    pub(crate) fn kept_inbound_page(
         &self,
         after: Option<Cursor>,
         limits: PageLimits,
@@ -1684,13 +2003,7 @@ impl HumanStore {
         Ok(page.items)
     }
 
-    /// The client's classification version the inbound kinds were made
-    /// under (`inbound_kind_version`, STATE.md schema v10), or `None`
-    /// when no client has classified them yet, as after the v10 migration.
-    ///
-    /// # Errors
-    /// A storage error.
-    pub fn inbound_kind_version(&self) -> Result<Option<String>, StoreError> {
+    pub(crate) fn inbound_kind_version(&self) -> Result<Option<String>, StoreError> {
         Ok(self
             .conn
             .query_row(
@@ -1701,19 +2014,7 @@ impl HumanStore {
             .optional()?)
     }
 
-    /// Every unread and kept row classified again by `classify`, and
-    /// `version` recorded, in one transaction: the client runs it at open
-    /// when [`Self::inbound_kind_version`] is not its own, before any
-    /// count is read (STATE.md schema v10). Rows are read a page at a
-    /// time, never all at once, and only a kind that changes is written.
-    /// Every identity's rows, not only this handle's: the version is the
-    /// store's, and a row's kind is its envelope's, whoever it reached.
-    /// A failure leaves every kind and the old version as they were, and
-    /// the next open runs it again.
-    ///
-    /// # Errors
-    /// A storage error, or a row this build cannot read back.
-    pub fn reclassify_inbound(
+    pub(crate) fn reclassify_inbound(
         &mut self,
         version: &str,
         mut classify: impl FnMut(&StoredInbound) -> InboundKind,
@@ -1830,38 +2131,13 @@ impl HumanStore {
     // ---------------------------------------------------------------
     // Backup
     // ---------------------------------------------------------------
-
-    /// The content a future explicit encrypted backup may include.
-    ///
-    /// Inbound unread and inbound kept, and nothing else. Pending
-    /// outbound is excluded so a restored or second device cannot become
-    /// an implicit delayed-send or replay source (`RETENTION.md` §6) —
-    /// which is why this is a method on the store rather than left to
-    /// whoever writes the backup tool to remember.
-    ///
-    /// # Errors
-    /// Returns a storage error.
-    pub fn backup_eligible_content(&self) -> Result<Vec<StoredInbound>, StoreError> {
+    pub(crate) fn backup_eligible_content(&self) -> Result<Vec<StoredInbound>, StoreError> {
         let mut out = self.unread_inbound()?;
         out.extend(self.kept_inbound()?);
         Ok(out)
     }
 
-    /// One page of backup-eligible content, resuming after `after`.
-    ///
-    /// Walks unread and then kept. The cursor names which table it is in
-    /// because the two have independent row-id spaces, so a position on
-    /// its own would let a resumed backup duplicate or skip.
-    ///
-    /// Pending outbound is deliberately absent, for the reason
-    /// [`Self::backup_eligible_content`] gives.
-    ///
-    /// # Errors
-    /// Returns a storage error, [`StoreError::Corrupt`] for an unparseable
-    /// stored row, or [`StoreError::TimestampOutOfRange`] if the cursor
-    /// carries a sort key this store cannot represent -- inherited from
-    /// both tables it walks, and a cursor this store handed out never does.
-    pub fn backup_eligible_page(
+    pub(crate) fn backup_eligible_page(
         &self,
         after: Option<BackupCursor>,
         limits: PageLimits,
@@ -2501,5 +2777,148 @@ mod walk_plan_tests {
                 "the walk sorts instead of reading its index: {plan:?}"
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod handle_tests {
+    #![allow(clippy::expect_used)]
+
+    use super::{HumanStore, StoreOptions};
+    use crate::records::{InboundKind, InboundOrigin, NewInbound, RowId};
+    use interweave_test_support::endpoint_keys::endpoint_id;
+    use interweave_transport_api::TransportIdentity;
+
+    fn unread(n: u32) -> NewInbound {
+        NewInbound {
+            app_message_id: crate::AppMessageId::parse(format!("{n:032x}")).expect("an id"),
+            origin: InboundOrigin {
+                peer: TransportIdentity::parse(endpoint_id("node-p").as_str()).expect("a PeerId"),
+                endpoint: None,
+                channel: None,
+            },
+            media_type: None,
+            payload: vec![1],
+            received_at: u64::from(n),
+            kind: InboundKind::Text,
+        }
+    }
+
+    /// A TEMP table is the connection's own: SQLite shows it to the
+    /// connection that made it and to no other, on the same file or not.
+    /// One made through the first handle is read through the second, so
+    /// the two are one connection. Mutation: `handle_speaking_as` building
+    /// its handle on a fresh in-memory core (a second connection) -- the
+    /// second handle's read fails "no such table".
+    #[test]
+    fn two_identities_handles_share_one_connection() {
+        let first = HumanStore::open_in_memory(&endpoint_id("me"), StoreOptions::default())
+            .expect("a store");
+        let second = first.handle_speaking_as(endpoint_id("other"));
+        first
+            .lock()
+            .conn
+            .execute_batch(
+                "CREATE TEMP TABLE one_connection (x); INSERT INTO one_connection VALUES (7);",
+            )
+            .expect("a temp table");
+        let seen: i64 = second
+            .lock()
+            .conn
+            .query_row("SELECT x FROM one_connection", [], |r| r.get(0))
+            .expect("the first handle's temp table, seen by the second");
+        assert_eq!(seen, 7);
+        assert_eq!(
+            first.identity(),
+            &endpoint_id("me"),
+            "the first is unchanged"
+        );
+        assert_eq!(second.identity(), &endpoint_id("other"));
+    }
+
+    /// A call holds the connection from its first statement to its last,
+    /// whichever thread its handle runs on: the second handle's commit,
+    /// made on another thread while the first holds the core inside an open
+    /// transaction, waits for it, and is not taken into it -- the first's
+    /// rollback leaves the second's row committed. The spawn also pins
+    /// that a handle is `Send`, as the Android facade's thread needs.
+    /// Mutation: `handle_speaking_as` building its handle on a fresh
+    /// in-memory core -- the commit returns while the transaction is held.
+    #[test]
+    fn handles_on_two_threads_never_interleave_their_calls() {
+        let first = HumanStore::open_in_memory(&endpoint_id("me"), StoreOptions::default())
+            .expect("a store");
+        let mut second = first.handle_speaking_as(endpoint_id("other"));
+
+        let held = first.lock();
+        held.conn
+            .execute_batch("BEGIN IMMEDIATE")
+            .expect("a transaction");
+        let (done, waited) = std::sync::mpsc::channel::<RowId>();
+        let thread = std::thread::spawn(move || {
+            let row = second.commit_unread_inbound(&unread(1)).expect("committed");
+            let _ = done.send(row);
+            second
+        });
+        assert!(
+            waited
+                .recv_timeout(std::time::Duration::from_millis(300))
+                .is_err(),
+            "the second handle's call waits while the first holds the connection"
+        );
+        held.conn.execute_batch("ROLLBACK").expect("rolled back");
+        drop(held);
+        waited
+            .recv_timeout(std::time::Duration::from_secs(10))
+            .expect("the second handle's call runs once the first's ends");
+        let second = thread.join().expect("the thread");
+        assert_eq!(
+            second.unread_inbound().expect("unread").len(),
+            1,
+            "the first's rollback did not take the second's row with it"
+        );
+        assert!(first.unread_inbound().expect("unread").is_empty());
+    }
+
+    /// A call that panics inside its transaction poisons the lock and
+    /// leaves the connection outside any transaction, its writes rolled
+    /// back, so every other handle goes on: the panicking reclassification
+    /// recorded no version and no kind, and the other handle's commit
+    /// after it is a commit, not a statement inside a dangling
+    /// transaction. Mutations: `lock` refusing a poisoned lock -- the
+    /// other handle's call panics; the reclassification's transaction
+    /// kept from its drop (`ManuallyDrop`) -- the connection is left
+    /// inside it.
+    #[test]
+    fn a_call_that_panics_leaves_every_other_handle_usable() {
+        let mut first = HumanStore::open_in_memory(&endpoint_id("me"), StoreOptions::default())
+            .expect("a store");
+        first.commit_unread_inbound(&unread(1)).expect("committed");
+        let mut doomed = first.handle_speaking_as(endpoint_id("other"));
+
+        let thread = std::thread::spawn(move || {
+            let _ = doomed.reclassify_inbound("v-doomed", |_| panic!("the classifier panics"));
+        });
+        let (done, joined) = std::sync::mpsc::channel();
+        let watcher = std::thread::spawn(move || {
+            let _ = done.send(thread.join().is_err());
+        });
+        assert!(
+            joined
+                .recv_timeout(std::time::Duration::from_secs(10))
+                .expect("the panicking call ends"),
+            "control: the classifier panicked"
+        );
+        watcher.join().expect("the watcher");
+        assert!(first.core.is_poisoned(), "control: the lock is poisoned");
+
+        assert!(
+            first.lock().conn.is_autocommit(),
+            "the panic left no transaction open"
+        );
+        assert_eq!(first.inbound_kind_version().expect("version"), None);
+        first.commit_unread_inbound(&unread(2)).expect("committed");
+        assert!(first.lock().conn.is_autocommit());
+        assert_eq!(first.unread_inbound().expect("unread").len(), 2);
     }
 }

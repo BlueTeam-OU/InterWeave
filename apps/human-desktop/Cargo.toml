@@ -73,6 +73,9 @@ interweave-profile-identity = { path = "../../crates/identity/profile-identity" 
 # so the identity a test leases is the one its key names (tests/log_lines.rs).
 interweave-test-support = { path = "../../tests/support" }
 tempfile = { workspace = true }
+# TEST-ONLY: plants a last-front row this build cannot read
+# (tests/roster.rs).
+rusqlite = { workspace = true }
 
 [target.'cfg(unix)'.dev-dependencies]
 # The monotonic clock of src/trace.rs, whose unit tests run without

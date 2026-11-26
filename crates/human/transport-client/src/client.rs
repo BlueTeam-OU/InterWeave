@@ -300,6 +300,9 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     connectivity: Connectivity,
     admin_attempt: u32,
     next_status_at: u64,
+    /// Whether this client reads status at all; see
+    /// [`without_status`](TransportClient::without_status).
+    reads_status: bool,
     rows: BTreeMap<RowId, Row>,
     /// Inbound already committed but not yet handed over, because the
     /// facade took what a session held before closing it. Durable
@@ -350,6 +353,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             connectivity: Connectivity::Unknown,
             admin_attempt: 0,
             next_status_at: now,
+            reads_status: true,
             rows: BTreeMap::new(),
             held: Capped::new(HELD_CAP),
             queue: EventQueue::default(),
@@ -1048,6 +1052,27 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             .map_err(classify_address)
     }
 
+    /// A client that reads no status: it never opens the standing admin
+    /// connection for `admin.status` and never polls it, and it takes no
+    /// connectivity from the session's pushed server state either, so its
+    /// [`connectivity`](Self::connectivity) stays `Unknown` and it queues
+    /// no [`ClientEvent::Connectivity`] beyond the `Unknown` of
+    /// construction.
+    ///
+    /// The daemon allows a few admin connections by default
+    /// (`LOCAL-IPC.md`) and one process reads status once: with several
+    /// identities, one client per identity, only the first is left as it
+    /// is and the rest are built with this, so N identities hold one
+    /// standing admin connection, not N. The composition root takes
+    /// connectivity from the status-reading client. Trust and peer-address
+    /// calls still open their own short admin connection when made, as
+    /// before; only the standing status one is dropped.
+    #[must_use]
+    pub fn without_status(mut self) -> Self {
+        self.reads_status = false;
+        self
+    }
+
     /// End the session; the facade does nothing more until dropped. What
     /// the session's queue still holds is committed unread first, in one
     /// read, as for a session lost: it was accepted, and the close
@@ -1166,7 +1191,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     async fn tick_connectivity(&mut self, now: u64) {
-        if now < self.next_status_at || self.state == SessionState::Closed {
+        if !self.reads_status || now < self.next_status_at || self.state == SessionState::Closed {
             return;
         }
         if self.admin.is_none() {
@@ -1783,6 +1808,9 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     }
 
     fn set_connectivity(&mut self, connectivity: Connectivity) {
+        if !self.reads_status {
+            return;
+        }
         if self.connectivity != connectivity {
             self.connectivity = connectivity;
             self.queue.push(ClientEvent::Connectivity(connectivity));

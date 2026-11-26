@@ -9,16 +9,125 @@
 //! task then runs on that worker, so a store call that blocks this thread
 //! (an fsync) cannot starve the pings either.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
+use std::sync::{Arc, OnceLock};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use interweave_human_app_core::{Command, FacadeSide, Update};
+use interweave_human_app_core::{
+    Command, Crossing, FacadeSide, Roster, RosterError, Routed, Start, SwitchOutcome, Update,
+};
 use interweave_human_store::StoreError;
+use interweave_human_transport_client::SessionBinding;
 use interweave_local_client_api::AdminBinding;
+use interweave_transport_api::EndpointId;
 use tokio::sync::mpsc::{UnboundedSender, unbounded_channel};
+
+/// What the facade thread drives: the roster the desktop composes
+/// (`ipc.rs`), or one facade side alone, as a test builds one. Each
+/// answers by identity, so what crosses to the window names the identity
+/// it is for.
+pub trait Facade {
+    /// The identities held, in held order.
+    fn held(&self) -> Vec<EndpointId>;
+    /// The identity in front.
+    fn front(&self) -> EndpointId;
+    /// Each identity's windowed start, in held order.
+    fn start(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)>;
+    /// One turn of every identity.
+    fn turn(&mut self, now: u64) -> impl Future<Output = Routed>;
+    /// Carry out `command` as `identity`; `None` when it is not held.
+    fn execute(
+        &mut self,
+        identity: &EndpointId,
+        command: Command,
+        now: u64,
+    ) -> impl Future<Output = Option<Routed>>;
+    /// Bring `to` in front.
+    fn set_front(&mut self, to: &EndpointId) -> SwitchOutcome;
+    /// Close every session.
+    fn close(&mut self) -> impl Future<Output = ()>;
+    /// Whether the row naming the identity last in front could not be
+    /// read, so the start fell back to another: said once, by class.
+    fn front_unread(&self) -> bool {
+        false
+    }
+}
+
+impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
+    fn held(&self) -> Vec<EndpointId> {
+        Roster::held(self).cloned().collect()
+    }
+    fn front(&self) -> EndpointId {
+        Roster::front(self).clone()
+    }
+    fn start(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+        let held = Facade::held(self);
+        held.into_iter()
+            .filter_map(|identity| {
+                let start = self.side_mut(&identity)?.start();
+                Some((identity, start))
+            })
+            .collect()
+    }
+    async fn turn(&mut self, now: u64) -> Routed {
+        Roster::turn(self, now).await
+    }
+    async fn execute(
+        &mut self,
+        identity: &EndpointId,
+        command: Command,
+        now: u64,
+    ) -> Option<Routed> {
+        Roster::execute(self, identity, command, now).await
+    }
+    fn set_front(&mut self, to: &EndpointId) -> SwitchOutcome {
+        Roster::set_front(self, to)
+    }
+    async fn close(&mut self) {
+        Roster::close(self).await;
+    }
+    fn front_unread(&self) -> bool {
+        Roster::front_unread(self).is_some()
+    }
+}
+
+/// One facade side alone: one identity, the one its store speaks as,
+/// always in front.
+impl<B: SessionBinding, A: AdminBinding> Facade for FacadeSide<B, A> {
+    fn held(&self) -> Vec<EndpointId> {
+        vec![self.speaks_as().clone()]
+    }
+    fn front(&self) -> EndpointId {
+        self.speaks_as().clone()
+    }
+    fn start(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+        vec![(self.speaks_as().clone(), FacadeSide::start(self))]
+    }
+    async fn turn(&mut self, now: u64) -> Routed {
+        let updates = FacadeSide::turn(self, now).await;
+        vec![(self.speaks_as().clone(), updates)]
+    }
+    async fn execute(
+        &mut self,
+        identity: &EndpointId,
+        command: Command,
+        now: u64,
+    ) -> Option<Routed> {
+        if identity != self.speaks_as() {
+            return None;
+        }
+        let updates = FacadeSide::execute(self, command, now).await;
+        Some(vec![(identity.clone(), updates)])
+    }
+    fn set_front(&mut self, _to: &EndpointId) -> SwitchOutcome {
+        SwitchOutcome::Unchanged
+    }
+    async fn close(&mut self) {
+        FacadeSide::close(self).await;
+    }
+}
 
 /// How many messages wait for the window at most. When the window falls
 /// that far behind, the facade thread waits for it before it hands over
@@ -41,27 +150,75 @@ const DAEMON_PROBE: Duration = Duration::from_secs(1);
 /// What the window's side sends.
 #[derive(Debug)]
 pub enum ToFacade {
-    /// Carry out a command.
-    Command(Command),
+    /// Carry out `command` as `identity`; `None` as the identity in
+    /// front, which the window sends only before it was told the
+    /// identities held ([`FacadeThread::held`]): no switch can come before
+    /// that, so the identity in front is then the one its model shows.
+    Command {
+        /// The identity it is for, when the window knows it.
+        identity: Option<EndpointId>,
+        /// What to carry out.
+        command: Command,
+    },
+    /// Bring this identity in front: sent after every command of the
+    /// identity it replaces, which therefore runs first
+    /// (`interweave_human_app_core::ModelSide::switch`).
+    Front(EndpointId),
     /// Close the session and stop. The lease is released; the daemon is
     /// not asked to stop (ADR-0040).
     Close,
 }
 
+/// The identities a facade holds, as the window is told them.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Held {
+    /// In held order.
+    pub held: Vec<EndpointId>,
+    /// In front at start.
+    pub front: EndpointId,
+}
+
+/// Why a facade could not be built: a class, never content, so the window
+/// says what happened and not what the store holds.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FacadeFault {
+    /// The store could not be read: its pending rows, or a card's
+    /// creation time.
+    Store,
+    /// More identities than a client holds (`RosterError::OverBound`).
+    OverBound,
+}
+
+impl From<StoreError> for FacadeFault {
+    fn from(_: StoreError) -> Self {
+        Self::Store
+    }
+}
+
+impl From<RosterError> for FacadeFault {
+    fn from(e: RosterError) -> Self {
+        match e {
+            RosterError::Store(_) => Self::Store,
+            RosterError::OverBound => Self::OverBound,
+        }
+    }
+}
+
 /// What the facade's side sends back.
 #[derive(Debug)]
 pub enum FromFacade {
-    /// An update for the model side (boxed: it is large, the others are not).
-    Update(Box<Update>),
+    /// An update for the model side, for the identity it names (boxed:
+    /// it is large, the others are not).
+    Update(EndpointId, Box<Update>),
     /// Whether a daemon serves the profile changed.
     /// `None` when the lock cannot tell.
     Daemon(Option<bool>),
     /// The store could not be listed at start: what it holds stays
     /// unshown this session. A class, never content.
     ListingFailed,
-    /// The facade could not be built: its store's pending rows could not
-    /// be read. Nothing is sent or received this session.
-    FacadeFailed,
+    /// The facade could not be built, for the class it carries. Nothing
+    /// is sent or received this session.
+    FacadeFailed(FacadeFault),
     /// The session is closed and the thread is ending.
     Closed,
 }
@@ -81,12 +238,20 @@ pub struct FacadeThread {
     /// A wake is asked of the window and not yet answered by a take: one
     /// at a time, however many messages wait.
     woken: Arc<AtomicBool>,
+    /// The identities held and the one in front at start, set once the
+    /// facade is built and before its first message is sent. Beside the
+    /// queue rather than in it: the queue's bound counts what the window
+    /// has not taken of the facade's output, as it did with one identity,
+    /// and a facade waiting on a full queue must still have turned once
+    /// (`closing_while_the_facade_waits_on_a_full_queue_completes`).
+    held: Arc<OnceLock<Held>>,
     thread: Option<JoinHandle<()>>,
 }
 
 impl FacadeThread {
-    /// Start the facade side `make` builds, on a thread of its own (`make`
-    /// fails only when the store's pending rows cannot be read).
+    /// Start the facade `make` builds -- the roster, or a facade side
+    /// alone -- on a thread of its own (`make` fails with the class of
+    /// what could not be built, [`FacadeFault`]).
     /// `daemon_present` asks whether a daemon serves the profile (`Err`
     /// when it cannot tell: that is logged once per change, never read as
     /// "absent").
@@ -97,16 +262,12 @@ impl FacadeThread {
     ///
     /// # Errors
     /// When the thread or its runtime cannot be started.
-    pub fn spawn<B, A>(
-        make: impl FnOnce() -> Result<FacadeSide<B, A>, StoreError> + Send + 'static,
+    pub fn spawn<F: Facade + 'static>(
+        make: impl FnOnce() -> Result<F, FacadeFault> + Send + 'static,
         daemon_present: impl Fn() -> Result<bool, String> + Send + 'static,
         notify: Arc<dyn Fn() + Send + Sync>,
         report: fn(&str),
-    ) -> std::io::Result<Self>
-    where
-        B: interweave_human_transport_client::SessionBinding + 'static,
-        A: AdminBinding + 'static,
-    {
+    ) -> std::io::Result<Self> {
         Self::spawn_bounded(make, daemon_present, notify, report, TO_WINDOW)
     }
 
@@ -115,21 +276,19 @@ impl FacadeThread {
     ///
     /// # Errors
     /// When the thread or its runtime cannot be started.
-    pub fn spawn_bounded<B, A>(
-        make: impl FnOnce() -> Result<FacadeSide<B, A>, StoreError> + Send + 'static,
+    pub fn spawn_bounded<F: Facade + 'static>(
+        make: impl FnOnce() -> Result<F, FacadeFault> + Send + 'static,
         daemon_present: impl Fn() -> Result<bool, String> + Send + 'static,
         notify: Arc<dyn Fn() + Send + Sync>,
         report: fn(&str),
         capacity: usize,
-    ) -> std::io::Result<Self>
-    where
-        B: interweave_human_transport_client::SessionBinding + 'static,
-        A: AdminBinding + 'static,
-    {
+    ) -> std::io::Result<Self> {
         let (to_facade, mut commands) = unbounded_channel();
         let (send, from_facade) = mpsc::sync_channel(capacity);
         let woken = Arc::new(AtomicBool::new(false));
         let wake = Arc::clone(&woken);
+        let held = Arc::new(OnceLock::new());
+        let named = Arc::clone(&held);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
             .enable_all()
@@ -155,21 +314,50 @@ impl FacadeThread {
                     }
                 };
                 runtime.block_on(async move {
-                    let Ok(mut side) = make() else {
-                        out(FromFacade::FacadeFailed);
-                        return;
+                    let mut side = match make() {
+                        Ok(side) => side,
+                        Err(fault) => {
+                            out(FromFacade::FacadeFailed(fault));
+                            return;
+                        }
                     };
+                    if side.front_unread() {
+                        // The class only: the row names an identity. The
+                        // line names no fallback: the roster chose the
+                        // default or the first, and this thread does not
+                        // know which.
+                        report(
+                            "the identity last in front could not be read; \
+                             the start went on without it",
+                        );
+                    }
+                    // Before any message: a take that holds an update
+                    // finds the identities named.
+                    let _ = named.set(Held {
+                        held: side.held(),
+                        front: side.front(),
+                    });
                     // The windowed start (design/2026-10-27-start-window.md):
                     // each conversation's summary and the contacts without
                     // their photos, no backlog; a conversation's rows are
                     // read a page at a time as its window asks
                     // (`the_desktop_starts_windowed_and_an_opened_conversation_reads_one_page`).
-                    match side.start() {
-                        Ok(start) => out(FromFacade::Update(Box::new(Update::Started(Box::new(
-                            start,
-                        ))))),
-                        Err(_) => out(FromFacade::ListingFailed),
+                    for (identity, start) in side.start() {
+                        match start {
+                            Ok(start) => out(FromFacade::Update(
+                                identity,
+                                Box::new(Update::Started(Box::new(start))),
+                            )),
+                            Err(_) => out(FromFacade::ListingFailed),
+                        }
                     }
+                    let routed = |routed: Routed| {
+                        for (identity, updates) in routed {
+                            for update in updates {
+                                out(FromFacade::Update(identity.clone(), Box::new(update)));
+                            }
+                        }
+                    };
                     let mut daemon: Option<Option<bool>> = None;
                     let mut cannot_tell: Option<String> = None;
                     let mut probed: Option<Instant> = None;
@@ -190,10 +378,25 @@ impl FacadeThread {
                         }
                         let mut closing = false;
                         for message in waiting {
+                            // In the order sent: a switch's commands of
+                            // the old front run before the switch itself.
                             match message {
-                                Some(ToFacade::Command(command)) => {
-                                    for update in side.execute(command, now()).await {
-                                        out(FromFacade::Update(Box::new(update)));
+                                Some(ToFacade::Command { identity, command }) => {
+                                    let identity = identity.unwrap_or_else(|| side.front());
+                                    if let Some(answer) =
+                                        side.execute(&identity, command, now()).await
+                                    {
+                                        routed(answer);
+                                    }
+                                }
+                                Some(ToFacade::Front(to)) => {
+                                    // A row that could not be written leaves
+                                    // the next start in front of what it
+                                    // said before; the switch stands.
+                                    if let SwitchOutcome::Switched { remembered: Err(_) } =
+                                        side.set_front(&to)
+                                    {
+                                        report("the identity in front could not be remembered");
                                     }
                                 }
                                 Some(ToFacade::Close) | None => {
@@ -206,9 +409,7 @@ impl FacadeThread {
                             side.close().await;
                             break;
                         }
-                        for update in side.turn(now()).await {
-                            out(FromFacade::Update(Box::new(update)));
-                        }
+                        routed(side.turn(now()).await);
                         if probed.is_none_or(|at| at.elapsed() >= DAEMON_PROBE) {
                             probed = Some(Instant::now());
                             let answer = daemon_present();
@@ -243,15 +444,42 @@ impl FacadeThread {
             to_facade,
             from_facade,
             woken,
+            held,
             thread: Some(thread),
         })
     }
 
-    /// Ask the facade side to carry out `command`. False once the facade
-    /// thread has ended.
+    /// Ask the facade to carry out `command` as `identity`, or as the
+    /// identity in front for `None` ([`ToFacade::Command`]). False once the
+    /// facade thread has ended.
     #[must_use]
-    pub fn command(&self, command: Command) -> bool {
-        self.to_facade.send(ToFacade::Command(command)).is_ok()
+    pub fn command(&self, identity: Option<EndpointId>, command: Command) -> bool {
+        self.to_facade
+            .send(ToFacade::Command { identity, command })
+            .is_ok()
+    }
+
+    /// Hand over what the model side sends across: a command as the
+    /// identity it names, or the switch. False once the facade thread has
+    /// ended.
+    #[must_use]
+    pub fn cross(&self, crossing: Crossing) -> bool {
+        let message = match crossing {
+            Crossing::Command { identity, command } => ToFacade::Command {
+                identity: Some(identity),
+                command,
+            },
+            Crossing::Front(to) => ToFacade::Front(to),
+        };
+        self.to_facade.send(message).is_ok()
+    }
+
+    /// The identities held, in held order, and the one in front at start:
+    /// `None` until the facade is built, and set before its first message,
+    /// so a [`take`](Self::take) that returns an update finds it set.
+    #[must_use]
+    pub fn held(&self) -> Option<&Held> {
+        self.held.get()
     }
 
     /// What the facade side sent since the last call, in order. Answers

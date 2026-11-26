@@ -58,6 +58,8 @@ const DRAIN_PER_TURN: usize = 64;
 /// The facade side of the root.
 pub struct FacadeSide<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> {
     client: TransportClient<B, A>,
+    /// The identity its store speaks as: what a root names its updates by.
+    speaks_as: EndpointId,
     wall: Box<dyn Fn() -> u64 + Send + Sync>,
     copies: ReadCopies<ReadEphemeral>,
     /// The records cancels deleted, for their snackbars' Undo, by row: let
@@ -292,11 +294,13 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
     /// message names as its `from_endpoint` the endpoint the facade
     /// leases ([`TransportClient::endpoint`]), which an open may move.
     pub fn new(
-        client: TransportClient<B, A>,
+        mut client: TransportClient<B, A>,
         wall: impl Fn() -> u64 + Send + Sync + 'static,
     ) -> Self {
+        let speaks_as = client.store_mut().identity().clone();
         Self {
             client,
+            speaks_as,
             wall: Box::new(wall),
             copies: ReadCopies::default(),
             cancelled: VecDeque::new(),
@@ -419,6 +423,13 @@ impl<B: interweave_human_transport_client::SessionBinding, A: AdminBinding> Faca
         let peer = self.client.local_peer().cloned();
         let at = (self.wall)();
         cards::identity_view(self.client.store_mut(), &endpoint, key, peer.as_ref(), at).map(Some)
+    }
+
+    /// The identity this side's store speaks as: the one its updates are
+    /// for.
+    #[must_use]
+    pub const fn speaks_as(&self) -> &EndpointId {
+        &self.speaks_as
     }
 
     /// The facade, to read its state.

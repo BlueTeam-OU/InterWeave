@@ -2904,3 +2904,102 @@ async fn a_failed_read_behind_the_endpoint_check_stores_nothing() {
     assert_eq!(d.dropped_unstored, 1, "counted as a commit failure");
     assert_eq!(d.malformed_endpoint_bound, 0, "not as the bound");
 }
+
+/// An admin binding that counts every connection it is asked to open.
+#[derive(Clone)]
+struct Counting {
+    node: FakeNode,
+    opened: Arc<std::sync::atomic::AtomicUsize>,
+}
+
+impl AdminBinding for Counting {
+    type Admin = <FakeNode as AdminBinding>::Admin;
+
+    fn admin(
+        &self,
+        capabilities: BTreeSet<AdminCapability>,
+    ) -> impl std::future::Future<Output = Result<Self::Admin, TransportError>> + Send {
+        self.opened
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let node = self.node.clone();
+        async move { node.admin(capabilities).await }
+    }
+}
+
+/// Ticks a fresh client through many status intervals, a session open and
+/// a reconnect, and says how many admin connections it asked for and what
+/// connectivity events it queued.
+async fn admin_opens_over_a_life(without_status: bool) -> (usize, usize, Connectivity) {
+    let (a, _b) = FakeNetwork::pair(node_config(), node_config());
+    let counting = Counting {
+        node: a.clone(),
+        opened: Arc::default(),
+    };
+    let mut c = TransportClient::new(
+        a.clone(),
+        counting.clone(),
+        memory(),
+        ClientConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human()],
+            channels: Vec::new(),
+            max_payload_bytes: LIMIT,
+        },
+        wall(),
+        0,
+    )
+    .expect("an empty store");
+    if without_status {
+        c = c.without_status();
+    }
+    let mut connectivity_events = 0;
+    let mut now = 0;
+    for _ in 0..4 {
+        c.tick(now).await;
+        now += 1;
+    }
+    assert!(
+        matches!(c.session_state(), SessionState::Ready { .. }),
+        "the session opened: {:?}",
+        c.session_state()
+    );
+    // The runtime says it is unavailable, as a push on the open session:
+    // a default client reads that as offline, this one takes none.
+    a.set_health(interweave_transport_api::Health::Unavailable);
+    let _ = c.drain(16, now).await;
+    // The runtime goes: the session is lost and re-opened.
+    a.stop();
+    for _ in 0..10 {
+        now += 5_001;
+        c.tick(now).await;
+    }
+    for _ in 0..10 {
+        now += 5_001;
+        c.tick(now).await;
+    }
+    connectivity_events += std::iter::from_fn(|| c.next_event())
+        .filter(|e| matches!(e, ClientEvent::Connectivity(_)))
+        .count();
+    (
+        counting.opened.load(std::sync::atomic::Ordering::SeqCst),
+        connectivity_events,
+        c.connectivity(),
+    )
+}
+
+/// One status reader per process: a client built `without_status` never
+/// opens an admin connection over its whole life, and its connectivity
+/// stays unknown; the default client in the same setup does open one.
+#[tokio::test]
+async fn a_client_that_reads_no_status_opens_no_admin_connection() {
+    let (opened, events, connectivity) = admin_opens_over_a_life(true).await;
+    assert_eq!(opened, 0, "no admin connection, ever");
+    assert_eq!(
+        events, 1,
+        "only the `Unknown` every client queues at construction"
+    );
+    assert_eq!(connectivity, Connectivity::Unknown);
+
+    let (control, _, _) = admin_opens_over_a_life(false).await;
+    assert!(control >= 1, "the default client reads status: {control}");
+}

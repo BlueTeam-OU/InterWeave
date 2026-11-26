@@ -8456,14 +8456,24 @@ methods (a session and a lease per held identity, the identity in
 front, the switch) may be built and may land before them when a build
 from that head holds the first identity and no other and behaves for
 it as `main` did before the wiring. Exit gate (a) is unchanged. What
-holds until the methods are on `main`:
+holds until the change that calls `set_advertise` lands (as first
+written this read "until the methods are on `main`"; they reached
+`main` the same day with no program under `apps/` calling them, and
+the condition was ruled again on rust-ui-dev-02's QUESTION
+01a213dc-a358, architect-cto's REPLY 01a213e0-6fd7):
 
 - The held list is the first identity alone. An entry in the overlay's
   `added` member is not leased by a graphical client, whatever its
   `advertise` says: before the add method nothing but a hand edit can
   have written it, and a hand-written endpoint is a route, no identity
-  (ADR-0061 decisions 1 and 2). Once the methods have landed, ADR-0061
-  decision 5 is the whole rule and this clause ends.
+  (ADR-0061 decisions 1 and 2), and that stays so while no program
+  calls the add method, whether the method is on `main` or not. The
+  clause ends with the one change that builds ADR-0061 decision 5
+  whole: the assertion before every lease, the first identity's
+  included, the refusal with its notice, and the added entries held.
+  An added entry is not held by a build that makes no assertion, and
+  the assertion is not built for the first identity alone as a change
+  of its own. The stage does not close with decision 5 unbuilt.
 - The first identity leases as on `main`, with no `advertise`
   assertion and no new refusal: the assertion and the refusal of a
   lease it guards arrive with the call to `set_advertise` (ADR-0061
