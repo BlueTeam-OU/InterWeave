@@ -10,8 +10,8 @@
 //! (`no_trust_call_reads_or_writes_the_operators_list`, `tests/facade.rs`).
 
 use std::collections::BTreeSet;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, TrustChange, TrustDirection, TrustedPeer,
@@ -56,6 +56,46 @@ impl FirstSeed {
     #[must_use]
     pub fn answered(&self) -> bool {
         self.answered.load(Ordering::Acquire)
+    }
+}
+
+/// This node's `PeerId` as any client of the process learned it. Every
+/// identity a profile holds lives on the one node, so they share one
+/// `PeerId`, and a client that never opened a session of its own (a
+/// refused open, or one that reads no status) still names it as the local
+/// peer of its trust list: without it, typing the node's own `PeerId`
+/// would not be told from any other refusal
+/// (`a_client_without_a_session_names_the_peer_another_learned`). Clones
+/// share one cell; a client made without one keeps a private cell, which
+/// is the peer it learned itself.
+///
+/// A sibling of [`FirstSeed`] and not a field of it: the seed is fixed at
+/// construction and answers a question about the first identity, this
+/// one is written by whichever client learns the peer first.
+#[derive(Debug, Clone, Default)]
+pub struct NodePeer {
+    peer: Arc<Mutex<Option<TransportIdentity>>>,
+}
+
+impl NodePeer {
+    /// An empty cell, to give to every client of one node.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The peer, once any client sharing the cell learned it.
+    #[must_use]
+    pub fn get(&self) -> Option<TransportIdentity> {
+        self.peer
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Record the peer a session or a status read named.
+    pub(crate) fn learn(&self, peer: TransportIdentity) {
+        *self.peer.lock().unwrap_or_else(PoisonError::into_inner) = Some(peer);
     }
 }
 

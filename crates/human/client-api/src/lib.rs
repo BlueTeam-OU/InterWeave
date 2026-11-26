@@ -393,8 +393,9 @@ pub struct Diagnostics {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TrustList {
     /// This profile's own node identity, never a peer to trust: the
-    /// identity's set carries none, so it is the one the session or the
-    /// last status read learned; `None` before either did.
+    /// identity's set carries none, so it is the one the last session or
+    /// status read of any identity of this node learned (they share one
+    /// node, so one `PeerId`); `None` before any did.
     pub local_peer: Option<TransportIdentity>,
     /// The allowed remote peers, in the daemon's order.
     pub allowed: Vec<TrustRow>,

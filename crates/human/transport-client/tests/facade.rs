@@ -17,7 +17,7 @@ use std::sync::{Arc, Mutex};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
-    ClientConfig, ClientEvent, Connectivity, Destination, FirstSeed, Inbound, Origin,
+    ClientConfig, ClientEvent, Connectivity, Destination, FirstSeed, Inbound, NodePeer, Origin,
     OutboundStatus, Received, SendError, SendProblem, SessionProblem, SessionState,
     TransportClient, TrustList, TrustProblem, TrustRow, TrustSetFailure,
 };
@@ -2003,6 +2003,32 @@ fn trusting(node: &FakeNode) -> (TransportClient<FakeNode, Recording>, Recording
     )
     .expect("an empty store");
     (client, recording)
+}
+
+/// An identity whose own session never opened (one that reads no status
+/// either) still names the node's peer as its trust list's local peer
+/// when another client of the node, sharing the cell, learned it: the
+/// node is one, so is its `PeerId`; without the cell the list names none
+/// and the node's own peer cannot be told from any other.
+#[tokio::test]
+async fn a_client_without_a_session_names_the_peer_another_learned() {
+    let (a, _b) = FakeNetwork::pair(node_config(), node_config());
+    let cell = NodePeer::new();
+    let mut first = client(&a, human(), memory())
+        .seeding(FirstSeed::new(human()))
+        .sharing_node_peer(cell.clone());
+    let added = client(&a, human(), memory())
+        .without_status()
+        .seeding(FirstSeed::new(human()))
+        .sharing_node_peer(cell.clone());
+
+    let before = added.identity_trust().await.expect("the set");
+    assert_eq!(before.local_peer, None, "nobody has learned it yet");
+
+    ready(&mut first, 0).await;
+    let after = added.identity_trust().await.expect("the set");
+    assert_eq!(after.local_peer, Some(a.peer().clone()));
+    assert_eq!(cell.get(), Some(a.peer().clone()));
 }
 
 /// The identity's trust as the daemon holds it, this node's own peer

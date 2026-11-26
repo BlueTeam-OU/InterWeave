@@ -50,7 +50,7 @@ use crate::problem::{
     classify_send, classify_trust, ends_session, may_have_reached,
 };
 use crate::queue::{Capped, EventQueue};
-use crate::trust::{FirstSeed, IdentityTrustPort};
+use crate::trust::{FirstSeed, IdentityTrustPort, NodePeer};
 use interweave_human_client_api::{
     AddressAnswer, AddressChangeFailure, AddressList, AddressOrigin, AddressOutcome,
     AddressProblem, AddressRefused, ClientEvent, Connectivity, Destination, Diagnostics, Inbound,
@@ -365,10 +365,12 @@ pub struct TransportClient<B: DataSessionBinding, A: AdminBinding> {
     /// The first identity's seed, asked on each trust connection; see
     /// [`seeding`](TransportClient::seeding).
     seed: Option<FirstSeed>,
-    /// This node's `PeerId` as the last session or status read learned
-    /// it: what a trust list names as the local peer, since an
+    /// This node's `PeerId` as the last session or status read of this
+    /// client, or of any client sharing the cell
+    /// ([`sharing_node_peer`](TransportClient::sharing_node_peer)),
+    /// learned it: what a trust list names as the local peer, since an
     /// identity's set carries none, and kept after a session ends.
-    known_peer: Option<TransportIdentity>,
+    node_peer: NodePeer,
     rows: BTreeMap<RowId, Row>,
     /// Inbound already committed but not yet handed over, because the
     /// facade took what a session held before closing it. Durable
@@ -481,7 +483,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
             next_status_at: now,
             reads_status: true,
             seed: None,
-            known_peer: None,
+            node_peer: NodePeer::new(),
             rows: BTreeMap::new(),
             held: Capped::new(HELD_CAP),
             queue: EventQueue::default(),
@@ -1062,7 +1064,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
 
     fn trust_list(&self, rows: Vec<interweave_local_client_api::TrustedPeer>) -> TrustList {
         TrustList {
-            local_peer: self.local_peer().or(self.known_peer.as_ref()).cloned(),
+            local_peer: self.local_peer().cloned().or_else(|| self.node_peer.get()),
             allowed: rows.into_iter().map(trust_row).collect(),
         }
     }
@@ -1247,6 +1249,19 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         self
     }
 
+    /// A facade that records the node's `PeerId` in `node_peer`, and
+    /// names what any client sharing it learned as the local peer of its
+    /// trust list ([`NodePeer`]). A composition root gives every client
+    /// it holds a clone of one cell: they are one node's identities.
+    #[must_use]
+    pub fn sharing_node_peer(mut self, node_peer: NodePeer) -> Self {
+        if let Some(own) = self.node_peer.get() {
+            node_peer.learn(own);
+        }
+        self.node_peer = node_peer;
+        self
+    }
+
     /// End the session; the facade does nothing more until dropped. What
     /// the session's queue still holds is committed unread first, in one
     /// read, as for a session lost: it was accepted, and the close
@@ -1334,7 +1349,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
     async fn open_and_settle(&mut self, endpoint: Option<EndpointId>, now: u64) {
         match self.open(endpoint).await {
             Ok((session, endpoint)) => {
-                self.known_peer = Some(session.session().local_peer().clone());
+                self.node_peer.learn(session.session().local_peer().clone());
                 self.session = Some(Arc::new(session));
                 self.reopen_attempt = 0;
                 self.leased.clone_from(&endpoint);
@@ -1442,7 +1457,7 @@ impl<B: SessionBinding, A: AdminBinding> TransportClient<B, A> {
         };
         self.admin_attempt = 0;
         self.next_status_at = now + STATUS_INTERVAL_MS;
-        self.known_peer = Some(status.peer);
+        self.node_peer.learn(status.peer);
         if let Some(normalized) = connectivity_of(status.health, Some(&status.connectivity)) {
             self.set_connectivity(normalized);
         }
