@@ -2905,7 +2905,9 @@ async fn a_failed_read_behind_the_endpoint_check_stores_nothing() {
     assert_eq!(d.malformed_endpoint_bound, 0, "not as the bound");
 }
 
-/// An admin binding that counts every connection it is asked to open.
+/// An admin binding that counts every status connection it is asked to
+/// open: the advertise assertion's own short connections, which hold
+/// `admin.endpoints` alone, are not the status reader's.
 #[derive(Clone)]
 struct Counting {
     node: FakeNode,
@@ -2919,8 +2921,10 @@ impl AdminBinding for Counting {
         &self,
         capabilities: BTreeSet<AdminCapability>,
     ) -> impl std::future::Future<Output = Result<Self::Admin, TransportError>> + Send {
-        self.opened
-            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        if capabilities.contains(&AdminCapability::Status) {
+            self.opened
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
         let node = self.node.clone();
         async move { node.admin(capabilities).await }
     }
@@ -2988,12 +2992,12 @@ async fn admin_opens_over_a_life(without_status: bool) -> (usize, usize, Connect
 }
 
 /// One status reader per process: a client built `without_status` never
-/// opens an admin connection over its whole life, and its connectivity
+/// opens a status connection over its whole life, and its connectivity
 /// stays unknown; the default client in the same setup does open one.
 #[tokio::test]
 async fn a_client_that_reads_no_status_opens_no_admin_connection() {
     let (opened, events, connectivity) = admin_opens_over_a_life(true).await;
-    assert_eq!(opened, 0, "no admin connection, ever");
+    assert_eq!(opened, 0, "no status connection, ever");
     assert_eq!(
         events, 1,
         "only the `Unknown` every client queues at construction"

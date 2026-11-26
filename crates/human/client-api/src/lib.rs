@@ -214,7 +214,9 @@ pub enum SessionState {
         /// The endpoint it holds.
         endpoint: Option<EndpointId>,
     },
-    /// The binding ended; the facade re-opens on its own.
+    /// The binding ended, or none is open yet; the facade re-opens on
+    /// its own. A graphical client stays here while the advertise
+    /// assertion made before its lease is unanswered.
     Reconnecting {
         /// Re-open attempts so far.
         attempt: u32,
