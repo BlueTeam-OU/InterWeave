@@ -45,9 +45,9 @@ pub fn facade_over_ipc(
         },
         CLIENT_KIND,
     );
-    // Each identity's own key, by app-core's rule: an added identity
-    // whose key is missing or refused is held and never leased
-    // (`FacadeSide::lease_only_with_key`), and no key is made for it.
+    // Each identity's own key, by app-core's rule: an identity whose key
+    // is missing or refused is leased as any other and shares no card
+    // (ADR-0067 decisions 3 and 5), and no key is made for it.
     let sources: Vec<KeySource> = profile
         .held
         .iter()
