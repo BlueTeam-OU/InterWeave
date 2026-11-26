@@ -446,7 +446,7 @@ A record whose key path is already empty goes on to the remove whether
 its id is listed or not: the daemon may have started, with the entry
 ahead, between the unlink and the remove. A form left after a known
 refusal with no unknown add before it has nothing in the overlay to
-take out, and deletes the key and the record directly.
+take out, and deletes the key file, the platform key and then the record directly.
 
 What the rule may touch is named by a record and never by absence. The
 design recognised a kept key as a key file whose id no list holds; but
@@ -461,8 +461,8 @@ the seal and the record would then have left a key file no record
 names, which this same rule forbids deleting (the review of that text
 at cadd2cf47, its finding F1). With the record first, a record whose
 key was never sealed is settled as one whose key path is already
-empty: nothing to unlink, no platform key to retire, the remove
-answering `EndpointUnknown`. No alias and no client kinds are stored. A key that
+empty: nothing to unlink, a platform key made before the process ended
+retired as any is, the remove answering `EndpointUnknown`. No alias and no client kinds are stored. A key that
 Replace minted is named by no pending-add record, so this rule never
 reaches it before or after its replaces record is written; and the
 clean-up rule of 2026-11-24, whose test (the list lacks the id, the
