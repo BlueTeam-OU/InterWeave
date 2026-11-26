@@ -2390,22 +2390,43 @@ async fn status_reads_the_sessions_ingress_refusals_and_never_lowers_them() {
     w.peer.join(general()).await.expect("peer joins");
     assert_eq!(w.status().await["broadcast_loss"], loss(0, 0, NOW_MS));
     w.a.limit_ingress();
-    // Past the bucket's burst of 32: at least the last eight are refused.
-    // One at a time, a status round trip between, so the bridge drains
-    // as they come and its session queue of 16 never fills.
-    for i in 0..40 {
-        w.peer_broadcasts(i, 1).await;
-        let _ = w.status().await;
-    }
-    let first = w.status().await["broadcast_loss"].clone();
+    // Past the bucket's burst of 32 until a refusal is counted. One at a
+    // time, a status round trip between, so the bridge drains as they
+    // come and its session queue of 16 never fills. The bucket refills a
+    // token every 500 ms of wall clock, so how many of a fixed run it
+    // refuses depends on how fast the run goes: a fixed 40 left eight
+    // refused only while the run took under half a second, and on a
+    // loaded host it counted seven (#761).
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut sent: u8 = 0;
+    let first = loop {
+        w.peer_broadcasts(sent, 1).await;
+        sent += 1;
+        let read = w.status().await["broadcast_loss"].clone();
+        if read["ingress_refused"].as_u64().expect("a count") > 0 {
+            break read;
+        }
+        assert!(
+            sent < 200 && tokio::time::Instant::now() < deadline,
+            "no refusal counted after {sent} broadcasts: {read}"
+        );
+    };
+    assert!(sent > 32, "the burst of 32 was admitted first: {first}");
+    // A read with no send between: the fake counts a refusal when the
+    // send is made, so a bridge that reported only what is new since its
+    // last read would answer zero here.
+    assert_eq!(
+        w.status().await["broadcast_loss"],
+        first,
+        "a second read lowers nothing"
+    );
     let refused = first["ingress_refused"].as_u64().expect("a count");
-    assert!(refused >= 8, "{first}");
     assert_eq!(
         first["queue_overflow"],
         json!(0),
         "refusals are not overflow: {first}"
     );
-    w.peer_broadcasts(40, 8).await;
+    w.peer_broadcasts(sent, 8).await;
     let later = w.status().await["broadcast_loss"].clone();
     assert!(
         later["ingress_refused"].as_u64().expect("a count") >= refused,
