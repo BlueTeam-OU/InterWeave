@@ -2439,11 +2439,12 @@ component IdentityScreen inherits FocusScope {
     // The rule runs at every crossing, the stamp `at-alpha` saying where
     // the focused key was taken, so a crossing back before the first's
     // key has taken focus still asks for the letter
-    // (a_live_switch_there_and_back_keeps_the_letter). A stop wanted off
-    // the keypad -- the dialog just opened over a key, its Keep not yet
-    // drawn -- is left wanted. On the testing backend Keep takes focus in
-    // that case with or without this guard (mutation run, #768 round 2),
-    // so a_live_switch_as_the_dialog_opens_* pins the outcome, not it.
+    // (a_live_switch_there_and_back_keeps_the_letter). The rule writes
+    // only `want-idx`, so a stop wanted off the keypad and picked by
+    // `want-idx` -- a new notice's banner, the heading, the question, a
+    // grid position, a chip, not yet drawn -- needs the guard to stay
+    // wanted (a_live_switch_as_a_notice_arrives_*). The dialog's actions read
+    // `want-seg` alone and take focus either way.
     // It focuses only at the rebump: the old layout's keys stand until
     // the next draw, and a bump now gives focus to the old key at the
     // new place, x on the way to b

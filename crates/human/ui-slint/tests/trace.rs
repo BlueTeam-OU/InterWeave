@@ -4199,7 +4199,7 @@ fn a_live_switch_keeps_the_focused_keys_letter_c3_narrower_typing() {
 /// sevens' last, widening. Focus is on the same letter after each
 /// (#768 round 1, risk 2).
 #[test]
-fn a_live_switch_keeps_a_key_whose_place_goes() {
+fn a_live_switch_keeps_the_letters_at_the_layouts_ends() {
     use interweave_human_ui_slint::IdentityInput;
     let mut page = Identity::at_r2();
     // q to p: nine on in QWERTY's first row.
@@ -4295,9 +4295,9 @@ fn a_live_switch_takes_no_other_key_on_the_way_narrower() {
 /// The width crossing 340 after the dialog has opened over a focused
 /// key and before its Keep, made only at the next draw, has taken
 /// focus: focus goes to Keep, not back to a key under the dialog, and
-/// the way back is the same letter (#768 round 2, risk 2). It passes
-/// with the switch rule's `want-seg` guard removed as well (measured):
-/// it pins what a person gets, not that guard.
+/// the way back is the same letter (#768 round 2, risk 2). Keep's
+/// focus reads `want-seg` alone, so this passes with the switch rule's
+/// `want-seg` guard removed as well; the notice's case below needs it.
 #[test]
 fn a_live_switch_as_the_dialog_opens_leaves_focus_to_the_dialog() {
     use interweave_human_ui_slint::IdentityInput;
@@ -4342,6 +4342,41 @@ fn a_live_switch_as_the_dialog_opens_leaves_focus_to_the_dialog() {
     assert_eq!(page.take(), [IdentityInput::Dialog(false)], "Keep");
     page.enter();
     assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not w");
+}
+
+/// A check's failure notice arriving while a key has focus, and the
+/// width crossing 340 before the banner, made only at the next draw,
+/// has taken focus: focus goes to the banner, the notice's own rule
+/// (section 8), not to the key's letter in the new layout (#768 round
+/// 3, F5). Mutation: the switch rule without its `want-seg` guard.
+#[test]
+fn a_live_switch_as_a_notice_arrives_leaves_focus_to_the_banner() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2_but_24(None);
+    page.key("v");
+    page.backtab();
+    page.enter();
+    assert_eq!(
+        page.last(),
+        "ui-trace focus=identity-primary",
+        "control: 24 filled"
+    );
+    page.tab();
+    tab_to(&mut page, "ui-trace focus=identity-key");
+    page.take();
+    // The check asked and failed, its page shown and its rule run, then
+    // the width crossing and its rule run in a turn with no time passed:
+    // the rebump that focuses the banner is not yet due.
+    interweave_human_ui_slint::apply_identity(&mut page.flow, IdentityInput::Primary);
+    page.flow.checked(None);
+    page.view
+        .show_identity(Some(interweave_human_ui_slint::identity_page(&page.flow)));
+    slint::platform::update_timers_and_animations();
+    width(&page.view, 330.0);
+    slint::platform::update_timers_and_animations();
+    page.turn();
+    assert_eq!(page.last(), "ui-trace focus=identity-banner");
+    assert_eq!(page.take(), [], "nothing asked of the flow");
 }
 
 /// With focus off the keypad, on `control`, a live switch across 340
