@@ -609,7 +609,7 @@ Outcomes other than Done, each with nothing half-made shown as made:
   Create, focus on it. The key stays with the form (step 2), and the
   next Create takes the alias again from what the Name field says
   then.
-  These and `bound` (above) are the only cases in which the client
+  These, and `bound` with no earlier unknown add, are the only cases in which the client
   knows that nothing was created (D1; ruled 2026-11-25, REPLY 01a21460, Q1).
 - **The add answers that the id is held**: `unchanged` (an earlier add
   landed, D1) is handled as Found: the record is deleted and the client
