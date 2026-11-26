@@ -4060,6 +4060,8 @@ impl Identity {
     /// The event loop's turns after a resize, with no page shown again:
     /// a window that changes size renders no new page, as `settle`
     /// would hand it, so only the resize's own rules can move focus.
+    /// What the page asked meanwhile is applied to the flow, so `take`
+    /// and `typed` after it say what the resize did (#768 F1).
     fn turn(&mut self) {
         let _ = ElementHandle::find_by_accessible_label(self.view.window(), "q").count();
         for _ in 0..2 {
@@ -4067,6 +4069,11 @@ impl Identity {
             slint::platform::update_timers_and_animations();
         }
         let _ = ElementHandle::find_by_accessible_label(self.view.window(), "q").count();
+        let queued: Vec<_> = self.queued.borrow_mut().drain(..).collect();
+        for input in queued {
+            self.applied.push(input.clone());
+            interweave_human_ui_slint::apply_identity(&mut self.flow, input);
+        }
     }
 
     /// The window narrowed to 330 under the opening's q, kept on its
@@ -4185,6 +4192,61 @@ fn a_live_switch_keeps_the_focused_keys_letter_c3_narrower_navigating() {
 #[test]
 fn a_live_switch_keeps_the_focused_keys_letter_c3_narrower_typing() {
     a_live_switch_keeps(Identity::at_c3(), 330.0, 'w', Mode::Typing);
+}
+
+/// Keys whose element the switch takes away, the new layout having
+/// fewer rows or fewer keys in that row: p, QWERTY's tenth, narrowing
+/// (the sevens' row 3 has five keys), and z, the sevens' last,
+/// widening (QWERTY's row 3 has seven). Focus is on the same letter
+/// after it (#768 round 1, risk 2).
+#[test]
+fn a_live_switch_keeps_a_key_whose_place_goes() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    // q to p: nine on in QWERTY's first row.
+    for _ in 0..9 {
+        page.tab();
+    }
+    page.take();
+    width(&page.view, 330.0);
+    page.turn();
+    assert_eq!(page.take(), [], "nothing asked of the flow");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('p')], "p in the sevens");
+    page.key(slint::platform::Key::Backspace);
+    // p, the sevens' sixteenth, to z, its twenty-sixth.
+    for _ in 0..10 {
+        page.tab();
+    }
+    page.take();
+    width(&page.view, 400.0);
+    page.turn();
+    assert_eq!(page.take(), [], "nothing asked of the flow");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('z')], "z in QWERTY");
+}
+
+/// The width crossing 340 and back with one timer turn between: focus
+/// ends on the same letter. On this backend the first crossing's key
+/// has taken focus by the second crossing (traced while writing it, and
+/// from i too, whose QWERTY place has no element in the sevens), so
+/// this does not reach a crossing before focus lands (#768 round 1,
+/// risk 1, left open).
+#[test]
+fn a_live_switch_there_and_back_keeps_the_letter() {
+    use interweave_human_ui_slint::IdentityInput;
+    let mut page = Identity::at_r2();
+    page.on_b_in_the_sevens();
+    page.take();
+    width(&page.view, 400.0);
+    // One timer turn: the switch's rule has run, its focus not landed.
+    slint::platform::update_timers_and_animations();
+    width(&page.view, 330.0);
+    page.turn();
+    page.turn();
+    assert_eq!(page.take(), [], "nothing asked of the flow");
+    page.enter();
+    assert_eq!(page.take(), [IdentityInput::Key('b')], "b, not x");
 }
 
 /// With focus off the keypad, on `control`, a live switch across 340
