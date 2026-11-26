@@ -703,7 +703,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   read is Found, or finds the form's key gone, the client goes on as
   it does after the first list read. Otherwise (not Found, or the read
   fails), Create calls the add again with the same key, alias and
-  kinds (step 2), and the add's answer is then handled
+  kinds (step 2; after the reading of "Created, not finished" that
+  finds the id not listed, with the alias that item gives), and the add's answer is then handled
   as this section says for any add, so an add that had landed answers
   `unchanged` and is Found. A failed read never ends a Create by
   itself: the add is safe to send, since it can only make the same
@@ -844,7 +845,7 @@ Outcomes other than Done, each with nothing half-made shown as made:
     example) removed the endpoint of that id before the record's delete
     succeeded
     (acceptance 11a (e)). Until that delete, the id was no identity
-    (§16 Q11), so nothing the person used is lost. The form last showed
+    (§16 Q11), so nothing the person used is lost. The form may last have shown
     `IdentityAddUnknown` (it could not check whether the identity was
     created) or `IdentityAddNotFinished` (the identity was created and
     not set up). What `IdentityAddNotFinished` says stops being true
