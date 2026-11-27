@@ -12,12 +12,13 @@
 use std::net::Ipv4Addr;
 
 use interweave_human_ui_model::{ErrorClass, RuntimeHost, UiText, fill, placeholder_en};
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort};
+use interweave_local_client_api::{AdminCapability, AdminPort};
 use interweave_transport_api::EndpointId;
 
 use crate::a11y::Bus;
 use crate::common::{Home, example, free_port, human, stranger};
 use crate::harness as human_app;
+use crate::harness::AdminOpen as _;
 
 fn spare() -> EndpointId {
     interweave_test_support::endpoint_keys::endpoint_id("human-spare")
@@ -52,9 +53,8 @@ fn home() -> Home {
 /// daemon anything (why: `harness::until_lease`).
 async fn endpoints_admin(home: &Home) -> impl AdminPort {
     home.binding()
-        .admin([AdminCapability::Endpoints].into())
+        .admin_port(&[AdminCapability::Endpoints])
         .await
-        .expect("an admin port")
 }
 
 /// Each endpoint's (enabled, persisted, leased) as the daemon reports it.

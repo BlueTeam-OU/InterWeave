@@ -47,7 +47,7 @@ use interweave_human_store::{
     OutboundDestination, SCHEMA_VERSION, StoreOptions,
 };
 use interweave_human_store::{at_rest, store_key};
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{AdminCapability, AdminPort as _};
 use interweave_profile_config::endpoint_key;
 use interweave_profile_config::endpoint_overlay::EndpointOverlay;
 use interweave_profile_config::profile_format::{self, PROFILE_FORMAT};
@@ -60,8 +60,9 @@ use interweave_human_ui_model::{UiText, placeholder_en};
 use crate::a11y::Bus;
 use crate::common::{Home, PATIENCE, example, human, stranger};
 use crate::display;
+use crate::harness::AdminOpen as _;
 use crate::harness::{
-    self as app, identity_set, lease_of, until_lease, until_lease_of, until_seeded,
+    self as app, identity_set, lease_of, trust_admin, until_lease, until_lease_of, until_seeded,
 };
 use crate::package::{self, Running};
 use crate::world::{app_store, envelope, wall_ms};
@@ -577,9 +578,9 @@ async fn identity_peers(
     endpoint: &EndpointId,
 ) -> (interweave_local_client_api::EndpointSetKind, Vec<String>) {
     use interweave_local_client_api::TrustDirection;
-    let binding = home.binding();
-    let inbound = identity_set(&binding, endpoint, TrustDirection::Inbound).await;
-    let outbound = identity_set(&binding, endpoint, TrustDirection::Outbound).await;
+    let admin = trust_admin(&home.binding()).await;
+    let inbound = identity_set(&admin, endpoint, TrustDirection::Inbound).await;
+    let outbound = identity_set(&admin, endpoint, TrustDirection::Outbound).await;
     let mut peers: Vec<String> = inbound
         .allowed
         .iter()
@@ -593,10 +594,7 @@ async fn identity_peers(
 /// What the daemon's operator's list allows, as strings.
 async fn allowed(home: &Home) -> Vec<String> {
     let binding = home.binding();
-    let port = binding
-        .admin([AdminCapability::Trust].into())
-        .await
-        .expect("an admin port");
+    let port = binding.admin_port(&[AdminCapability::Trust]).await;
     let view = port.trust().await.expect("the trust view");
     view.peers().map(|p| p.as_str().to_owned()).collect()
 }
@@ -604,10 +602,7 @@ async fn allowed(home: &Home) -> Vec<String> {
 /// Whether `endpoint` is enabled, as the daemon reports it.
 async fn endpoint_enabled(home: &Home, endpoint: &str) -> bool {
     let binding = home.binding();
-    let port = binding
-        .admin([AdminCapability::Endpoints].into())
-        .await
-        .expect("an admin port");
+    let port = binding.admin_port(&[AdminCapability::Endpoints]).await;
     port.leases()
         .await
         .expect("the endpoints")

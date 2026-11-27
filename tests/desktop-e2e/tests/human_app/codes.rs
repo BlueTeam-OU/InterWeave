@@ -58,9 +58,7 @@ use interweave_human_ui_model::{
     PeersInput, ScanControl, UiModel, UiText, ViewEvent, fill, placeholder_en,
 };
 use interweave_ipc_client::IpcBinding;
-use interweave_local_client_api::{
-    AddressSource, AdminBinding as _, AdminCapability, AdminPort, BootstrapAddress,
-};
+use interweave_local_client_api::{AddressSource, AdminCapability, AdminPort, BootstrapAddress};
 use interweave_transport_api::MAX_PAYLOAD_BYTES;
 
 use crate::a11y::{Bus, Element};
@@ -68,6 +66,7 @@ use crate::clipboard;
 use crate::common::{Home, PATIENCE, human};
 use crate::daemon_link::{Tap, asked};
 use crate::display;
+use crate::harness::AdminOpen as _;
 use crate::harness::{self as app, until_lease};
 use crate::world::two_daemons;
 
@@ -80,11 +79,7 @@ fn text(key: UiText) -> &'static str {
 /// decision 6), never the operator's list.
 async fn allowed(home: &Home) -> Vec<String> {
     use interweave_local_client_api::TrustDirection;
-    let port = home
-        .binding()
-        .admin([AdminCapability::Trust].into())
-        .await
-        .expect("an admin port");
+    let port = home.binding().admin_port(&[AdminCapability::Trust]).await;
     let set = |direction| port.endpoint_trust(human(), direction);
     let outbound = set(TrustDirection::Outbound)
         .await
@@ -102,10 +97,7 @@ async fn allowed(home: &Home) -> Vec<String> {
 /// A peers admin port, held for every read a case makes (why:
 /// `harness::until_lease`).
 async fn peers_admin(home: &Home) -> impl AdminPort {
-    home.binding()
-        .admin([AdminCapability::Peers].into())
-        .await
-        .expect("an admin port")
+    home.binding().admin_port(&[AdminCapability::Peers]).await
 }
 
 /// Every bootstrap address the daemon holds, authored then added.
@@ -315,9 +307,8 @@ async fn the_shown_code_reads_back_as_this_nodes_own_addresses_and_peer_id_alone
     let own = world
         .a
         .binding()
-        .admin([AdminCapability::Peers].into())
+        .admin_port(&[AdminCapability::Peers])
         .await
-        .expect("an admin port")
         .own_addresses()
         .await
         .expect("this node's own addresses");
