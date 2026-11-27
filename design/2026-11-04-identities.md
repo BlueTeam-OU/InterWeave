@@ -763,7 +763,10 @@ when to ask again.
 4. **Done**: Your identities opens, the new row focused, and
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
    yet.") with
-   no Undo; Remove is the way back, and it confirms (§7). The new
+   no Undo; Remove is the way back, and it confirms (§7). Until Remove
+   is built, the page has none: the plan's §30 note "Owed before this
+   stage closes" names that interim, and the Stage 22 release is not tagged without
+   Remove. The new
    identity is **not** put in front: switching is the person's act
    (cards §5.7.3). Remove, and the Save that `IdentityCardNotSaved`
    sends the person to, are on the identity's page, and a new identity
