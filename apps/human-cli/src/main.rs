@@ -246,8 +246,10 @@ fn run(
     // The admin verbs take no lease and write no store row, so an id a
     // pending-add record names is not refused to them (they run before the
     // store opens, which they cannot do while the desktop holds its lock).
-    // One limit stays: `identities default` on such an id makes the
-    // settle's remove answer `default`.
+    // Two limits stay (plan §30's note): `identities default` on such an
+    // id makes the settle's remove answer `default`; and `identities
+    // list` prints such an id where `--endpoint` names it, because it
+    // reads the daemon's list and opens no store.
     let change = match verb {
         cli::Verb::IdentitiesList => Some(Ok(admin::Identities::List)),
         cli::Verb::SetEnabled(selector, on) => Some(
