@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+mod alias;
 pub mod card_photo;
 mod cards;
 mod facade;
@@ -32,6 +33,7 @@ mod roster;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 
+pub use alias::alias_for;
 pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
 pub use facade_trait::Facade;
 /// Why the identity's key cannot be used, as a root logs it.
