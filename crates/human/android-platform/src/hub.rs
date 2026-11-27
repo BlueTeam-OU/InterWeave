@@ -1534,7 +1534,7 @@ mod tests {
         let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
         let g = hub.started(commands, held());
         let mut early = hub.attach(Arc::new(|| {}));
-        early.take();
+        let _ = early.take();
         let other = interweave_test_support::endpoint_keys::endpoint_id("created");
         hub.held_more(g, vec![other.clone()]);
         hub.held_more(g, vec![other.clone()]);

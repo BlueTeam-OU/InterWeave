@@ -1150,6 +1150,135 @@ mod tests {
         assert_eq!(draft(&other()), "of other");
     }
 
+    /// A view whose events and identity presses a test scripts, any time:
+    /// each press taken once, by the model side's turn and its identity
+    /// acts.
+    struct Scripted {
+        events: std::rc::Rc<std::cell::RefCell<Vec<ViewEvent>>>,
+        intents: std::rc::Rc<std::cell::RefCell<Vec<IdentityIntent>>>,
+    }
+
+    impl Surface for Scripted {
+        fn render(&mut self, _model: &UiModel) {}
+
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            std::mem::take(&mut *self.events.borrow_mut())
+        }
+
+        fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+            std::mem::take(&mut *self.intents.borrow_mut())
+        }
+    }
+
+    /// With two identities held, the model brought in front by a switch
+    /// -- running, and under the lock with nothing to take the switch --
+    /// is that identity's own: its session and the sends it has in flight
+    /// are its own, never the one switched from. The first is Ready with
+    /// a send in flight, the other neither; a second press of Send is
+    /// swallowed only by the identity whose send is in flight. Under the
+    /// lock the first, which was in front at the stop, is brought back
+    /// with its send failed and no Ready session.
+    /// Mutations run, each failing it: `ModelSide::exchange` not
+    /// swapping `in_flight` -- the first identity's send is swallowed
+    /// for the other; not swapping the model -- the other reads the
+    /// first's Ready session.
+    #[test]
+    fn a_switch_brings_in_the_identitys_own_session_and_sends_in_flight() {
+        let events = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let intents = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let hub = crate::Hub::new();
+        let (commands, rx) = tokio::sync::mpsc::unbounded_channel();
+        let both = Held {
+            held: vec![me(), other()],
+            front: me(),
+        };
+        let generation = hub.started(commands, both.clone());
+        let (e, i) = (std::rc::Rc::clone(&events), std::rc::Rc::clone(&intents));
+        let mut side = ViewSide::new(move || {
+            ModelSide::new(
+                Scripted {
+                    events: std::rc::Rc::clone(&e),
+                    intents: std::rc::Rc::clone(&i),
+                },
+                Blank,
+            )
+        });
+        side.apply(ToView::Held(both)).expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        let told = || rows(&[(me(), "mine"), (other(), "work")]);
+        side.apply(ToView::Identities(told())).expect("applied");
+        side.apply(ToView::Update(
+            me(),
+            Box::new(Update::Client(ClientEvent::Session(SessionState::Ready {
+                endpoint: None,
+            }))),
+        ))
+        .expect("applied");
+        // One Send pressed as the identity in front; a press of the same
+        // while it waits is not sent again.
+        let press = |side: &mut ViewSide<Scripted, Blank>| {
+            events
+                .borrow_mut()
+                .push(ViewEvent::Intent(interweave_human_ui_model::Intent::Send {
+                    key: general(),
+                    draft: "hi".to_owned(),
+                }));
+            side.side_mut()
+                .turn()
+                .iter()
+                .filter(|c| matches!(c, Command::Send { .. }))
+                .count()
+        };
+        let own = |side: &ViewSide<Scripted, Blank>, ready: bool| {
+            assert_eq!(
+                side.side().model().session_notice().is_none(),
+                ready,
+                "the session of the model in front"
+            );
+        };
+        own(&side, true);
+        assert_eq!(press(&mut side), 1, "sent");
+        assert_eq!(press(&mut side), 0, "its send is in flight");
+
+        // The other identity's own: not Ready, and no send of its own
+        // waiting, whatever the first has.
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken");
+        assert_eq!(side.side().front(), Some(&other()));
+        own(&side, false);
+        assert_eq!(press(&mut side), 1, "not swallowed by the first's send");
+        assert_eq!(press(&mut side), 0, "its own is in flight now");
+
+        // And back: the first's own, Ready with its send still waiting.
+        intents.borrow_mut().extend(choose(&me()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken");
+        own(&side, true);
+        assert_eq!(press(&mut side), 0, "its own send is still in flight");
+
+        // Under the lock, nothing to take the switch: the other is
+        // brought in front all the same, and back again, each applied
+        // locally. The stop failed the first's send and left it reading
+        // nothing Ready, which is what the first brings back; the stop's
+        // effect on an identity that was not in front is not held here.
+        drop(rx);
+        hub.retire(generation);
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        side.apply(ToView::Identities(told())).expect("applied");
+        assert_eq!(side.side().front(), Some(&me()), "the kept model shown");
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
+        assert_eq!(side.side().front(), Some(&other()), "applied locally");
+        intents.borrow_mut().extend(choose(&me()));
+        assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
+        assert_eq!(side.side().front(), Some(&me()), "and back");
+        side.apply(ToView::AuthenticationNeeded(false))
+            .expect("applied");
+        own(&side, false);
+        assert_eq!(press(&mut side), 1, "the stop failed its send in flight");
+    }
+
     #[test]
     fn a_service_that_starts_again_starts_from_a_fresh_model() {
         let mut side = view_side();
