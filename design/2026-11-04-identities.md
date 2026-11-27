@@ -764,10 +764,10 @@ when to ask again.
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
    yet.") with
    no Undo; Remove is the way back, and it confirms (§7). Until Remove
-   is built, the identity's page has none: the plan's §30 note of
-   2026-11-27 names that interim, and owes Remove before this stage
-   closes and before any release from a tree where a client offers
-   Create, the Stage 22 release included. The new
+   is built, the identity's page has no Remove. The plan's §30 note of
+   2026-11-27 records that interim, and says that Remove is owed
+   before Stage 22 closes and before any release from a tree where a
+   client offers Create, including the Stage 22 release. The new
    identity is **not** put in front: switching is the person's act
    (cards §5.7.3). Remove, and the Save that `IdentityCardNotSaved`
    sends the person to, are on the identity's page, and a new identity
