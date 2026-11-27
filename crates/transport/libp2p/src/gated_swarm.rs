@@ -751,6 +751,32 @@ impl GatedSwarm {
         futures::StreamExt::select_next_some(&mut self.inner)
     }
 
+    /// The next Swarm event, or `None` as soon as the Swarm, polled, has
+    /// none ready -- when `idle_answers`; without it, the next event
+    /// alone, as [`Self::select_next_some`].
+    ///
+    /// The runtime's loop has one branch that may borrow the Swarm, so
+    /// the moment it has nothing ready -- when a held wildcard `listen`
+    /// is answered (`runtime::dialing::answer_settled_listens`) -- is
+    /// read from that same poll.
+    pub async fn next_or_idle(
+        &mut self,
+        idle_answers: bool,
+    ) -> Option<SwarmEvent<SubstrateBehaviourEvent>> {
+        std::future::poll_fn(|cx| {
+            match futures::StreamExt::poll_next_unpin(&mut self.inner, cx) {
+                std::task::Poll::Ready(Some(event)) => std::task::Poll::Ready(Some(event)),
+                std::task::Poll::Pending if idle_answers => std::task::Poll::Ready(None),
+                // A Swarm's stream does not end (`Swarm::poll_next` maps
+                // every event to `Some`), so its `None` is read as the
+                // Swarm having nothing to say, as `select_next_some`
+                // reads it.
+                std::task::Poll::Ready(None) | std::task::Poll::Pending => std::task::Poll::Pending,
+            }
+        })
+        .await
+    }
+
     /// Dial, given an admission.
     ///
     /// Returns the ticket back on a SYNCHRONOUS failure. libp2p reports

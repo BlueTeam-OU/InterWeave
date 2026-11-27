@@ -490,6 +490,109 @@ async fn a_configured_peer_is_not_unknown_before_the_first_tick() {
     subject.shutdown().await.expect("clean shutdown");
 }
 
+/// The same promise on a WILDCARD listener (j237): a peer held only in
+/// the peer cache at a private-range address is not `PeerUnknown` to a
+/// send made as `start` returns. ADR-0052 rule 3 admits that address
+/// only beside a private listener, and a wildcard listener reports its
+/// loopback address before its LAN one; as this was found, `listen`
+/// answered at the first, the peer cache's offer raced the second, and
+/// about one start in six refused the address and answered the send
+/// `PeerUnknown` until the next discovery round. Many starts, because
+/// one start passes the race more often than not. The control: a
+/// trusted peer nothing names is `PeerUnknown`.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_cached_lan_peer_is_not_unknown_on_a_wildcard_listener() {
+    use interweave_discovery_cache::{CacheLimits, PeerCache};
+    use interweave_local_client_api::{
+        DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionRequest,
+    };
+    use interweave_transport_api::{DirectDestination, MessageId, Payload, TransportError};
+
+    /// The reverted answer lost about one start in six, so thirty make
+    /// its passing a run about one in 240.
+    const STARTS: u8 = 30;
+
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let scratch = tempfile::tempdir().expect("scratch");
+    let (_, cached) = id();
+    let (_, unknown) = id();
+    let with_cache = "    - type: peer-cache\n      enabled: true\n      priority: 20\n";
+    for start in 0..STARTS {
+        // A fresh cache file per start: a start's shutdown flushes what
+        // it learned, and the next start must hold only the seeded route.
+        let cache_file = scratch.path().join(format!("peers-{start}.json"));
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("after the epoch")
+            .as_millis();
+        let now = u64::try_from(now).expect("in range");
+        let mut cache = PeerCache::load(&cache_file, CacheLimits::default()).expect("loads");
+        // A port nothing listens on: the dial is refused, the peer is
+        // known.
+        cache
+            .record_success(&cached, &format!("/ip4/{ip}/tcp/9"), now)
+            .expect("in bounds");
+        cache.flush(now).expect("written");
+
+        let (a_id, _) = id();
+        let subject = ComposedRuntime::start(
+            &a_id,
+            &profile(&[&cached, &unknown], &[], with_cache),
+            CompositionOptions {
+                listen: vec!["/ip4/0.0.0.0/tcp/0".to_owned()],
+                peer_cache_file: Some(cache_file),
+                discovery_interval: Duration::from_secs(3_600),
+                ..CompositionOptions::default()
+            },
+        )
+        .await
+        .expect("a composes");
+        let session = subject
+            .sessions()
+            .open(
+                SessionRequest::new(
+                    "human-client",
+                    Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
+                    [DataCapability::Commands],
+                )
+                .expect("in bounds"),
+            )
+            .await
+            .expect("a leases");
+        let direct = |peer: &TransportIdentity, n: u8| {
+            session.send_direct(
+                DirectDestination {
+                    peer: peer.clone(),
+                    endpoint: Some(interweave_test_support::endpoint_keys::endpoint_id("human")),
+                },
+                MessageId::from_bytes([n; 16]),
+                Payload::at_ceiling(None, b"as start returns".to_vec()).expect("in bounds"),
+            )
+        };
+        let sent = tokio::time::timeout(PATIENCE, direct(&cached, 1))
+            .await
+            .expect("answered");
+        assert!(
+            matches!(&sent, Err(e) if *e != TransportError::PeerUnknown),
+            "start {start}: the cached LAN peer is known and unreachable: {sent:?}"
+        );
+        // The control once, at the first start: what answers
+        // `PeerUnknown` is the book, not admission.
+        if start == 0 {
+            let sent = tokio::time::timeout(PATIENCE, direct(&unknown, 2))
+                .await
+                .expect("answered");
+            assert_eq!(
+                sent,
+                Err(TransportError::PeerUnknown),
+                "the control: a trusted peer nothing names"
+            );
+        }
+        drop(session);
+        subject.shutdown().await.expect("clean shutdown");
+    }
+}
+
 /// The peer cache persists what this node reached and a restart comes
 /// back to it (`providers/peer-cache.md`; #137 review F3): A reaches B
 /// through its static bootstrap, shuts down, and a new A holding only
@@ -567,8 +670,11 @@ async fn a_reached_peer_survives_a_restart_through_the_peer_cache() {
 /// once the boundary WIDENS, not after the discovery memo's five-minute
 /// relearn (j133). The race that found it -- a wildcard listener
 /// reporting loopback before its LAN address, the cache's private route
-/// offered in between -- is not reproducible on demand, so the same
-/// refusal is made here with rule 10: the restarted A's platform view
+/// offered in between -- was not reproducible on demand, and has since
+/// been closed where it arose: `listen` answers a wildcard listen after
+/// its listener's interfaces are reported (j237,
+/// `a_cached_lan_peer_is_not_unknown_on_a_wildcard_listener`). So the
+/// same refusal is made here with rule 10: the restarted A's platform view
 /// classifies its LAN address as on no local network, which leaves A no
 /// private listener, and only then is B allowed, which makes the memo
 /// offer B's cached route at once (`set_trust`) and the book refuse it.

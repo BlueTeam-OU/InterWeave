@@ -224,6 +224,15 @@ const MATRIX: &[Clause] = &[
         error: "PeerUnknown",
         proof: Proof::Test("a_configured_peer_is_not_unknown_before_the_first_tick"),
     },
+    // On a wildcard listener too (j237): thirty starts on `0.0.0.0`,
+    // each sending to a cached private-range peer as start returns,
+    // beside a trusted unnamed peer that is `PeerUnknown`.
+    Clause {
+        doc: DIRECT,
+        text: "a cached LAN peer was refused at start and answered `PeerUnknown` in about one start in six",
+        error: "PeerUnknown",
+        proof: Proof::Test("a_cached_lan_peer_is_not_unknown_on_a_wildcard_listener"),
+    },
     Clause {
         doc: DIRECT,
         text: "connection failure -> `PeerUnreachable`",
