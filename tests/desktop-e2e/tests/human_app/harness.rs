@@ -227,10 +227,7 @@ pub(crate) async fn lease_of(binding: &IpcBinding, endpoint: &EndpointId) -> Opt
 }
 
 async fn endpoints_admin(binding: &IpcBinding) -> impl AdminPort {
-    binding
-        .admin([AdminCapability::Endpoints].into())
-        .await
-        .expect("an admin port")
+    binding.admin_port(&[AdminCapability::Endpoints]).await
 }
 
 async fn lease_on(
@@ -256,8 +253,9 @@ async fn lease_on(
 /// (`BackendUnavailable`, `ShuttingDown`) is dropped and the next turn
 /// opens another; any other answer to the read fails the wait with it.
 /// An open the daemon refuses for want of room (`Overloaded`) or for
-/// being away is a turn too, retried to the deadline: the slot a port
-/// closed elsewhere keeps frees when its task ends (see [`held_port`]).
+/// being away is a turn too, retried to the deadline ([`held_port`]); a
+/// one-shot read opens through [`AdminOpen`], which asks again the same
+/// way.
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     until_lease_of(binding, &human(), held, app).await;
 }
@@ -266,10 +264,7 @@ pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
 /// identities' sets with [`identity_set`]. A case opens one per wait or
 /// per read site and asks every read on it, as [`until_lease`] says.
 pub(crate) async fn trust_admin(binding: &IpcBinding) -> impl AdminPort + use<> {
-    binding
-        .admin([AdminCapability::Trust].into())
-        .await
-        .expect("an admin port")
+    binding.admin_port(&[AdminCapability::Trust]).await
 }
 
 /// One direction of `endpoint`'s trust set as the daemon reports it, on
@@ -301,9 +296,11 @@ async fn identity_set_on(
 pub(crate) async fn until_seeded(binding: &IpcBinding, endpoint: &EndpointId, app: &App) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut admin = None;
+    let mut refused = None;
     loop {
         if let Some(port) = held_port(
             &mut admin,
+            &mut refused,
             binding,
             &[AdminCapability::Trust],
             "the trust set",
@@ -326,20 +323,44 @@ pub(crate) async fn until_seeded(binding: &IpcBinding, endpoint: &EndpointId, ap
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "the first identity was never seeded: {}",
+            "the first identity was never seeded{}: {}",
+            refusal_note(refused.as_ref()),
             app.log()
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
     }
 }
 
+/// Whether an admin open's refusal passes: the daemon has no room for
+/// one more connection (`Overloaded`) or is away (`BackendUnavailable`,
+/// `ShuttingDown`). A slot a port closed elsewhere keeps frees when its
+/// task ends, so such an open is asked again until the deadline.
+fn refusal_passes(e: TransportError) -> bool {
+    matches!(
+        e,
+        TransportError::Overloaded
+            | TransportError::BackendUnavailable
+            | TransportError::ShuttingDown
+    )
+}
+
+/// What a wait that read nothing says at its deadline: the last open the
+/// daemon refused, so a failure names its cause rather than the state
+/// it never got to read.
+fn refusal_note(refused: Option<&TransportError>) -> String {
+    refused.map_or_else(String::new, |e| {
+        format!(" (no read: the last admin open was refused {e:?})")
+    })
+}
+
 /// The port a wait asks this turn: the one it held, else a new one with
 /// `capabilities`. `None` when the open was refused for a reason that
-/// passes (`Overloaded`, `BackendUnavailable`, `ShuttingDown`), so the
-/// turn counts against the deadline and the next opens again; any other
-/// refusal fails the wait with the app's log.
+/// passes ([`refusal_passes`]), which is kept in `refused` for the
+/// deadline's message; the turn counts against the deadline and the next
+/// opens again. Any other refusal fails the wait with the app's log.
 async fn held_port(
     held: &mut Option<IpcAdmin>,
+    refused: &mut Option<TransportError>,
     binding: &IpcBinding,
     capabilities: &[AdminCapability],
     what: &str,
@@ -349,13 +370,37 @@ async fn held_port(
         return Some(port);
     }
     match binding.admin(capabilities.iter().copied().collect()).await {
-        Ok(port) => Some(port),
-        Err(
-            TransportError::Overloaded
-            | TransportError::BackendUnavailable
-            | TransportError::ShuttingDown,
-        ) => None,
+        Ok(port) => {
+            *refused = None;
+            Some(port)
+        }
+        Err(e) if refusal_passes(e) => {
+            *refused = Some(e);
+            None
+        }
         Err(e) => panic!("an admin port for {what}: {e:?}\n{}", app.log()),
+    }
+}
+
+/// An admin port opened once, for a read that is not a wait: an open
+/// refused for a reason that passes ([`refusal_passes`]) is asked again
+/// every 100 ms until [`PATIENCE`], and the panic names the last refusal.
+pub(crate) trait AdminOpen {
+    async fn admin_port(&self, capabilities: &[AdminCapability]) -> IpcAdmin;
+}
+
+impl AdminOpen for IpcBinding {
+    async fn admin_port(&self, capabilities: &[AdminCapability]) -> IpcAdmin {
+        let deadline = tokio::time::Instant::now() + PATIENCE;
+        loop {
+            match self.admin(capabilities.iter().copied().collect()).await {
+                Ok(port) => return port,
+                Err(e) if refusal_passes(e) && tokio::time::Instant::now() < deadline => {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+                Err(e) => panic!("an admin port: {e:?}"),
+            }
+        }
     }
 }
 
@@ -368,9 +413,11 @@ pub(crate) async fn until_lease_of(
 ) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut admin = None;
+    let mut refused = None;
     loop {
         if let Some(port) = held_port(
             &mut admin,
+            &mut refused,
             binding,
             &[AdminCapability::Endpoints],
             "the leases",
@@ -387,8 +434,9 @@ pub(crate) async fn until_lease_of(
         }
         assert!(
             tokio::time::Instant::now() < deadline,
-            "the human lease never became {}: {}",
+            "the human lease never became {}{}: {}",
             if held { "held" } else { "free" },
+            refusal_note(refused.as_ref()),
             app.log()
         );
         tokio::time::sleep(Duration::from_millis(100)).await;

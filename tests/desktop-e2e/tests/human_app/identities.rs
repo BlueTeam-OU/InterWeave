@@ -15,11 +15,12 @@
 use std::net::Ipv4Addr;
 use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
 
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{AdminCapability, AdminPort as _};
 use interweave_profile_config::endpoint_overlay::EndpointOverlay;
 use interweave_transport_api::EndpointId;
 
 use crate::common::{Home, example, free_port, human, stranger};
+use crate::harness::AdminOpen as _;
 use crate::harness::{self as human_app, until_lease_of};
 
 /// Mint a key for `alias` with `transportctl endpoint init`, and add its
@@ -72,10 +73,7 @@ async fn an_added_identity_is_leased_unadvertised_beside_the_first() {
     until_lease_of(&binding, &human(), true, &app).await;
     until_lease_of(&binding, &added, true, &app).await;
 
-    let admin = binding
-        .admin([AdminCapability::Endpoints].into())
-        .await
-        .expect("an admin port");
+    let admin = binding.admin_port(&[AdminCapability::Endpoints]).await;
     let rows = admin.leases().await.expect("admin.endpoints.list");
     for endpoint in [human(), added] {
         let row = rows
