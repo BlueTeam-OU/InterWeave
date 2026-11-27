@@ -511,6 +511,25 @@ pub fn sealed(paths: &ProfilePaths) -> Result<Vec<EndpointId>, IdentityKeyFileEr
     Ok(ids)
 }
 
+/// Whether a file stands at `endpoint`'s [`key_path`]: ADR-0061 decision
+/// 7's "key file at its key path", which the settle of a pending-add
+/// record asks of an id the endpoint list holds. Judged by the entry's
+/// metadata and NOT by opening it, so a file this process cannot read --
+/// mode 0000, another custody, a damaged record -- is still present
+/// (`design/2026-11-04-identities.md` §6.2: such an id becomes an identity
+/// whose page shows the file's refusal, and is never discarded); a link or
+/// anything else at the name is present too, as [`install`] counts it.
+/// The key directory is judged first, as every read of it is.
+///
+/// # Errors
+/// [`IdentityKeyFileError::Read`] for a key directory that is a link, not
+/// a directory, another account's or not private; a persistence error for
+/// a name whose metadata cannot be read.
+pub fn present(paths: &ProfilePaths, endpoint: &EndpointId) -> Result<bool, IdentityKeyFileError> {
+    keys_dir_is_safe(paths, ENDPOINT_KEYS_DIR)?;
+    file_present(&key_path(paths, endpoint))
+}
+
 /// The legacy path of `label`, a label of the alias grammar alone.
 fn checked_legacy_path(paths: &ProfilePaths, label: &str) -> Result<PathBuf, IdentityKeyFileError> {
     EndpointAlias::parse(label).map_err(|_| IdentityKeyFileError::NotALabel)?;
