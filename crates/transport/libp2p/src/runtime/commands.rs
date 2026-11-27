@@ -1615,7 +1615,10 @@ pub(super) fn translate(
                 // A HELD WILDCARD LISTEN is bound and serving: libp2p's
                 // listener error is not fatal, and its interface watcher
                 // failing is no failed bind, so it is answered with its
-                // first address as the idle Swarm would have answered it
+                // first address as the idle Swarm would have answered it:
+                // libp2p-tcp 0.45 pauses a listener 100 ms after its error
+                // (`sleep_on_error`), so the Swarm is idle at once and no
+                // later address of it could arrive before the idle answer
                 // (`a_listener_error_answers_a_held_wildcard_listen_with_its_address`).
                 // Its caller gone, it belongs to nobody, and the sweep
                 // after this event no longer finds it in `listens`, so it

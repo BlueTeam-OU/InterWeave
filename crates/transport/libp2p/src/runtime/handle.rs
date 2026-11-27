@@ -105,10 +105,10 @@ impl SwarmRuntime {
     /// On an UNSPECIFIED IP (`0.0.0.0`, `::`) the listener reports one
     /// address per interface, and the answer -- the first it reported,
     /// or the earliest still bound if that one expired -- waits until
-    /// the Swarm has nothing more ready, so
-    /// every interface its watcher already holds is bound, recorded and
-    /// counted by ADR-0052 rule 3 ([`Self::listener_widenings`]) when
-    /// this returns. As this was found (j237) it answered at the first,
+    /// the Swarm has nothing more ready, so every interface its watcher
+    /// already holds is bound and recorded when this returns, and every
+    /// private-range one among them is in ADR-0052 rule 3's boundary and
+    /// counted by [`Self::listener_widenings`]. As this was found (j237) it answered at the first,
     /// the loopback address, and a private candidate learned at once
     /// raced the LAN address's report
     /// (`a_wildcard_listen_answers_once_its_lan_address_is_observed`).
@@ -128,7 +128,13 @@ impl SwarmRuntime {
     /// Returns [`SubstrateError::Stopped`] if the task is gone,
     /// [`SubstrateError::ListenDenied`] if the platform refused this
     /// process the socket, or [`SubstrateError::Transport`] if the
-    /// listener could not bind for any other reason.
+    /// listener could not bind for any other reason. A wildcard listen
+    /// is also answered with an error after its listener bound: with
+    /// [`SubstrateError::Transport`] if the listener closed before the
+    /// answer (`stop_listening` on an address already reported), and
+    /// with the listener's own error -- `Transport`, or `ListenDenied`
+    /// when its cause is a refused permission -- if it fails while
+    /// holding no address.
     pub async fn listen(&self, address: Multiaddr) -> Result<Multiaddr, SubstrateError> {
         let (reply, answer) = oneshot::channel();
         self.commands

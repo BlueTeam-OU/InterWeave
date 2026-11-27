@@ -90,12 +90,11 @@ async fn a_wildcard_listen_answers_once_its_lan_address_is_observed() {
             assigned_port(&bound).is_some_and(|port| port != 0),
             "the answer is a bound address, not the wildcard asked for: {bound}"
         );
-        // The widening count is not asserted here: it moves only when
-        // the LAN address is reported AFTER another (a first observation
-        // fills, it does not widen), and which interface the dump names
-        // first is the kernel's order. The book's verdict is what rule 3
-        // decided, whatever the order.
-        let _ = widened;
+        // The LAN address widened rule 3's boundary before the answer,
+        // whichever interface the kernel named first: a first private
+        // observation widens too
+        // (`a_private_listener_observed_first_widens_the_boundary`).
+        assert!(widened >= 1, "start {start}: widened {widened} times");
         assert_eq!(
             learned, 1,
             "start {start}: a private candidate is admitted as `listen` returns"
@@ -124,8 +123,10 @@ async fn a_specific_ip_listen_answers_with_its_address() {
     .await;
     assert_eq!(bound.iter().next(), Some(Protocol::Ip4(ip)));
     assert!(assigned_port(&bound).is_some_and(|port| port != 0));
-    // Not asserted: a first observation fills the boundary rather than
-    // widening it, so the book's verdict is the reading.
+    // Not asserted: a specific-IP listen is answered inside the event
+    // that reports its address, before the task records the listener, so
+    // the count read as `listen` returns need not have moved (measured:
+    // 0). The `learn` the task handles after that event is the reading.
     let _ = widened;
     assert_eq!(learned, 1);
 }

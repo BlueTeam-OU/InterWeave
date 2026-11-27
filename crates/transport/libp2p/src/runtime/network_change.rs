@@ -529,6 +529,21 @@ mod tests {
         list.iter().map(|a| a.parse().expect("a literal")).collect()
     }
 
+    #[test]
+    fn a_private_listener_observed_first_widens_the_boundary() {
+        let held = crate::held_listeners::HeldListeners::new();
+        let widenings = held.widenings();
+        let mut set = NetworkSet::publishing_to(held);
+        let _ = set.observe_listeners(addrs(&["/ip4/192.168.1.5/tcp/4001"]).iter());
+        assert_eq!(widenings.count(), 1, "a first observation widens");
+        // Control: loopback first widens nothing.
+        let held = crate::held_listeners::HeldListeners::new();
+        let loopback = held.widenings();
+        let mut set = NetworkSet::publishing_to(held);
+        let _ = set.observe_listeners(addrs(&["/ip4/127.0.0.1/tcp/4001"]).iter());
+        assert_eq!(loopback.count(), 0, "loopback is no private listener");
+    }
+
     fn ip(s: &str) -> IpAddr {
         s.parse().expect("an ip")
     }
