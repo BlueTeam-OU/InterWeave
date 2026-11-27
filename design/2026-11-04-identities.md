@@ -636,8 +636,8 @@ no seed was answered offers no Add; what the person reads there is the
 add form's design to say, and no state is drawn for the seed itself."
 Ruled for this note (§16 Q12, architect-cto's REPLY 01a21bc6-1ba2): the
 gated control is the one that creates, Create, and "offers no Add" is
-restated "offers no Create" in the plan note that rides rust-ui-dev-02's
-next PR; the form may ask the seed itself; and "no state is drawn for
+restated "offers no Create" in the plan's note of 2026-11-27, which
+lands with this text; the form may ask the seed itself; and "no state is drawn for
 the seed itself" holds outside the form (the Trust screen shows none).
 So Add an identity and Add another identity open the form in every run,
 and the form offers Create only after a seed was answered `seeded` or
@@ -647,10 +647,9 @@ pending-add record is written and no add is sent.
   this run, the client asks the first identity's seed on an
   administrative connection of its own, as a trust connection does
   (ADR-0067 d. 6; `LOCAL-IPC.md`, `admin.trust.seed`, whose "opened
-  for a trust act" is widened to name the add form's connection in the
-  supply that rides rust-ui-dev-02's next PR, and not yet on `main`
-  when this was written; §16 Q12), waiting at most the add's wait
-  (below). Leaving the form while the seed is asked ends nothing that
+  for a trust act" is widened to name the add form's connection
+  (A 2026-11-27, which lands with this text; §16 Q12), waiting at
+  most the add's wait (below). Leaving the form while the seed is asked ends nothing that
   the person sees: an answer that arrives after the form is left only
   records, for the run, that a seed was answered. While it is asked,
   Create shows but is inert: choosing it does nothing, its accessible
@@ -1931,8 +1930,7 @@ pass before it lands.
     Close without saving: no add was sent, and no key file and no
     record remain. In the fourth, the seam delays the answer past the
     add's wait: the line shows when that wait ends. Needs the plan note's
-    "offers no Create" and `LOCAL-IPC.md`'s widened seed ask (§16 Q12),
-    which ride rust-ui-dev-02's next PR.
+    "offers no Create" and `LOCAL-IPC.md`'s widened seed ask (§16 Q12).
     (v) An add from the command line, of another key with the alias
     `anna-rossi`, left ahead
     of the running device (the seam of (c)), so that the list lacks it;
@@ -2385,8 +2383,8 @@ Asked of architect-cto with this note's j200 revision (QUESTION
   (a) the gated control is Create; the form may open and take the
   card's values while no key pair is generated, no record written and
   no add sent before a seed is answered; the plan note's "offers no
-  Add" is restated "offers no Create" in the supply that rides
-  rust-ui-dev-02's next PR. (b) The form's opening may ask the seed on
+  Add" is restated "offers no Create" in the plan's note of
+  2026-11-27, which lands with this text. (b) The form's opening may ask the seed on
   an administrative connection of its own, for the first identity
   alone; `LOCAL-IPC.md`'s "opened for a trust act" is widened in the
   same supply; what asks again while the form waits is this note's to
