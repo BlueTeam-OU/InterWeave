@@ -476,8 +476,8 @@ its key check wrote its entry after the remove answered
 `EndpointUnknown`, the entry would stand with its key gone and its
 record deleted; the identity is then listed as any whose key is
 missing is, and removed by the person, as the 2026-11-25 note leaves
-the same case of a replacement. Neither the form nor the record is
-built (`STATE.md` §Logical tables), so no build did otherwise.
+the same case of a replacement. As this note was written neither the form
+nor the record was built, so no build did otherwise.
 
 Propagation: decision 7; this note; the log row; the digest entry, a
 bullet of its own; `STATE.md` §Logical tables, the record. The design
@@ -623,9 +623,8 @@ seal and the record, which this order leaves no way to reach; and
 the record is written but before the administrative add" now holds two
 cases: with the key not yet sealed the record is discarded and the old
 identity stands as before, and with the key sealed it ends as written
-there. Neither
-record is built (`STATE.md` §Logical tables), so no build did
-otherwise.
+there. As this note was written neither
+record was built, so no build did otherwise.
 
 ### Amendment 2026-11-26 — A write of a pending-add record refused at the bound settles the other records and is made once more (iii)
 
@@ -669,8 +668,8 @@ the list's opening, and is not changed by this note.
 
 Propagation: decision 7, both sentences; this note; the log row; the
 digest entry's pending-add bullet; `STATE.md` §Logical tables, the
-pending-add record. Neither the record nor the form is built
-(`STATE.md` §Logical tables), so no build did otherwise.
+pending-add record. As this note was written neither the record
+nor the form was built, so no build did otherwise.
 
 ### Amendment 2026-11-27 — An add answered `exists` is not a known refusal, and an add form's closing settles the records
 
