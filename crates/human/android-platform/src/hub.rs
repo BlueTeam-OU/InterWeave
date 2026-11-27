@@ -229,8 +229,9 @@ struct Slot {
     /// The identities the facade that runs holds, while one does.
     held: Option<Held>,
     /// The held identities the facade that runs last told, while one
-    /// runs and once it has told them: at most a client's identity cap
-    /// of rows, replaced whole.
+    /// runs and once it has told them, replaced whole. Its length is the
+    /// roster's, which app-core's `Roster::new` bounds by the identity cap
+    /// (`more_identities_than_the_bound_are_refused`).
     identities: Option<Vec<HeldIdentity>>,
     /// Whether the platform gives this app network access, as the
     /// Service last said; access is assumed until it says otherwise.
@@ -466,7 +467,8 @@ impl Hub {
         }
         viewer.send(ToView::Running(slot.running));
         // After the running state, as a start tells them: the model that
-        // state makes is the one told. Kept only while a facade runs.
+        // state makes is the one told. Kept only while a facade runs
+        // (`a_view_attached_late_is_told_the_identities_last_told`).
         if let Some(identities) = slot.identities.clone() {
             viewer.send(ToView::Identities(identities));
         }

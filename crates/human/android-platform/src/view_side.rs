@@ -387,9 +387,11 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
 
     /// Run `act` on the model side, each crossing it sends handed to
     /// `cross` until one is handed back; the front is recorded only from
-    /// an accepted [`Crossing::Front`], and every command handed back or
-    /// not crossed is failed to its identity's model. True when one was
-    /// handed back.
+    /// an accepted [`Crossing::Front`]
+    /// (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`,
+    /// `a_model_made_after_a_switch_is_named_with_the_new_front`), and every
+    /// command handed back or not crossed is failed to its identity's
+    /// model. True when one was handed back.
     fn carry(
         &mut self,
         mut cross: impl FnMut(Crossing) -> Result<(), Crossing>,

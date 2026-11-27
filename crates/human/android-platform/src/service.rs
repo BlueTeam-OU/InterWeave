@@ -187,8 +187,8 @@ pub struct ServiceHost {
     /// their own, so the callback never waits on a start
     /// (`tests/service.rs`: `a_network_report_never_waits_on_a_start`).
     network: Mutex<NetworkSlot<Arc<EmbeddedHost>>>,
-    /// Why the last start's identity key was not opened or made, if it
-    /// was not: the app logs its class, as the desktop prints it (#414 F3).
+    /// Why the last start's identity key was not opened, if it was not
+    /// (no key is made in its place, ADR-0067 decision 5): the app logs its class, as the desktop prints it (#414 F3).
     key_refused: Arc<Mutex<Option<KeyProblem>>>,
     /// Each identity other than the first whose key was not opened at the
     /// last start, by the problem's kind alone, which names no folder
@@ -345,8 +345,10 @@ impl ServiceHost {
     /// The roster made by `make`, each held identity given its key from
     /// its own file under the Keystore at that identity's own alias
     /// (ADR-0063 decision 2, app-core's `KeySource`), one source per
-    /// identity (`each_held_identity_opens_its_own_key`): opened, or made
-    /// the first time before any share of its card. The store's cipher is
+    /// identity (`each_held_identity_opens_its_own_key`): opened from its
+    /// own file, and a missing or refused file is kept as that identity's
+    /// problem, no key made in its place (ADR-0067 decision 5; app-core's
+    /// `identity_key_under`). The store's cipher is
     /// the same bridge, each secret under its own alias namespace. A file
     /// this build refuses, or one gone after a share, is left as it is:
     /// the identity's page says so and offers what it can, and its
