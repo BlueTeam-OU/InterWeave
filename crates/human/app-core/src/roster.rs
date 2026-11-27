@@ -48,7 +48,9 @@
 //!   (`an_identity_made_while_the_roster_runs_is_asserted_leased_and_told`);
 //!   a roster given no factory holds no more, and the bound holds at
 //!   runtime too (`a_roster_given_no_factory_holds_no_more`,
-//!   `the_bound_holds_at_runtime_too`);
+//!   `the_bound_holds_at_runtime_too`); one whose hold is refused after
+//!   its record's delete is told not held and held at a later poll
+//!   (`an_identity_whose_hold_is_refused_is_told_and_held_at_a_later_poll`);
 //! - an add form's Create, its leaving and the settle of pending-add
 //!   records run here, polled at each turn and never awaited
 //!   ([`Roster::add`] has what each is held to and its test);
@@ -254,6 +256,10 @@ struct Adding<A> {
     owed: bool,
     /// The first turn ran: its settle moment is past.
     started: bool,
+    /// The identities a Create made or a settle found whose hold was
+    /// refused after their record was deleted, with their alias: held
+    /// at a later poll. At most [`IDENTITY_CAP`]: no more can be held.
+    unheld: Vec<(EndpointId, Option<String>)>,
     told: Vec<AddTold>,
 }
 
@@ -264,6 +270,7 @@ impl<A> Adding<A> {
             settle: None,
             owed: false,
             started: false,
+            unheld: Vec::new(),
             told: Vec::new(),
         }
     }
@@ -788,6 +795,12 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     where
         A: AssertingBinding,
     {
+        if self.factory.is_none() {
+            return;
+        }
+        for (endpoint, alias) in std::mem::take(&mut self.adding.unheld) {
+            self.hold_again(endpoint, alias);
+        }
         let Some(factory) = self.factory.as_ref() else {
             return;
         };
@@ -884,12 +897,38 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     }
 
     /// Hold an identity a Create made or a settle found, and tell it.
+    /// Its record is deleted already, so a refusal -- the store unread,
+    /// the bound -- is told [`AddTold::NotHeld`] and the hold is tried
+    /// again at each later poll until it is held
+    /// (`an_identity_whose_hold_is_refused_is_told_and_held_at_a_later_poll`).
     fn hold_told(&mut self, endpoint: EndpointId, alias: Option<String>)
     where
         A: AssertingBinding,
     {
-        if self.hold_added(endpoint.clone(), alias).is_ok() {
-            self.adding.told.push(AddTold::Held(endpoint));
+        if self.hold_again(endpoint.clone(), alias) {
+            self.adding.told.push(AddTold::NotHeld(endpoint));
+        }
+    }
+
+    /// Try to hold `endpoint` and tell it held; refused, keep it for the
+    /// next poll. Whether the hold was refused.
+    fn hold_again(&mut self, endpoint: EndpointId, alias: Option<String>) -> bool
+    where
+        A: AssertingBinding,
+    {
+        match self.hold_added(endpoint.clone(), alias.clone()) {
+            Ok(()) => {
+                self.adding.told.push(AddTold::Held(endpoint));
+                false
+            }
+            Err(HoldRefused::Held) => false,
+            Err(_) => {
+                let unheld = &mut self.adding.unheld;
+                if unheld.len() < IDENTITY_CAP && !unheld.iter().any(|(e, _)| *e == endpoint) {
+                    unheld.push((endpoint, alias));
+                }
+                true
+            }
         }
     }
 

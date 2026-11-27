@@ -396,6 +396,7 @@ const fn add_class(told: &AddTold) -> &'static str {
             (AddOutcome::KeyGone, _) => "the form's key is gone",
         },
         AddTold::Held(_) => "an identity is held from now on",
+        AddTold::NotHeld(_) => "an identity is not held yet, tried again",
     }
 }
 

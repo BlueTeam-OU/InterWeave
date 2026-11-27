@@ -815,3 +815,82 @@ async fn a_forms_closing_settles_its_own_record_with_one_identity_held() {
     assert!(device.log.steps().contains(&Step::Removed(own.clone())));
     assert_eq!(roster.held().len(), 1, "nothing held");
 }
+
+/// An identity whose hold is refused after its record is deleted is told
+/// [`AddTold::NotHeld`] and held at a later poll, with no restart. The
+/// record is put behind a view by a second connection, so that every
+/// read of it fails once a delete ran, until the test clears that: the
+/// Create's delete then fails the hold's read of the record. Mutations:
+/// the refusal told nothing -- no `NotHeld`; the hold not tried again --
+/// never held.
+#[tokio::test]
+async fn an_identity_whose_hold_is_refused_is_told_and_held_at_a_later_poll() {
+    let mut device = Device::new();
+    device.script(|s| s.adds.push_back(Reply::Now(Err(TransportError::Internal))));
+    let dir = common::private_tempdir();
+    let path = dir.path().join("human.sqlite3");
+    let store = HumanStore::open(&path, &human(), StoreOptions::default()).expect("a store");
+    let mut roster = device.roster(store, Vec::new());
+    started(&mut roster).await;
+    offered(&mut roster, 5);
+    roster.add(create("Anna"), 5);
+    let told = roster.take_add_told();
+    assert!(
+        told.contains(&AddTold::Ended {
+            outcome: AddOutcome::Unknown,
+            card: None
+        }),
+        "{told:?}"
+    );
+    let records = device.records();
+    assert_eq!(records.len(), 1);
+    let id = records[0].clone();
+
+    // abs() of i64::MIN is an error, so the view fails every read while
+    // `fail_reads` holds a row, rows or none (the second SELECT runs once
+    // and yields nothing); the record's delete writes one.
+    let second = rusqlite::Connection::open(&path).expect("a second connection");
+    second
+        .execute_batch(
+            "CREATE TABLE fail_reads (n INTEGER);
+             ALTER TABLE pending_adds RENAME TO pending_adds_rows;
+             CREATE VIEW pending_adds AS
+                 SELECT rowid AS rowid, endpoint_id FROM pending_adds_rows
+                 UNION ALL SELECT 0, NULL
+                 WHERE abs(-9223372036854775807 - (SELECT COUNT(*) FROM fail_reads)) < 0;
+             CREATE TRIGGER pending_adds_delete INSTEAD OF DELETE ON pending_adds
+                 BEGIN
+                     DELETE FROM pending_adds_rows WHERE endpoint_id = OLD.endpoint_id;
+                     INSERT INTO fail_reads VALUES (1);
+                 END;",
+        )
+        .expect("the view");
+    assert_eq!(
+        device.records(),
+        std::slice::from_ref(&id),
+        "reads until a delete"
+    );
+
+    device.script(|s| s.listed = vec![view(&id, "anna")]);
+    roster.add(create("Anna"), 6);
+    let told = roster.take_add_told();
+    let (endpoint, _, _) = created(&told);
+    assert_eq!(endpoint, id);
+    assert!(told.contains(&AddTold::NotHeld(id.clone())), "{told:?}");
+    assert!(!told.contains(&AddTold::Held(id.clone())), "{told:?}");
+    assert!(!roster.held().any(|e| e == &id), "not held yet");
+    roster.turn(7).await;
+    assert!(
+        roster.take_add_told().is_empty(),
+        "still refused, told once"
+    );
+    assert!(!roster.held().any(|e| e == &id));
+
+    second
+        .execute("DELETE FROM fail_reads", [])
+        .expect("reads again");
+    roster.turn(8).await;
+    assert_eq!(roster.take_add_told(), [AddTold::Held(id.clone())]);
+    assert!(roster.held().any(|e| e == &id), "held with no restart");
+    assert_eq!(roster.take_held_more().len(), 1);
+}

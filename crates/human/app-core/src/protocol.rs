@@ -244,6 +244,11 @@ pub enum AddTold {
     /// An identity is held from now on, by a Create or a settle: no
     /// restart, the identity in front unchanged.
     Held(EndpointId),
+    /// An identity a Create made or a settle found could not be held
+    /// yet -- the store unread, or as many held as a client holds -- and
+    /// its hold is tried again at each later poll, [`Self::Held`] told
+    /// when it is.
+    NotHeld(EndpointId),
 }
 
 /// Whether the card of a Create that made its identity was written.
