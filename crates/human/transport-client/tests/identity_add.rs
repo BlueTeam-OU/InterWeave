@@ -23,13 +23,13 @@ use std::time::Duration;
 use interweave_human_store::identity_key::{self, CipherFailure, Custody, KeyCipher};
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{
-    ADD_WAIT_MS, AddOutcome, Ended, FormAdd, KeptBecause, Left, Local, PendingAddStore, Settle,
-    Settled,
+    ADD_WAIT_MS, AddOutcome, Ended, FirstSeed, FormAdd, KeptBecause, Left, Local, PendingAddStore,
+    SeedAsk, Settle, Settled,
 };
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, AdminStatus, EndpointAddChange, EndpointAddRefusal,
     EndpointAdminView, EndpointRemoveChange, EndpointRemoveRefusal, EndpointSource, Generation,
-    LocalAdminPort, TrustAdminView, TrustChange,
+    LocalAdminPort, TrustAdminView, TrustChange, TrustSeed,
 };
 use interweave_profile_config::endpoint_key;
 use interweave_profile_config::paths::ProfilePaths;
@@ -47,6 +47,8 @@ enum Step {
     Closed,
     /// `admin.endpoints.list` asked.
     Listed,
+    /// `admin.trust.seed` asked for this endpoint.
+    Seeded(EndpointId),
     /// `admin.endpoints.add` asked, and whether the key file stood at
     /// its key path when it was.
     Added {
@@ -96,6 +98,8 @@ struct Script {
     adds: VecDeque<AddReply>,
     /// The next removes' answers; once empty, `Removed`.
     removes: VecDeque<Reply<Result<EndpointRemoveChange, TransportError>>>,
+    /// The next seeds' answers; once empty, `seeded`.
+    seeds: VecDeque<Reply<Result<TrustSeed, TransportError>>>,
     /// What a list answers.
     listed: Vec<EndpointAdminView>,
     /// Where key files are, for the steps that say whether one stood.
@@ -251,6 +255,18 @@ impl AdminPort for ScriptedPort {
                 .unwrap_or(Reply::Now(Ok(EndpointRemoveChange::Removed {
                     revoked_epoch: None,
                 })))
+        });
+        reply(answer)
+    }
+    fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> impl Future<Output = Result<TrustSeed, TransportError>> + Send {
+        let answer = self.log.with(|s| {
+            s.steps.push(Step::Seeded(endpoint));
+            s.seeds
+                .pop_front()
+                .unwrap_or(Reply::Now(Ok(TrustSeed::Seeded)))
         });
         reply(answer)
     }
@@ -1468,4 +1484,69 @@ fn a_create_settles_every_record_but_those_of_forms_open_elsewhere() {
     );
     assert_eq!(device.records(), vec![elsewhere.clone()]);
     assert!(device.key_file(&elsewhere), "the other form's key stands");
+}
+
+/// A seed the form asks goes on a connection of its own holding
+/// `admin.trust` alone, names the first identity, and its answer --
+/// `seeded` or `present` -- is the run's: every clone of the seed reads
+/// it answered. The connection is closed as the ask ends, and a poll
+/// after that answers the flag again. Mutation: `SeedAsk::poll` not
+/// recording the answer -- the clone reads it unanswered.
+#[test]
+fn a_seed_the_form_asks_is_recorded_for_the_run_and_its_connection_closed() {
+    for answer in [TrustSeed::Seeded, TrustSeed::Present] {
+        let device = Device::new();
+        device.script(|s| s.seeds.push_back(Reply::Now(Ok(answer))));
+        let seed = FirstSeed::new(endpoint_id("human"));
+        let run = seed.clone();
+        let mut ask = SeedAsk::new(&device.admins(), &seed, 0);
+        assert!(!run.answered(), "nothing asked before the poll");
+        assert_eq!(ask.poll(0), Some(true), "{answer:?}");
+        assert!(run.answered(), "the run's flag: {answer:?}");
+        assert_eq!(
+            device.log.steps(),
+            [
+                Step::Opened(BTreeSet::from([AdminCapability::Trust])),
+                Step::Seeded(endpoint_id("human")),
+                Step::Closed,
+            ]
+        );
+        assert_eq!(ask.poll(1), Some(true));
+    }
+}
+
+/// A seed refused, a connection that does not open, and a seed not
+/// answered within [`ADD_WAIT_MS`] each leave the run unseeded; the
+/// unanswered one is waited for until the wait is out and then dropped,
+/// which closes its connection. Mutations: `poll` recording any end as
+/// answered -- the flag is set; `Call::poll` waiting past the wait -- the
+/// ask never ends.
+#[test]
+fn a_seed_refused_or_unanswered_in_the_wait_leaves_the_run_unseeded() {
+    let device = Device::new();
+    device.script(|s| {
+        s.seeds
+            .push_back(Reply::Now(Err(TransportError::BackendUnavailable)));
+    });
+    let seed = FirstSeed::new(endpoint_id("human"));
+    let mut ask = SeedAsk::new(&device.admins(), &seed, 0);
+    assert_eq!(ask.poll(0), Some(false));
+    assert!(!seed.answered());
+
+    let device = Device::new();
+    device.script(|s| s.open_fails = Some(TransportError::Overloaded));
+    let mut ask = SeedAsk::new(&device.admins(), &seed, 0);
+    assert_eq!(ask.poll(0), Some(false));
+    assert!(!seed.answered());
+    assert!(device.log.steps().is_empty(), "nothing was sent");
+
+    let device = Device::new();
+    device.script(|s| s.seeds.push_back(Reply::Holds));
+    let mut ask = SeedAsk::new(&device.admins(), &seed, 100);
+    assert_eq!(ask.poll(100), None);
+    assert_eq!(ask.poll(100 + ADD_WAIT_MS - 1), None, "still waited for");
+    assert!(!device.log.steps().contains(&Step::Closed));
+    assert_eq!(ask.poll(100 + ADD_WAIT_MS), Some(false), "the wait is out");
+    assert_eq!(device.log.steps().last(), Some(&Step::Closed), "dropped");
+    assert!(!seed.answered());
 }

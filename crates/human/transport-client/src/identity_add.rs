@@ -27,6 +27,9 @@
 //! record. It reaches the ids its caller gives it, which are the
 //! record's.
 //!
+//! [`SeedAsk`] is the first identity's trust seed asked by a form opened
+//! before any seed answered in the run, which is what offers Create.
+//!
 //! What the add writes on this device -- the record and the key file --
 //! is reached through [`Local`], lent to each call and not kept: the
 //! store behind [`PendingAddStore`], so a test can fail one write, and
@@ -51,6 +54,7 @@ use interweave_profile_config::{AliasError, EndpointAlias, MAX_ENDPOINTS};
 use interweave_transport_api::{EndpointId, TransportError};
 
 use crate::client::AssertingBinding;
+use crate::trust::FirstSeed;
 
 /// How long the client waits for the answer to one call of an add or of
 /// a settle, in the caller's milliseconds: the design's add wait, a
@@ -969,5 +973,67 @@ impl<A: AssertingBinding> Settle<A> {
 
     fn kept(&mut self, endpoint: EndpointId, because: KeptBecause) {
         self.report.push(Settled::Kept { endpoint, because });
+    }
+}
+
+/// The first identity's trust seed asked by an add form (ADR-0067
+/// decision 6; plan §30's gate on Create): Create is offered only once a
+/// seed answered in this run, and a form opened before any did asks for
+/// one itself, on an administrative connection of its own holding
+/// `admin.trust` alone, as a trust act's is (`trust.rs`). Polled with the
+/// caller's clock and never awaited: unanswered within [`ADD_WAIT_MS`],
+/// the call is dropped, which closes its connection. An answer --
+/// `seeded` or `present` -- is recorded in the run's one flag
+/// ([`FirstSeed::answered`]), which every clone reads; anything else
+/// leaves it as it was
+/// (`a_seed_the_form_asks_is_recorded_for_the_run_and_its_connection_closed`,
+/// `a_seed_refused_or_unanswered_in_the_wait_leaves_the_run_unseeded`).
+pub struct SeedAsk {
+    call: Option<Call<bool>>,
+    seed: FirstSeed,
+}
+
+impl SeedAsk {
+    /// Ask `seed` on a connection `binding` opens. Nothing is sent until
+    /// [`Self::poll`].
+    #[must_use]
+    pub fn new<A: AssertingBinding>(binding: &Arc<A>, seed: &FirstSeed, now: u64) -> Self {
+        let binding = Arc::clone(binding);
+        let first = seed.first().clone();
+        let call = Call::start(
+            async move {
+                let Ok(port) = binding
+                    .admin(BTreeSet::from([AdminCapability::Trust]))
+                    .await
+                else {
+                    return false;
+                };
+                port.seed_endpoint_trust(first).await.is_ok()
+            },
+            now,
+        );
+        Self {
+            call: Some(call),
+            seed: seed.clone(),
+        }
+    }
+
+    /// Whether the seed was answered, once the ask is over; `None` while
+    /// it is waited for. Polled again after that, it answers the run's
+    /// flag.
+    pub fn poll(&mut self, now: u64) -> Option<bool> {
+        let Some(call) = self.call.as_mut() else {
+            return Some(self.seed.answered());
+        };
+        let answered = match call.poll(now)? {
+            Answered::Answer(answered) => answered,
+            Answered::NoAnswer => false,
+        };
+        // Dropped first: the connection closes as the ask ends.
+        self.call = None;
+        if answered {
+            self.seed.answer();
+        }
+        Some(self.seed.answered())
     }
 }
