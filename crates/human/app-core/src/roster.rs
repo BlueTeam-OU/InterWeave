@@ -49,6 +49,9 @@
 //!   a roster given no factory holds no more, and the bound holds at
 //!   runtime too (`a_roster_given_no_factory_holds_no_more`,
 //!   `the_bound_holds_at_runtime_too`);
+//! - an add form's Create, its leaving and the settle of pending-add
+//!   records run here, polled at each turn and never awaited
+//!   ([`Roster::add`] has what each is held to and its test);
 //! - what each identity's row says is told at start and when it changes
 //!   (`the_held_identities_are_told_at_start_and_on_change_alone`), in
 //!   identities §5.2's states
@@ -60,7 +63,8 @@
 //! ([`crate::ModelSide`]), which runs a switch's own steps on its thread
 //! and sends the roster the new front after the old front's commands
 //! ([`crate::ModelSide::switch`]). What the roster holds is what
-//! the root hands it: the desktop hands it the profile's held list
+//! the root hands it, and what it holds later through the root's
+//! [`AddFactory`]: the desktop hands it the profile's held list
 //! ([`crate::held_list`]), and a roster of one behaves as the facade side
 //! `main` composed (`a_roster_of_one_behaves_as_its_facade_side`).
 //!
@@ -80,9 +84,10 @@ use std::sync::Arc;
 
 use interweave_human_client_api::{ClientEvent, SessionProblem, SessionState};
 use interweave_human_store::identity_key::KeyCipher;
-use interweave_human_store::{HumanStore, StoreError};
+use interweave_human_store::{HumanStore, OwnCard, StoreError};
 use interweave_human_transport_client::{
-    AssertingBinding, ClientConfig, FirstSeed, NodePeer, SessionBinding, TransportClient,
+    AddOutcome, AssertingBinding, ClientConfig, FirstSeed, FormAdd, Local, NodePeer, SeedAsk,
+    SessionBinding, Settle, Settled, TransportClient,
 };
 use interweave_human_ui_model::{HeldIdentity, IDENTITY_CAP, IdentityKey, IdentityState};
 use interweave_local_client_api::AdminBinding;
@@ -91,7 +96,7 @@ use interweave_transport_api::{ChannelId, EndpointId};
 
 use crate::facade::FacadeSide;
 use crate::profile::KeySource;
-use crate::protocol::{Command, Start, Update};
+use crate::protocol::{AddAct, AddTold, CardSaved, Command, Start, Update};
 
 /// What a roster is built from: what `ClientConfig` carries on `main`,
 /// with the identities besides the first and the profile's default.
@@ -235,6 +240,56 @@ pub struct Roster<B: SessionBinding, A: AdminBinding> {
     /// The identities held since the root last took them
     /// ([`Self::take_held_more`]).
     held_more: Vec<EndpointId>,
+    /// The add form, the settle, and what is told of them.
+    adding: Adding<A>,
+}
+
+/// The add form open now, the settle running, and what is told of them
+/// ([`Roster::add`]).
+struct Adding<A> {
+    /// One form at a time.
+    form: Option<OpenForm<A>>,
+    settle: Option<Settle<A>>,
+    /// A settle moment came, and no settle started since.
+    owed: bool,
+    /// The first turn ran: its settle moment is past.
+    started: bool,
+    told: Vec<AddTold>,
+}
+
+impl<A> Adding<A> {
+    const fn new() -> Self {
+        Self {
+            form: None,
+            settle: None,
+            owed: false,
+            started: false,
+            told: Vec::new(),
+        }
+    }
+}
+
+/// An open add form: its add, the card of its running Create, and its
+/// seed ask while one runs.
+struct OpenForm<A> {
+    add: FormAdd<A>,
+    card: Option<NewCard>,
+    seed: Option<SeedAsk>,
+}
+
+/// The card a Create gives the identity it makes.
+struct NewCard {
+    name: String,
+    surname: Option<String>,
+    photo: Option<Vec<u8>>,
+}
+
+/// The identities a settle found.
+fn identities(settled: Vec<Settled>) -> impl Iterator<Item = (EndpointId, Option<String>)> {
+    settled.into_iter().filter_map(|s| match s {
+        Settled::Identity { endpoint, alias } => Some((endpoint, alias)),
+        Settled::Discarded(_) | Settled::Kept { .. } => None,
+    })
 }
 
 /// What an identity's row says it can do now (identities §5.2;
@@ -376,6 +431,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             wall: Arc::new(wall),
             factory: None,
             held_more: Vec::new(),
+            adding: Adding::new(),
         };
         // An unreadable row is read as no row, so a start is not refused
         // over it (`the_front_at_start_is_the_last_held_else_the_default_else_the_first`);
@@ -588,15 +644,253 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
 
     /// One turn of every identity, in the open order. The connectivity
     /// every identity is told is the first identity's: the others read no
-    /// status.
-    pub async fn turn(&mut self, now: u64) -> Routed {
+    /// status. Then an add form's Create, its seed ask and the settle go
+    /// as far as they go without waiting ([`Self::add`]); the first turn
+    /// is a settle moment.
+    pub async fn turn(&mut self, now: u64) -> Routed
+    where
+        A: AssertingBinding,
+    {
+        if !self.adding.started {
+            self.adding.started = true;
+            self.adding.owed = true;
+        }
         let mut routed = Vec::with_capacity(self.held.len());
         for i in self.order() {
             let updates = self.held[i].side.turn(now).await;
             self.stale |= !updates.is_empty();
             routed.push((i, updates));
         }
+        self.poll_adding(now);
         self.route(routed)
+    }
+
+    /// Carry out what the person did with the add form or the list of
+    /// identities (`design/2026-11-04-identities.md` §6.2; ADR-0061
+    /// decision 7; architect-cto's rulings of 2026-11-27), then go as far
+    /// as it goes without waiting; what came of it is
+    /// [`Self::take_add_told`]'s. A roster given no [`AddFactory`] does
+    /// nothing and tells nothing, so no Create is ever offered.
+    ///
+    /// - [`AddAct::Opened`] opens one form, its key not made yet. Create
+    ///   is offered once a first-identity seed answered in this run
+    ///   ([`Self::first_seeded`]); until then the form asks for the seed
+    ///   on a connection of its own, waiting at most `ADD_WAIT_MS`, and
+    ///   the answer is the run's
+    ///   (`add_is_offered_only_once_the_first_seed_answered`).
+    /// - [`AddAct::Create`] runs the form's add with the card held to a
+    ///   card's bounds, never while Create is not offered. An identity it
+    ///   makes is given its card -- one that cannot be written still ends
+    ///   Created, marked not saved -- and held at once, the front
+    ///   unchanged
+    ///   (`a_create_that_lands_deletes_the_record_holds_the_identity_and_writes_its_card`,
+    ///   `a_card_that_cannot_be_written_still_ends_created_with_the_card_not_saved`).
+    ///   Nothing is written under its id while a record names it
+    ///   (`while_a_record_names_the_id_nothing_is_written_under_it`), and
+    ///   the add is polled, never awaited, so it holds no identity's turn
+    ///   (`a_create_never_holds_another_identitys_turn`).
+    /// - [`AddAct::Left`] leaves the form and [`AddAct::ListOpened`] is
+    ///   the list's opening: each a settle moment, as the first turn is
+    ///   and a record written at the bound is (that one inside the form's
+    ///   add) (`the_settle_runs_at_the_first_turn_at_the_lists_opening_and_at_the_bound`).
+    ///   A settle covers every record but the open form's, so a form's
+    ///   leaving settles its own
+    ///   (`a_forms_closing_settles_its_own_record_with_one_identity_held`),
+    ///   and an identity it finds is held at once
+    ///   (`an_identity_the_start_settle_finds_is_held_without_a_restart`).
+    pub fn add(&mut self, act: AddAct, now: u64)
+    where
+        A: AssertingBinding,
+    {
+        let Some(factory) = self.factory.as_ref() else {
+            return;
+        };
+        match act {
+            AddAct::Opened => {
+                let form = self.adding.form.get_or_insert_with(|| OpenForm {
+                    add: FormAdd::new(
+                        Arc::clone(&factory.admin),
+                        vec![self.client_kind.clone()],
+                        crate::alias::alias_for,
+                    ),
+                    card: None,
+                    seed: None,
+                });
+                if self.seed.answered() {
+                    self.adding.told.push(AddTold::Offered);
+                } else {
+                    form.seed
+                        .get_or_insert_with(|| SeedAsk::new(&factory.admin, &self.seed, now));
+                    self.adding.told.push(AddTold::WaitsSeed);
+                }
+            }
+            AddAct::Create {
+                name,
+                surname,
+                photo,
+            } => {
+                let Some(form) = self.adding.form.as_mut() else {
+                    return;
+                };
+                if !self.seed.answered() {
+                    self.adding.told.push(if form.seed.is_some() {
+                        AddTold::WaitsSeed
+                    } else {
+                        AddTold::NoSeed
+                    });
+                    return;
+                }
+                let draft = interweave_human_chat_protocol::CardDraft {
+                    name: &name,
+                    surname: surname.as_deref(),
+                    photo: photo.as_deref().map(|p| ("image/jpeg", p)),
+                };
+                if interweave_human_chat_protocol::check_draft(draft).is_err() {
+                    self.adding.told.push(AddTold::OutOfBounds);
+                    return;
+                }
+                if form.add.create(&name, &[]) {
+                    form.card = Some(NewCard {
+                        name,
+                        surname,
+                        photo,
+                    });
+                }
+            }
+            AddAct::Left => {
+                let Some(form) = self.adding.form.take() else {
+                    return;
+                };
+                let mut local = Local {
+                    store: &mut self.store,
+                    paths: &factory.paths,
+                    cipher: &*factory.cipher,
+                };
+                // Whatever leaving did, the settle that follows decides
+                // what it kept.
+                let _ = form.add.leave(&mut local);
+                self.adding.owed = true;
+            }
+            AddAct::ListOpened => self.adding.owed = true,
+        }
+        self.poll_adding(now);
+    }
+
+    /// What came of the add form's acts and of the settles since this
+    /// was last asked, in order.
+    pub fn take_add_told(&mut self) -> Vec<AddTold> {
+        std::mem::take(&mut self.adding.told)
+    }
+
+    /// The seed ask, the running Create and the settle, as far as each
+    /// goes without waiting; a settle owed starts when none runs.
+    fn poll_adding(&mut self, now: u64)
+    where
+        A: AssertingBinding,
+    {
+        let Some(factory) = self.factory.as_ref() else {
+            return;
+        };
+        let mut found: Vec<(EndpointId, Option<String>)> = Vec::new();
+        let mut ended: Option<(AddOutcome, Option<NewCard>)> = None;
+        let mut local = Local {
+            store: &mut self.store,
+            paths: &factory.paths,
+            cipher: &*factory.cipher,
+        };
+        if let Some(form) = self.adding.form.as_mut() {
+            if let Some(ask) = form.seed.as_mut()
+                && let Some(answered) = ask.poll(now)
+            {
+                form.seed = None;
+                self.adding.told.push(if answered {
+                    AddTold::Offered
+                } else {
+                    AddTold::NoSeed
+                });
+            }
+            if let Some(end) = form.add.poll(now, &mut local) {
+                found.extend(identities(end.settled));
+                ended = Some((end.outcome, form.card.take()));
+            }
+        }
+        if self.adding.settle.is_none() && self.adding.owed {
+            self.adding.owed = false;
+            let open: Vec<EndpointId> = self
+                .adding
+                .form
+                .as_ref()
+                .and_then(|f| f.add.endpoint().cloned())
+                .into_iter()
+                .collect();
+            // A record that cannot be read starts no settle: nothing is
+            // touched, and the next moment reads it again.
+            if let Ok(settle) = Settle::of(&factory.admin, &local, &open) {
+                self.adding.settle = Some(settle);
+            }
+        }
+        if let Some(settle) = self.adding.settle.as_mut()
+            && let Some(settled) = settle.poll(now, &mut local)
+        {
+            self.adding.settle = None;
+            found.extend(identities(settled));
+        }
+        if let Some((outcome, card)) = ended {
+            self.ended(outcome, card);
+        }
+        for (endpoint, alias) in found {
+            self.hold_told(endpoint, alias);
+        }
+    }
+
+    /// A Create ended: one that made its identity writes its card, then
+    /// holds it.
+    fn ended(&mut self, outcome: AddOutcome, card: Option<NewCard>)
+    where
+        A: AssertingBinding,
+    {
+        let AddOutcome::Created { endpoint, alias } = &outcome else {
+            self.adding.told.push(AddTold::Ended {
+                outcome,
+                card: None,
+            });
+            return;
+        };
+        let (endpoint, alias) = (endpoint.clone(), alias.clone());
+        // The record is deleted before `Created` is given, so this is the
+        // first row written under the id.
+        let saved = card.is_some_and(|card| {
+            self.store
+                .set_own_card(
+                    &OwnCard {
+                        endpoint: endpoint.clone(),
+                        name: card.name,
+                        surname: card.surname,
+                        photo: card.photo,
+                    },
+                    (self.wall)(),
+                )
+                .is_ok()
+        });
+        self.adding.told.push(AddTold::Ended {
+            outcome,
+            card: Some(if saved {
+                CardSaved::Saved
+            } else {
+                CardSaved::NotSaved
+            }),
+        });
+        self.hold_told(endpoint, alias);
+    }
+
+    /// Hold an identity a Create made or a settle found, and tell it.
+    fn hold_told(&mut self, endpoint: EndpointId, alias: Option<String>)
+    where
+        A: AssertingBinding,
+    {
+        if self.hold_added(endpoint.clone(), alias).is_ok() {
+            self.adding.told.push(AddTold::Held(endpoint));
+        }
     }
 
     /// Carry out `command` as `identity`. `None` when it is not held.

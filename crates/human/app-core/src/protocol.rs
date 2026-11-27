@@ -187,6 +187,74 @@ pub enum Command {
     Window(WindowCommand),
 }
 
+/// What the person did with an add form or the list of identities
+/// (`design/2026-11-04-identities.md` §6.2; ADR-0061 decision 7): apart
+/// from [`Command`], since it is no held identity's to carry out, and so
+/// that no exhaustive match of a [`Command`] elsewhere changes with it.
+/// One add form is open at a time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddAct {
+    /// An add form opened. The form may open in any run; Create is
+    /// offered only once a first-identity seed answered in this run
+    /// ([`AddTold::Offered`]).
+    Opened,
+    /// Create, with the card the new identity is given.
+    Create {
+        /// The name.
+        name: String,
+        /// The surname, if any.
+        surname: Option<String>,
+        /// The photo as a card carries it: already prepared
+        /// ([`crate::card_photo::prepare_photo`]'s bytes), or none.
+        photo: Option<Vec<u8>>,
+    },
+    /// The form was left, by any way of leaving: a settle moment. The
+    /// app's end is not a leaving.
+    Left,
+    /// The list of identities opened: a settle moment.
+    ListOpened,
+}
+
+/// What became of an [`AddAct`], or of a settle, for the form and the
+/// list to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddTold {
+    /// Create is offered: a first-identity seed answered in this run.
+    Offered,
+    /// Create is not offered yet: no seed answered in this run, and the
+    /// form asks for one, waiting at most
+    /// [`ADD_WAIT_MS`](interweave_human_transport_client::ADD_WAIT_MS).
+    WaitsSeed,
+    /// Create is not offered: the form's own seed ask ended unanswered.
+    /// Opening the form again asks once more.
+    NoSeed,
+    /// The card a Create carried is outside a card's bounds: nothing was
+    /// made, written or sent.
+    OutOfBounds,
+    /// A Create ended. `card` is said for a Create that made the
+    /// identity alone: whether its card was written.
+    Ended {
+        /// How it ended.
+        outcome: interweave_human_transport_client::AddOutcome,
+        /// For [`AddOutcome::Created`](interweave_human_transport_client::AddOutcome::Created):
+        /// whether the card was saved. A card not saved still ends
+        /// Created.
+        card: Option<CardSaved>,
+    },
+    /// An identity is held from now on, by a Create or a settle: no
+    /// restart, the identity in front unchanged.
+    Held(EndpointId),
+}
+
+/// Whether the card of a Create that made its identity was written.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CardSaved {
+    /// Written.
+    Saved,
+    /// Not written: the identity exists, named by its alias.
+    NotSaved,
+}
+
 /// The windowed mode's reads.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum WindowCommand {
