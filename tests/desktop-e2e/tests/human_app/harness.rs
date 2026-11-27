@@ -9,7 +9,7 @@ use std::process::{Child, Command, ExitStatus, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use interweave_ipc_client::IpcBinding;
+use interweave_ipc_client::{IpcAdmin, IpcBinding};
 use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort, LeaseRecord};
 use interweave_transport_api::{EndpointId, TransportError};
 
@@ -255,6 +255,9 @@ async fn lease_on(
 /// under the full suite's load (j197). A port whose daemon went away
 /// (`BackendUnavailable`, `ShuttingDown`) is dropped and the next turn
 /// opens another; any other answer to the read fails the wait with it.
+/// An open the daemon refuses for want of room (`Overloaded`) or for
+/// being away is a turn too, retried to the deadline: the slot a port
+/// closed elsewhere keeps frees when its task ends (see [`held_port`]).
 pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     until_lease_of(binding, &human(), held, app).await;
 }
@@ -299,21 +302,27 @@ pub(crate) async fn until_seeded(binding: &IpcBinding, endpoint: &EndpointId, ap
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut admin = None;
     loop {
-        let port = match admin.take() {
-            Some(port) => port,
-            None => trust_admin(binding).await,
-        };
-        match identity_set_on(
-            &port,
-            endpoint,
-            interweave_local_client_api::TrustDirection::Inbound,
+        if let Some(port) = held_port(
+            &mut admin,
+            binding,
+            &[AdminCapability::Trust],
+            "the trust set",
+            app,
         )
         .await
         {
-            Ok(view) if view.set == interweave_local_client_api::EndpointSetKind::Own => return,
-            Ok(_) => admin = Some(port),
-            Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}
-            Err(e) => panic!("the identity's set: {e:?}\n{}", app.log()),
+            match identity_set_on(
+                &port,
+                endpoint,
+                interweave_local_client_api::TrustDirection::Inbound,
+            )
+            .await
+            {
+                Ok(view) if view.set == interweave_local_client_api::EndpointSetKind::Own => return,
+                Ok(_) => admin = Some(port),
+                Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}
+                Err(e) => panic!("the identity's set: {e:?}\n{}", app.log()),
+            }
         }
         assert!(
             tokio::time::Instant::now() < deadline,
@@ -321,6 +330,32 @@ pub(crate) async fn until_seeded(binding: &IpcBinding, endpoint: &EndpointId, ap
             app.log()
         );
         tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
+/// The port a wait asks this turn: the one it held, else a new one with
+/// `capabilities`. `None` when the open was refused for a reason that
+/// passes (`Overloaded`, `BackendUnavailable`, `ShuttingDown`), so the
+/// turn counts against the deadline and the next opens again; any other
+/// refusal fails the wait with the app's log.
+async fn held_port(
+    held: &mut Option<IpcAdmin>,
+    binding: &IpcBinding,
+    capabilities: &[AdminCapability],
+    what: &str,
+    app: &App,
+) -> Option<IpcAdmin> {
+    if let Some(port) = held.take() {
+        return Some(port);
+    }
+    match binding.admin(capabilities.iter().copied().collect()).await {
+        Ok(port) => Some(port),
+        Err(
+            TransportError::Overloaded
+            | TransportError::BackendUnavailable
+            | TransportError::ShuttingDown,
+        ) => None,
+        Err(e) => panic!("an admin port for {what}: {e:?}\n{}", app.log()),
     }
 }
 
@@ -334,15 +369,21 @@ pub(crate) async fn until_lease_of(
     let deadline = tokio::time::Instant::now() + PATIENCE;
     let mut admin = None;
     loop {
-        let port = match admin.take() {
-            Some(port) => port,
-            None => endpoints_admin(binding).await,
-        };
-        match lease_on(&port, endpoint).await {
-            Ok(lease) if lease.is_some() == held => return,
-            Ok(_) => admin = Some(port),
-            Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}
-            Err(e) => panic!("the leases: {e:?}\n{}", app.log()),
+        if let Some(port) = held_port(
+            &mut admin,
+            binding,
+            &[AdminCapability::Endpoints],
+            "the leases",
+            app,
+        )
+        .await
+        {
+            match lease_on(&port, endpoint).await {
+                Ok(lease) if lease.is_some() == held => return,
+                Ok(_) => admin = Some(port),
+                Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}
+                Err(e) => panic!("the leases: {e:?}\n{}", app.log()),
+            }
         }
         assert!(
             tokio::time::Instant::now() < deadline,
