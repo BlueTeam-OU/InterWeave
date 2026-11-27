@@ -1453,6 +1453,212 @@ pub async fn trust_administration_revokes_as_policy<B: DataSessionBinding + Admi
     }
 }
 
+/// The endpoint dimension of `admin.trust` (LOCAL-IPC.md; ADR-0067
+/// decision 6), at A's `endpoint` beside its `other`: before a seed each
+/// direction is `inherited`, the operator's list; the seed makes it
+/// `own`, holding `remote` with every row administered and persisted,
+/// and a second seed is `present`; an endpoint write takes `remote` out
+/// of BOTH members and changes neither the operator's list nor `other`'s
+/// set, and closes nothing, since those still hold the peer; the
+/// endpoint's route is refused both ways -- A's send from it
+/// `UnauthorizedPeer`, B's direct to it `RemoteEndpointUnavailable` (the
+/// wire's `no_route`) -- while B's direct to `other` is delivered (the
+/// control); allowing `remote` again restores the route. An id no entry
+/// holds is `EndpointUnknown`. The fake answers what every real binding
+/// answers here, which is what keeps it honest.
+pub async fn endpoint_trust_is_the_endpoints_own<B: DataSessionBinding + AdminBinding>(
+    a: &B,
+    b: &B,
+    remote: &TransportIdentity,
+    local: &TransportIdentity,
+    endpoint: &EndpointId,
+    other: &EndpointId,
+) {
+    use interweave_local_client_api::{EndpointSetKind, TrustDirection, TrustSeed};
+    assert_ne!(endpoint, other, "the check needs distinct endpoints");
+    let admin = port(a, &[AdminCapability::Trust]).await;
+    let operators = sorted(admin.trust().await.expect("the operator's list"));
+    let holds = |view: &interweave_local_client_api::EndpointTrustView| {
+        view.allowed.iter().any(|row| &row.peer == remote)
+    };
+    for direction in TrustDirection::ALL {
+        let view = admin
+            .endpoint_trust(endpoint.clone(), direction)
+            .await
+            .expect("read");
+        assert_eq!(view.set, EndpointSetKind::Inherited, "{direction:?}");
+        assert!(holds(&view), "inherited: {view:?}");
+    }
+    assert_eq!(
+        admin.seed_endpoint_trust(endpoint.clone()).await,
+        Ok(TrustSeed::Seeded)
+    );
+    assert_eq!(
+        admin.seed_endpoint_trust(endpoint.clone()).await,
+        Ok(TrustSeed::Present),
+        "a second seed writes nothing"
+    );
+    for direction in TrustDirection::ALL {
+        let view = admin
+            .endpoint_trust(endpoint.clone(), direction)
+            .await
+            .expect("read");
+        assert_eq!(view.set, EndpointSetKind::Own, "{direction:?}");
+        assert!(
+            view.allowed.contains(&TrustedPeer {
+                peer: remote.clone(),
+                persisted: true,
+                source: TrustSource::Administered,
+            }),
+            "seeded: {view:?}"
+        );
+    }
+    let at_endpoint = a.open(full(Some(endpoint))).await.expect("leases");
+    let at_other = a.open(full(Some(other))).await.expect("leases");
+    let from_b = b.open(full(Some(other))).await.expect("leases");
+    // What the opens owed is set aside: only what follows counts.
+    let _ = (take_all(&at_endpoint).await, take_all(&at_other).await);
+    assert_eq!(
+        admin
+            .set_endpoint_trust(endpoint.clone(), remote.clone(), false)
+            .await,
+        Ok(TrustChange::Set),
+        "revoked for the endpoint"
+    );
+    for direction in TrustDirection::ALL {
+        let view = admin
+            .endpoint_trust(endpoint.clone(), direction)
+            .await
+            .expect("read");
+        assert_eq!(view.set, EndpointSetKind::Own);
+        assert!(!holds(&view), "both members: {direction:?} {view:?}");
+        let view = admin
+            .endpoint_trust(other.clone(), direction)
+            .await
+            .expect("read");
+        assert!(holds(&view), "the other endpoint keeps it: {view:?}");
+    }
+    assert_eq!(
+        sorted(admin.trust().await.expect("the operator's list")),
+        operators,
+        "the operator's list is not the endpoint's"
+    );
+    assert_eq!(
+        send_to(&at_endpoint, remote, other, 1).await,
+        Err(TransportError::UnauthorizedPeer),
+        "the endpoint's outbound set lacks the peer"
+    );
+    assert_eq!(
+        send_to(&at_other, remote, other, 5).await.as_ref(),
+        Ok(other),
+        "the control: the other endpoint's outbound set still holds the peer"
+    );
+    // Drained before send 4: the remote's queue bound is small in process.
+    let _ = take_all(&from_b).await;
+    assert_eq!(
+        send_to(&from_b, local, endpoint, 2).await,
+        Err(TransportError::RemoteEndpointUnavailable),
+        "the endpoint's inbound set lacks the sender"
+    );
+    assert_eq!(
+        send_to(&from_b, local, other, 3).await.as_ref(),
+        Ok(other),
+        "the other endpoint still receives the peer"
+    );
+    let told = arriving_within(&at_endpoint, SETTLE).await;
+    assert!(
+        !told.iter().any(|e| matches!(
+            e,
+            SessionEvent::Local(LocalSessionEvent::PeerDisconnected { .. })
+        )),
+        "another set holds the peer, so nothing closes: {told:?}"
+    );
+    assert_eq!(
+        admin
+            .set_endpoint_trust(endpoint.clone(), remote.clone(), true)
+            .await,
+        Ok(TrustChange::Set),
+        "allowed again"
+    );
+    assert_eq!(
+        send_to(&at_endpoint, remote, other, 4).await.as_ref(),
+        Ok(other),
+        "the route again"
+    );
+    // The directory lists what the querier may send to: an advertised,
+    // leased endpoint whose own inbound set lacks the querier is left out.
+    // (`other` is the runners' advertised endpoint; `endpoint` is not.)
+    // Asked once, after the revoke: a requester caches an answer, so a
+    // before-and-after pair would read the first from its cache.
+    let querier = b
+        .open(
+            SessionRequest::new("conformance", None, [DataCapability::EndpointsQuery])
+                .expect("in bounds"),
+        )
+        .await
+        .expect("opens");
+    let listed = || async {
+        querier
+            .query_endpoints(local.clone())
+            .await
+            .expect("a trusted peer answers")
+            .endpoints
+    };
+    assert_eq!(
+        admin
+            .set_endpoint_trust(other.clone(), remote.clone(), false)
+            .await,
+        Ok(TrustChange::Set),
+        "the querier leaves the other endpoint's sets"
+    );
+    assert!(
+        !listed().await.contains(other),
+        "the endpoint's inbound set lacks the querier"
+    );
+    assert_eq!(
+        admin
+            .set_endpoint_trust(other.clone(), remote.clone(), true)
+            .await,
+        Ok(TrustChange::Set)
+    );
+    querier.close().await.expect("closes");
+    let ghost = EndpointId::from_ed25519_public(&[7; 32]);
+    assert_eq!(
+        admin
+            .endpoint_trust(ghost.clone(), TrustDirection::Inbound)
+            .await
+            .map(|_| ()),
+        Err(TransportError::EndpointUnknown)
+    );
+    assert_eq!(
+        admin.seed_endpoint_trust(ghost).await,
+        Err(TransportError::EndpointUnknown)
+    );
+    for session in [at_endpoint, at_other] {
+        session.close().await.expect("closes");
+    }
+    from_b.close().await.expect("closes");
+}
+
+/// One direct message from `session` to `peer`'s `endpoint`, its answer.
+async fn send_to<S: DataSessionPort>(
+    session: &S,
+    peer: &TransportIdentity,
+    endpoint: &EndpointId,
+    n: u8,
+) -> Result<EndpointId, TransportError> {
+    session
+        .send_direct(
+            DirectDestination {
+                peer: peer.clone(),
+                endpoint: Some(endpoint.clone()),
+            },
+            MessageId::from_bytes([n; 16]),
+            text("trust"),
+        )
+        .await
+}
+
 /// A well-formed peer id no runner lists: the subject of "revoking an
 /// unlisted peer changes nothing". The check asserts it is neither side
 /// of the pair before relying on it.

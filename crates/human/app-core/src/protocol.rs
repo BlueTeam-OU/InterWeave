@@ -78,9 +78,11 @@ pub enum Command {
     Reopen,
     /// Re-check storage now.
     RecheckStorage,
-    /// Read the trust allowlist.
+    /// Read the trust of the identity this side speaks as: its own set,
+    /// never the operator's list.
     ReadTrust,
-    /// Make a trust change the person confirmed.
+    /// Make a trust change the person confirmed, for the identity this
+    /// side speaks as: written into both members of its set.
     SetTrust(TrustChange),
     /// Read the addresses this device holds for reaching peers.
     ReadAddresses,
@@ -425,11 +427,11 @@ pub enum Update {
         /// The restored row.
         row: RowId,
     },
-    /// The daemon's answer to reading the trust allowlist. A failure is
+    /// The daemon's answer to reading the identity's trust. A failure is
     /// the settings view's to say, not a command's: the command is `Done`.
     TrustRead(Result<TrustList, TrustProblem>),
-    /// The daemon's answer to a trust change: the allowlist read back, or
-    /// why not and whether the change was made.
+    /// The daemon's answer to a trust change: the identity's trust read
+    /// back, or why not and whether the change was made.
     TrustSet {
         /// The change.
         change: TrustChange,

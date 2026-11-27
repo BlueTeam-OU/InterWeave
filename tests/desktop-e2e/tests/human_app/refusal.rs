@@ -24,7 +24,7 @@ use interweave_human_ui_model::{UiText, placeholder_en};
 use crate::a11y::{Bus, Element};
 use crate::common::{Home, PATIENCE, example, free_port, stranger};
 use crate::display;
-use crate::harness::{self as app, human_lease, until_lease};
+use crate::harness::{self as app, human_lease, until_lease, until_seeded};
 use crate::ring;
 use crate::world::app_store;
 
@@ -271,6 +271,10 @@ async fn a_store_whose_key_is_lost_is_discarded_and_recreated_on_the_persons_wor
     let bus = Bus::connect().await;
     let mut client = app::start(&home);
     until_lease(&home.binding(), true, &client).await;
+    // The first run's seed of the first identity writes the endpoint
+    // overlay once; waited for, so the files compared below hold it and
+    // the run after the discard writes nothing (its seed is `present`).
+    until_seeded(&home.binding(), &crate::common::human(), &client).await;
     assert!(client.terminate().success(), "{}", client.log());
     // A trust change, so the trust overlay exists to be compared.
     crate::package::transportctl_ok(&home, &["trust", "allow", stranger().as_str()], "");

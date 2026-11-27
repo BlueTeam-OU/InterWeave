@@ -116,9 +116,9 @@ impl From<&EndpointId> for RouteLabel {
 }
 
 /// What trust the view may show for a peer: every peer is "not verified
-/// by this client", never an invented value. The trust settings' allowlist
-/// says which peers this profile admits, not who a peer is, so it is no
-/// source for this.
+/// by this client", never an invented value. The trust settings' list says
+/// which peers an identity admits, not who a peer is, so it is no source
+/// for this.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Trust {
     /// No verification by this client.
@@ -499,8 +499,8 @@ pub enum Intent {
     /// run (app-core's `a_busy_starts_try_again_reaches_the_platform_once`
     /// and `a_refused_starts_try_again_reaches_the_platform_once`).
     RetryStart,
-    /// Read the trust allowlist: the trust settings opened, or a change's
-    /// list was not read back ([`crate::TrustSettings::take_reread`]).
+    /// Read the trust of the identity in front: the trust settings
+    /// opened, or a change's list was not read back ([`crate::TrustSettings::take_reread`]).
     ReadTrust,
     /// Accept the card a proposal holds: write the contact it said it
     /// would. Only [`UiModel::card_actions`] offers it.

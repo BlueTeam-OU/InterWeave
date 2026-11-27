@@ -75,15 +75,28 @@ fn text(key: UiText) -> &'static str {
     placeholder_en::text(key)
 }
 
-/// What the daemon's trust policy allows, as strings, in its order.
+/// What the first identity's trust set allows, as strings, in its order:
+/// the peers both its members hold, as the client shows them (ADR-0067
+/// decision 6), never the operator's list.
 async fn allowed(home: &Home) -> Vec<String> {
+    use interweave_local_client_api::TrustDirection;
     let port = home
         .binding()
         .admin([AdminCapability::Trust].into())
         .await
         .expect("an admin port");
-    let view = port.trust().await.expect("the trust view");
-    view.peers().map(|p| p.as_str().to_owned()).collect()
+    let set = |direction| port.endpoint_trust(human(), direction);
+    let outbound = set(TrustDirection::Outbound)
+        .await
+        .expect("the outbound member");
+    set(TrustDirection::Inbound)
+        .await
+        .expect("the inbound member")
+        .allowed
+        .into_iter()
+        .filter(|row| outbound.allowed.iter().any(|o| o.peer == row.peer))
+        .map(|row| row.peer.as_str().to_owned())
+        .collect()
 }
 
 /// A peers admin port, held for every read a case makes (why:
@@ -208,7 +221,10 @@ async fn a_hostile_code_scanned_adds_its_addresses_and_nothing_else_the_trust_se
         Box::new(wall_ms),
         0,
     )
-    .expect("an empty store's pending rows");
+    .expect("an empty store's pending rows")
+    // As the window composes it: the first identity seeded on each trust
+    // connection.
+    .seeding(interweave_human_transport_client::FirstSeed::new(human()));
     let mut facade = FacadeSide::new(client, wall_ms);
     let person = Scripted::default();
     let mut model = ModelSide::new(person.clone(), Nothing);

@@ -4010,8 +4010,10 @@ dependencies = [
 name = "interweave-local-client-fake"
 version = "0.4.0"
 dependencies = [
+ "bs58",
  "interweave-local-client-api",
  "interweave-profile-config",
+ "interweave-test-support",
  "interweave-transport-api",
 ]
 

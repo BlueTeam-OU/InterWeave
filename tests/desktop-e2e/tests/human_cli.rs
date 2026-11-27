@@ -383,7 +383,8 @@ async fn every_batch_one_verb_against_two_daemons() {
     let out = human(&a, &["identities", "default", &human_id()], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
 
-    // trust: B is configured; revoked and allowed again.
+    // trust: B is in the first identity's set, seeded from the configuration;
+    // revoked and allowed again, as that identity.
     let out = human(&a, &["trust", "list", "--json"], "");
     assert_eq!(code(&out), Some(0), "{}", said(&out));
     assert!(

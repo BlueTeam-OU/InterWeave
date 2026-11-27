@@ -12,7 +12,7 @@ use interweave_human_client_api::ReceivedCard;
 use interweave_human_store::identity_key::Fingerprint;
 use interweave_human_store::{
     AcceptedCard, CardStanding, Contact, ContactName, ContactRoute, HumanStore, InboundOrigin,
-    KeyStanding, OutboundDestination, PendingOutbound, ReadEphemeral, RowId, StoreError,
+    KeyStanding, OutboundDestination, OwnCard, PendingOutbound, ReadEphemeral, RowId, StoreError,
     ValueSource,
 };
 use interweave_human_ui_model::{
@@ -211,6 +211,23 @@ pub(crate) fn contact_directory(store: &HumanStore) -> Result<Vec<DirectoryConta
             None => return Ok(contacts),
         }
     }
+}
+
+/// Whether an own card carries a name the person chose. A card the store
+/// made for an identity that had none is named by its own `EndpointId`
+/// string with no surname (`HumanStore::ensure_own_card`), and that is a
+/// placeholder, not a name: a view that names the identity from its card
+/// reads `None` here and falls to the alias (identities §6.1)
+/// (`an_added_identity_is_named_by_its_alias_after_its_card_page_was_read`).
+pub(crate) fn chosen_card_name(card: &OwnCard) -> Option<String> {
+    if card.surname.is_none() && card.name == card.endpoint.as_str() {
+        return None;
+    }
+    Some(
+        card.surname
+            .as_ref()
+            .map_or_else(|| card.name.clone(), |s| format!("{} {s}", card.name)),
+    )
 }
 
 /// The identity in front, as the model shows it.

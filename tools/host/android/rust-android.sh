@@ -54,16 +54,28 @@ CHANNEL="$(sed -n 's/^channel[[:space:]]*=[[:space:]]*"\([^"]*\)".*/\1/p' "$TOOL
 COMPONENTS="$(sed -n 's/^components[[:space:]]*=[[:space:]]*\[\(.*\)\].*/\1/p' "$TOOLCHAIN_FILE" | tr -d ' "' )"
 
 RUSTUP="$CARGO_HOME/bin/rustup"
+# probe FLAGS PATTERN CMD...: CMD succeeds and its output has a line
+# matching PATTERN (grep -q plus FLAGS). The output is captured whole and
+# only then matched. Never pipe a probe into grep -q: under pipefail
+# grep's exit at the first match kills a producer still writing (SIGPIPE,
+# 141), and a match reads as a miss -- every --check line failed that way
+# under load. test_rust-android.sh's "output past the pipe buffer" case
+# fails on the piped shape.
+probe() {
+    local flags="$1" pattern="$2" out; shift 2
+    out="$("$@" 2>/dev/null)" && grep "-q$flags" -e "$pattern" <<<"$out"
+}
+rustup_at_pin() { [[ -x "$RUSTUP" ]] && probe '' "^rustup $RUSTUP_VERSION " "$RUSTUP" --version; }
 check_all() {
-    if [[ -x "$RUSTUP" ]] && "$RUSTUP" --version 2>/dev/null | grep -q "^rustup $RUSTUP_VERSION "; then ok "rustup $RUSTUP_VERSION"
+    if rustup_at_pin; then ok "rustup $RUSTUP_VERSION"
     else bad "rustup $RUSTUP_VERSION is not installed in $CARGO_HOME"; return; fi
-    if "$RUSTUP" toolchain list 2>/dev/null | grep -q "^$CHANNEL-"; then ok "toolchain $CHANNEL (rust-toolchain.toml)"
+    if probe '' "^$CHANNEL-" "$RUSTUP" toolchain list; then ok "toolchain $CHANNEL (rust-toolchain.toml)"
     else bad "toolchain $CHANNEL is not installed"; fi
-    if "$RUSTUP" target list --installed --toolchain "$CHANNEL" 2>/dev/null | grep -qx "$TARGET"; then ok "target $TARGET"
+    if probe x "$TARGET" "$RUSTUP" target list --installed --toolchain "$CHANNEL"; then ok "target $TARGET"
     else bad "target $TARGET is not installed for $CHANNEL"; fi
     # cargo-ndk answers only as a cargo subcommand (`cargo ndk`); called
     # directly it prints a refusal and exits 0.
-    if PATH="$CARGO_HOME/bin:$PATH" "$RUSTUP" run "$CHANNEL" cargo ndk --version 2>/dev/null | grep -qx "cargo-ndk $NDK_TOOL"; then ok "cargo-ndk $NDK_TOOL"
+    if probe x "cargo-ndk $NDK_TOOL" env PATH="$CARGO_HOME/bin:$PATH" "$RUSTUP" run "$CHANNEL" cargo ndk --version; then ok "cargo-ndk $NDK_TOOL"
     else bad "cargo-ndk $NDK_TOOL is not installed"; fi
     case ":$PATH:" in
         *":$CARGO_HOME/bin:"*) [[ "$(command -v cargo)" == "$CARGO_HOME/bin/cargo" ]] && ok "$CARGO_HOME/bin comes first on PATH" \
@@ -81,7 +93,7 @@ fi
 
 echo "== $me: rustup $RUSTUP_VERSION, $CHANNEL + $TARGET, cargo-ndk $NDK_TOOL =="
 command -v curl >/dev/null && command -v sha256sum >/dev/null || die "curl and sha256sum are required"
-if ! { [[ -x "$RUSTUP" ]] && "$RUSTUP" --version 2>/dev/null | grep -q "^rustup $RUSTUP_VERSION "; }; then
+if ! rustup_at_pin; then
     tmp="$(mktemp -d)" || die "mktemp failed"; trap 'rm -rf "$tmp"' EXIT
     url="https://static.rust-lang.org/rustup/archive/$RUSTUP_VERSION/x86_64-unknown-linux-gnu/rustup-init"
     curl -fL --retry 3 --silent --show-error -o "$tmp/rustup-init" "$url" || die "download failed: $url"

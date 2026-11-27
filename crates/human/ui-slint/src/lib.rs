@@ -24,7 +24,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::rc::Rc;
 use std::time::{Duration, Instant};
 
-use interweave_human_client_api::{Connectivity, OutboundStatus, TrustOrigin};
+use interweave_human_client_api::{Connectivity, OutboundStatus};
 use interweave_human_ui_model::{
     Announce, Avatar, AvatarHue, ConversationKey, ConversationSummary, Direction, ErrorClass,
     FocusTarget, HostText, Intent, ItemKey, ItemStatus, LabelKey, MessageItem, OutcomeFrom, Reply,
@@ -3728,10 +3728,12 @@ impl View {
         announce_in(&self.window, &self.next_slot_b, said);
     }
 
-    /// The trust settings (`human-client-ui.md` §8): the allowlist with
-    /// each `PeerId` whole, the field, the change waiting for
-    /// confirmation with its exact `PeerId` and scope, and the last
-    /// outcome -- returned once, for the render's one announcement.
+    /// The trust settings (`human-client-ui.md` §8): the identity's
+    /// trusted peers, each `PeerId` whole and with no origin line (every
+    /// row of an identity's set is its own; design/2026-11-04-identities.md
+    /// §16 Q5), the field, the change waiting for confirmation with its
+    /// exact `PeerId` and scope, and the last outcome -- returned once, for
+    /// the render's one announcement.
     fn render_trust(&mut self, model: &UiModel) -> Option<String> {
         let window = &self.window;
         window.set_trust_page(self.page == Page::Trust);
@@ -3757,11 +3759,6 @@ impl View {
             .map(|row| TrustRow {
                 handle: self.trusted_handles.of(&row.peer),
                 peer: row.peer.as_str().into(),
-                origin: placeholder_en::text(match row.origin {
-                    TrustOrigin::Configured => UiText::TrustFromConfiguration,
-                    TrustOrigin::AddedHere => UiText::TrustAddedHere,
-                })
-                .into(),
             })
             .collect();
         self.shared.borrow_mut().trusted = rows

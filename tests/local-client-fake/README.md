@@ -29,21 +29,36 @@ something conformance has proved.
   one; "Noise proved the peer" is configuration here.
 - **Trust.** The two nodes trust each other from pairing; an admin
   port's `set_trust` revokes or restores that, refuses the local peer
-  and a new peer at the 4096 ceiling, and a revocation of the paired
+  and a new peer that would put the admission set (the operator's list
+  and every endpoint's own set) past the 4096 ceiling, and a revocation of the paired
   node is owed to every session as `PeerDisconnected` with the `policy`
   reason. It cuts the pair both ways, as closing the connections does:
   the revoking node's sends and queries are `UnauthorizedPeer`, the
   peer's to it `PeerUnreachable`, and no broadcast crosses in either
   direction. There is no connection to close: what a revocation does to
   the network itself is the runtime's (`tests/local-client-conformance`).
+  The endpoint dimension (ADR-0067 decision 6) is kept too: an
+  endpoint's own set, made by `seed_endpoint_trust` or by its first
+  `set_endpoint_trust` from the operator's list, decides that endpoint's
+  route -- a send from it to a peer its outbound set lacks is
+  `UnauthorizedPeer`, a direct to it from a peer its inbound set lacks
+  `RemoteEndpointUnavailable` -- and a revoke closes the pair only when
+  it takes the peer out of the last set holding it. The probes
+  `operator_trust_calls`, `operator_list`, `seeds`, `trust_log` and
+  `give_own_set` let a client's test see which list it touched.
+  Unmodelled: `endpoint_trust` never answers `EndpointSetKind::Authored`
+  (the runtime's static-subset sets, which the fake never authors), so
+  no client test sees that kind from it; and the peers rows carry no
+  backoff, quarantine or held route, for the fake has no dial gate.
 - **The network's own outcomes.** The fake does not produce `Timeout`
-  itself, nor `UnauthorizedPeer` except for a peer revoked by
-  `set_trust`; a client sees them otherwise when TOLD via
+  itself, nor `UnauthorizedPeer` except for a peer revoked as above;
+  a client sees them otherwise when TOLD via
   `FakeNode::inject_send`.
   Two the fake produces itself, from its own state:
   `PeerUnreachable` when the other node is dropped or stopped, and
   `RemoteEndpointUnavailable` when the destination is unknown,
-  disabled or unleased, or no default is configured.
+  disabled, unleased or closed to the sender by its inbound set, or no
+  default is configured.
 
 So a client's handling of every outcome is proved TOTAL over
 `TransportError`, not REACHABLE: which outcomes the network actually

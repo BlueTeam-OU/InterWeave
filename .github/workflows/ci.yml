@@ -1078,6 +1078,12 @@ jobs:
       - name: Every tracked shell script passes shellcheck
         run: bash tools/checks/check_shell_scripts.sh
 
+      # A quiet grep ending a pipeline under pipefail exits at its first
+      # match, SIGPIPEs a writer with more than the pipe buffer left, and
+      # turns the match into a miss; shellcheck does not see it.
+      - name: No shell script ends a pipeline in a quiet grep under pipefail
+        run: bash tools/checks/check_no_grep_q_pipe.sh
+
       # Every workflow through actionlint (its run: scripts through the
       # shellcheck pinned above, which is on PATH from here) and zizmor
       # (the workflow security audit). The releases are pinned, and
