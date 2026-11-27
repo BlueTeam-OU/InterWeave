@@ -101,7 +101,10 @@ fn session_over(
         Box::new(|| WALL),
         0,
     )
-    .expect("facade");
+    .expect("facade")
+    // As the run composes it (`crate::client`): the first identity seeded
+    // on each trust connection.
+    .seeding(interweave_human_transport_client::FirstSeed::new(endpoint()));
     let mut facade = FacadeSide::new(client, || WALL);
     if let Some(faults) = faults {
         facade = facade.with_store_faults(faults);
@@ -438,11 +441,19 @@ async fn trust_is_listed_revoked_and_allowed_again_through_the_settings() {
     let rows = lines(&out);
     assert_eq!(rows.len(), 1, "{out}");
     assert_eq!(rows[0]["peer"], b.peer().as_str());
-    assert_eq!(rows[0]["origin"], "configured");
+    assert_eq!(rows[0].get("origin"), None, "no origin: {out}");
 
     let (out, revoked) = run(&mut alice, Verb::SetTrust(b.peer().clone(), false), false).await;
     revoked.expect("revoked");
     assert_eq!(out, format!("revoked {}\n", b.peer().as_str()));
+    // The identity's set changed, and the operator's list did not.
+    assert_eq!(a.operator_list(), [b.peer().clone()]);
+    assert_eq!(a.operator_trust_calls(), 0);
+    assert!(
+        a.seeds()
+            .iter()
+            .all(|(endpoint_seeded, _)| *endpoint_seeded == endpoint())
+    );
     let (out, _) = run(&mut alice, Verb::TrustList, true).await;
     assert!(out.is_empty(), "{out}");
 

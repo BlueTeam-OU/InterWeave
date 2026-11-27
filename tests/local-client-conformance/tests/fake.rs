@@ -986,6 +986,20 @@ async fn trust_administration_revokes_as_policy() {
 }
 
 #[tokio::test]
+async fn endpoint_trust_is_the_endpoints_own() {
+    let p = pair();
+    suite::endpoint_trust_is_the_endpoints_own(
+        &p.a,
+        &p.b,
+        &p.b_peer,
+        &p.a_peer,
+        &human(),
+        &agent(),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn peer_rows_answer_under_admin_status() {
     let p = pair();
     suite::peer_rows_answer_under_admin_status(&p.a, &p.a_peer, &p.b_peer).await;

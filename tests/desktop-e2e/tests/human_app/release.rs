@@ -60,7 +60,9 @@ use interweave_human_ui_model::{UiText, placeholder_en};
 use crate::a11y::Bus;
 use crate::common::{Home, PATIENCE, example, human, stranger};
 use crate::display;
-use crate::harness::{self as app, lease_of, until_lease, until_lease_of};
+use crate::harness::{
+    self as app, identity_set, lease_of, until_lease, until_lease_of, until_seeded,
+};
 use crate::package::{self, Running};
 use crate::world::{app_store, envelope, wall_ms};
 
@@ -494,7 +496,11 @@ impl Operated {
     /// ruling): `advertise: false` for the first identity, whose authored
     /// entry advertises. Everything else the overlay held is value-equal
     /// to what it was. Returns the overlay's name in the snapshots.
-    fn only_the_assertions_delta(&self, after: &BTreeMap<PathBuf, Vec<u8>>) -> String {
+    fn only_the_assertions_delta(
+        &self,
+        after: &BTreeMap<PathBuf, Vec<u8>>,
+        seeded: &[String],
+    ) -> String {
         let overlay = EndpointOverlay::path_for(&self.home.paths);
         let overlay_name = overlay
             .strip_prefix(self.home.root.path())
@@ -528,10 +534,26 @@ impl Operated {
                 self.id("human").as_str().to_owned(),
                 serde_json::json!(false),
             );
+        // And the first identity's own set, both members, which its first
+        // trust connection seeded from what it admitted (ADR-0067
+        // decision 6).
+        for member in ["inbound", "outbound"] {
+            asserted
+                .as_object_mut()
+                .expect("an object")
+                .entry(member)
+                .or_insert_with(|| serde_json::json!({}))
+                .as_object_mut()
+                .expect("the member")
+                .insert(
+                    self.id("human").as_str().to_owned(),
+                    serde_json::json!(seeded),
+                );
+        }
         assert_eq!(
             parse(after.get(Path::new(&overlay_name))),
             asserted,
-            "the overlay as the operator left it, plus the assertion's delta alone"
+            "the overlay as the operator left it, plus the assertion's delta and the seed alone"
         );
         overlay_name
     }
@@ -548,7 +570,27 @@ async fn serving(home: &Home) -> Running {
     daemon
 }
 
-/// What the daemon's trust policy allows, as strings.
+/// The peers both members of `endpoint`'s set hold, as strings, sorted,
+/// and which kind of set it is.
+async fn identity_peers(
+    home: &Home,
+    endpoint: &EndpointId,
+) -> (interweave_local_client_api::EndpointSetKind, Vec<String>) {
+    use interweave_local_client_api::TrustDirection;
+    let binding = home.binding();
+    let inbound = identity_set(&binding, endpoint, TrustDirection::Inbound).await;
+    let outbound = identity_set(&binding, endpoint, TrustDirection::Outbound).await;
+    let mut peers: Vec<String> = inbound
+        .allowed
+        .iter()
+        .filter(|row| outbound.allowed.iter().any(|o| o.peer == row.peer))
+        .map(|row| row.peer.as_str().to_owned())
+        .collect();
+    peers.sort();
+    (inbound.set, peers)
+}
+
+/// What the daemon's operator's list allows, as strings.
 async fn allowed(home: &Home) -> Vec<String> {
     let binding = home.binding();
     let port = binding
@@ -690,6 +732,16 @@ async fn an_upgrade_reads_the_previous_builds_artefacts_and_counts_what_v14_disc
 
     let mut client = app::start(home);
     until_lease_of(&home.binding(), human_id, true, &client).await;
+    // The first run seeds the first identity's own set from what it
+    // admitted: the kept and the added peers, not the revoked one.
+    until_seeded(&home.binding(), human_id, &client).await;
+    let (kind, seeded) = identity_peers(home, human_id).await;
+    assert_eq!(kind, interweave_local_client_api::EndpointSetKind::Own);
+    let mut expected = allowed.clone();
+    expected.sort();
+    assert_eq!(seeded, expected, "the seed is what the identity admitted");
+    assert!(seeded.contains(&manifest.added), "{seeded:?}");
+    assert!(!seeded.contains(&manifest.revoked), "{seeded:?}");
     assert!(client.terminate().success(), "{}", client.log());
     assert_eq!(store_version(home), SCHEMA_VERSION);
     for table in ["pending_outbound", "unread_inbound", "kept_inbound"] {
@@ -821,7 +873,7 @@ async fn an_upgrade_reads_the_previous_builds_artefacts_and_counts_what_v14_disc
             );
         }
     }
-    let overlay_name = operated.only_the_assertions_delta(&after);
+    let overlay_name = operated.only_the_assertions_delta(&after, &seeded);
     let rewritten: Vec<_> = rewritten
         .into_iter()
         .filter(|name| *name != marker_name && *name != store_key_name && *name != overlay_name)
@@ -852,6 +904,50 @@ async fn an_upgrade_reads_the_previous_builds_artefacts_and_counts_what_v14_disc
             ..DiscardedAtV14::default()
         })
     );
+    drop(store);
+
+    a_second_run_takes_no_later_allow(home, human_id, &seeded).await;
+}
+
+/// A second run over the upgraded `home`: the seed is asked again and
+/// answers `present`, so a peer the operator allowed since is not the
+/// first identity's, whose set stays `seeded` (human-client-ui.md
+/// section 13).
+async fn a_second_run_takes_no_later_allow(home: &Home, human_id: &EndpointId, seeded: &[String]) {
+    let mut daemon = serving(home).await;
+    let later = stranger();
+    package::transportctl_ok(home, &["trust", "allow", later.as_str()], "");
+    let tap = crate::daemon_link::Tap::install(&home.admin_socket());
+    let mut client = app::start(home);
+    until_lease_of(&home.binding(), human_id, true, &client).await;
+    let pid = i32::try_from(client.child.id()).expect("a pid");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while !tap.from(pid).iter().any(|c| {
+        crate::daemon_link::trust_requests(c)
+            .iter()
+            .any(|(method, _)| method == "admin.trust.seed")
+    }) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the second run asked no seed: {}",
+            client.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+    let (kind, after_second) = identity_peers(home, human_id).await;
+    assert_eq!(kind, interweave_local_client_api::EndpointSetKind::Own);
+    assert_eq!(
+        after_second, seeded,
+        "the operator's later allow is not the identity's"
+    );
+    assert!(
+        self::allowed(home)
+            .await
+            .contains(&later.as_str().to_owned()),
+        "the control: the operator's list holds it"
+    );
+    assert!(client.terminate().success(), "{}", client.log());
+    assert!(daemon.terminate().success(), "{}", daemon.log());
 }
 
 /// Rollback, the client's half: a store whose header says a newer build

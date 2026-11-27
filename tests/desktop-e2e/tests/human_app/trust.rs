@@ -6,10 +6,12 @@
 //! over the admin socket alone -- never the data socket, whatever the
 //! client asks there.
 //!
-//! And the change outlives the daemon (ADR-0028 A 2026-10-07): after a
-//! restart the daemon still does not allow the revoked peer, and the client
-//! shows no trusted peer. Before it, B's row says it comes from the
-//! profile's configuration -- the IPC 2.3 source, through the real daemon.
+//! The change is the first identity's (ADR-0067 decision 6): its own set,
+//! seeded from what the device trusted, loses B in both directions, while
+//! the operator's list, the trust overlay and `config.yaml` are as they
+//! were. And it outlives the daemon (ADR-0028 A 2026-11-22): after a
+//! restart the identity's set still lacks B, and the client shows no
+//! trusted peer. No row says where it came from (identities §16 Q5).
 //!
 //! What this does not prove: an allow typed into the field (its view and
 //! root tests are `ui-slint`'s and `app-core`'s), or an added peer's row
@@ -17,18 +19,52 @@
 //! halves).
 
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{
+    AdminBinding as _, AdminCapability, AdminPort as _, EndpointSetKind, TrustDirection,
+};
 
 use crate::a11y::{Bus, Element};
 use crate::common::human;
 use crate::daemon_link::{Tap, asked};
 use crate::display;
-use crate::harness::{self as app, until_lease};
+use crate::harness::{self as app, identity_set, until_lease};
 use crate::ring;
 use crate::world::two_daemons;
 
 fn text(key: UiText) -> &'static str {
     placeholder_en::text(key)
+}
+
+/// The operator's list as the daemon holds it, sorted: what an identity's
+/// trust act must leave as it is.
+async fn operators(home: &crate::common::Home) -> Vec<String> {
+    let port = home
+        .binding()
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("an admin port");
+    let mut peers: Vec<String> = port
+        .trust()
+        .await
+        .expect("the operator's list")
+        .peers()
+        .map(|p| p.as_str().to_owned())
+        .collect();
+    peers.sort();
+    peers
+}
+
+/// The trust overlay's bytes, if there is one, and `config.yaml`'s.
+fn files(home: &crate::common::Home) -> (Option<Vec<u8>>, Vec<u8>) {
+    (
+        std::fs::read(
+            home.paths
+                .state_dir()
+                .join(interweave_profile_config::trust_overlay::TRUST_OVERLAY_FILE),
+        )
+        .ok(),
+        std::fs::read(home.paths.config_file()).expect("config.yaml"),
+    )
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -38,6 +74,14 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
     let data = Tap::install(&world.a.data_socket());
     let admin = Tap::install(&world.a.admin_socket());
     let bus = Bus::connect().await;
+    // What the revoke must leave as it is: the operator's list, the trust
+    // overlay, the profile.
+    let operators_before = operators(&world.a).await;
+    assert!(
+        operators_before.contains(&world.b_peer.as_str().to_owned()),
+        "the control: the operator's list holds B"
+    );
+    let files_before = files(&world.a);
     let mut client = app::start(&world.a);
     until_lease(&world.a.binding(), true, &client).await;
     let pid = i32::try_from(client.child.id()).expect("a pid");
@@ -69,13 +113,6 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
         .until(
             "B's PeerId, whole, on its row",
             |e: &Element| e.name == b,
-            log,
-        )
-        .await;
-    window
-        .until(
-            "B's row, saying it comes from the profile's configuration",
-            |e: &Element| e.name == text(UiText::TrustFromConfiguration),
             log,
         )
         .await;
@@ -143,19 +180,32 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
         .until("the outcome, naming B", |e: &Element| e.name == done, log)
         .await;
 
-    // The daemon holds it: B is no longer allowed, read by this test on
-    // its own admin connection.
-    let port = world
-        .a
-        .binding()
-        .admin([AdminCapability::Trust].into())
-        .await
-        .expect("an admin port");
-    let view = port.trust().await.expect("the allowlist");
-    assert_eq!(view.local_peer.as_ref(), Some(&world.a_peer));
+    // The daemon holds it: the first identity's own set no longer allows
+    // B, either way, read by this test on its own admin connection; the
+    // operator's list, the trust overlay and the profile are unchanged.
+    let identity_lacks_b = |when: &'static str| {
+        let binding = world.a.binding();
+        let b = world.b_peer.clone();
+        async move {
+            for direction in TrustDirection::ALL {
+                let view = identity_set(&binding, &human(), direction).await;
+                assert_eq!(view.set, EndpointSetKind::Own, "{when}: {view:?}");
+                assert!(
+                    !view.allowed.iter().any(|row| row.peer == b),
+                    "{when}: the identity no longer allows B, {direction:?}: {view:?}"
+                );
+            }
+        }
+    };
+    identity_lacks_b("after the revoke").await;
+    assert_eq!(
+        operators(&world.a).await,
+        operators_before,
+        "the operator's list is not the identity's"
+    );
     assert!(
-        !view.peers().any(|p| p == &world.b_peer),
-        "the daemon no longer allows B: {view:?}"
+        files(&world.a) == files_before,
+        "the trust overlay and config.yaml are as they were"
     );
 
     // Over the admin socket and nowhere else: the trust capability and the
@@ -182,8 +232,8 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
         "no administrative authority asked for or used on the data socket: {on_data:?}"
     );
 
-    // THE CHANGE OUTLIVES THE DAEMON: restarted, it still does not allow B.
-    drop(port);
+    // THE CHANGE OUTLIVES THE DAEMON: restarted, the identity's set still
+    // does not allow B.
     assert!(
         world.a_daemon.terminate().await.success(),
         "{}",
@@ -191,17 +241,7 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
     );
     world.a_daemon = world.a.start(&[]);
     world.a_daemon.serving(&world.a).await;
-    let port = world
-        .a
-        .binding()
-        .admin([AdminCapability::Trust].into())
-        .await
-        .expect("an admin port after the restart");
-    let view = port.trust().await.expect("the allowlist after the restart");
-    assert!(
-        !view.peers().any(|p| p == &world.b_peer),
-        "the revocation outlived the restart: {view:?}"
-    );
+    identity_lacks_b("after the daemon's restart").await;
 
     // And the client shows it: no trusted peer, after its own restart.
     let mut client = app::start(&world.a);

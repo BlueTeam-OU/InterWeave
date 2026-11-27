@@ -32,6 +32,10 @@
 //! - an identity other than the first whose key cannot be opened is
 //!   asserted and leased as the first is, and given no key in its place
 //!   (`an_added_identity_without_its_key_is_leased_and_given_no_key`);
+//! - every identity's client asks the FIRST identity's trust seed on each
+//!   trust connection it opens, the first's alone, one record of whether
+//!   one was answered shared by them all ([`Roster::first_seeded`];
+//!   `every_identitys_trust_connection_seeds_the_first_alone`);
 //! - what each identity's row says is told at start and when it changes
 //!   (`the_held_identities_are_told_at_start_and_on_change_alone`), in
 //!   identities §5.2's states
@@ -49,7 +53,8 @@
 //!
 //! Turns and commands run one identity after another, each awaited before
 //! the next begins: a trust or address act opens its own short admin
-//! connection, so one client at a time asks
+//! connection -- a trust act made as the identity in front, its endpoint
+//! named -- so one client at a time asks
 //! (`TransportClient::without_status`'s note). Each identity's client is
 //! a graphical one (`TransportClient::new`), which asserts its endpoint
 //! unadvertised before every lease; that assertion is polled at each of
@@ -62,7 +67,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use interweave_human_client_api::{ClientEvent, SessionProblem, SessionState};
 use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{
-    AssertingBinding, ClientConfig, SessionBinding, TransportClient,
+    AssertingBinding, ClientConfig, FirstSeed, NodePeer, SessionBinding, TransportClient,
 };
 use interweave_human_ui_model::{HeldIdentity, IDENTITY_CAP, IdentityKey, IdentityState};
 use interweave_local_client_api::AdminBinding;
@@ -158,6 +163,8 @@ pub struct Roster<B: SessionBinding, A: AdminBinding> {
     /// Something ran that may change what is told: a turn with updates,
     /// or a command. Set at build, so the first ask tells.
     stale: bool,
+    /// The first identity's seed, a clone given to every held client.
+    seed: FirstSeed,
 }
 
 /// What an identity's row says it can do now (identities §5.2;
@@ -231,6 +238,13 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             (a.is_none(), a, x.as_str()).cmp(&(b.is_none(), b, y.as_str()))
         });
         let mut held = Vec::with_capacity(keyed.len() + 1);
+        // The first identity's, whichever identity a client speaks as
+        // (ADR-0067 decision 6): an added identity is given its own set
+        // at its add and is never seeded.
+        let seed = FirstSeed::new(first.clone());
+        // One node, so one PeerId: an added identity whose own open was
+        // refused still names it (`a_refused_identity_reads_the_node_peer_from_its_sibling`).
+        let node_peer = NodePeer::new();
         let order = std::iter::once((first.clone(), store)).chain(keyed.into_iter().map(
             |(_, endpoint)| {
                 let handle = own.handle_speaking_as(endpoint.clone());
@@ -257,6 +271,9 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 Box::new(wall.clone()),
                 now,
             )?;
+            let client = client
+                .seeding(seed.clone())
+                .sharing_node_peer(node_peer.clone());
             let client = if is_first {
                 client
             } else {
@@ -275,6 +292,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             tried_again: BTreeSet::new(),
             told: None,
             stale: true,
+            seed,
         };
         // An unreadable row is read as no row, so a start is not refused
         // over it (`the_front_at_start_is_the_last_held_else_the_default_else_the_first`);
@@ -319,6 +337,15 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     #[must_use]
     pub fn first(&self) -> &EndpointId {
         &self.held[0].endpoint
+    }
+
+    /// Whether the first identity's trust seed was answered -- `seeded`
+    /// or `present` -- on any client's trust connection in this process
+    /// run: the first identity's set exists. Kept in memory only; a
+    /// failed seed leaves it false.
+    #[must_use]
+    pub fn first_seeded(&self) -> bool {
+        self.seed.answered()
     }
 
     /// The identity in front.
@@ -491,11 +518,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 .as_ref()
                 .and_then(|told| told.iter().find(|h| h.key == key));
             let card_name = match self.store.own_card(endpoint) {
-                Ok(card) => card.map(|card| {
-                    card.surname
-                        .as_ref()
-                        .map_or_else(|| card.name.clone(), |s| format!("{} {s}", card.name))
-                }),
+                Ok(card) => card.as_ref().and_then(crate::cards::chosen_card_name),
                 Err(_) => before.and_then(|h| h.card_name.clone()),
             };
             let unread = match self

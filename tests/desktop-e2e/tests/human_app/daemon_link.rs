@@ -181,6 +181,29 @@ pub(crate) fn asked(connections: &[Vec<u8>]) -> Asked {
     asked
 }
 
+/// Every `admin.trust.*` request one connection sent, in order: the
+/// method, and whether its params named an `endpoint`.
+pub(crate) fn trust_requests(connection: &[u8]) -> Vec<(String, bool)> {
+    let mut requests = Vec::new();
+    let mut rest = connection;
+    while rest.len() >= 4 {
+        let len = usize::try_from(u32::from_be_bytes(rest[..4].try_into().expect("four")))
+            .expect("a length");
+        let Some(frame) = rest.get(4..4 + len) else {
+            break;
+        };
+        rest = &rest[4 + len..];
+        let frame: serde_json::Value = serde_json::from_slice(frame).expect("a JSON frame");
+        if frame["type"] == "request"
+            && let Some(method) = frame["method"].as_str()
+            && method.starts_with("admin.trust.")
+        {
+            requests.push((method.to_owned(), frame["params"]["endpoint"].is_string()));
+        }
+    }
+    requests
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_client_keeps_data_and_admin_apart_on_their_own_sockets() {
     let world = two_daemons().await;
@@ -238,6 +261,7 @@ async fn the_client_keeps_data_and_admin_apart_on_their_own_sockets() {
     let capabilities = reads(&["admin.status", "admin.trust", "admin.peers"]);
     let methods = reads(&[
         "admin.status",
+        "admin.trust.seed",
         "admin.trust.list",
         "admin.peers.list_addresses",
     ]);
@@ -273,6 +297,30 @@ async fn the_client_keeps_data_and_admin_apart_on_their_own_sockets() {
         "on the admin socket only those reads and the assertion on its own connection, \
          never another change, a lease or a send: {connections:?}"
     );
+    // Every trust read and write names the identity's endpoint, none the
+    // operator's list, and each trust connection asks the first
+    // identity's seed before anything else (ADR-0067 decision 6).
+    let trust: Vec<Vec<(String, bool)>> = admin
+        .from(pid)
+        .iter()
+        .map(|c| trust_requests(c))
+        .filter(|requests| !requests.is_empty())
+        .collect();
+    assert!(
+        !trust.is_empty(),
+        "control: the client was seen reading trust: {connections:?}"
+    );
+    for requests in &trust {
+        assert_eq!(
+            requests.first().map(|(m, _)| m.as_str()),
+            Some("admin.trust.seed"),
+            "the seed first on each trust connection: {trust:?}"
+        );
+        assert!(
+            requests.iter().all(|(_, named)| *named),
+            "every trust request names an endpoint: {trust:?}"
+        );
+    }
     assert!(
         human_lease(&world.a.binding()).await.is_none(),
         "and its lease is gone"

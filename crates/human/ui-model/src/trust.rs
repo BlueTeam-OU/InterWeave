@@ -1,7 +1,8 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The trust settings' state (`human-client-ui.md` §8): the allowlist as
-//! the daemon last said, the `PeerId` being typed, and a change waiting for
+//! The trust settings' state (`human-client-ui.md` §8): the trusted peers
+//! of the identity in front -- its own set, never the operator's list --
+//! as the daemon last said, the `PeerId` being typed, and a change waiting for
 //! the person's confirmation. Pure: the root carries the intents out and
 //! feeds back what the daemon answered.
 //!
@@ -34,7 +35,7 @@ pub enum EntryProblem {
     NotAPeerId,
     /// This profile's own identity, never a peer to trust.
     OwnIdentity,
-    /// Already on the allowlist.
+    /// Already among the identity's trusted peers.
     AlreadyTrusted,
 }
 
@@ -44,13 +45,13 @@ pub enum TrustOutcome {
     /// The daemon made the change.
     Changed(TrustChange),
     /// The daemon did not confirm the change, which may have been made;
-    /// the allowlist is read again.
+    /// the list is read again.
     Unconfirmed(TrustChange),
     /// Reading or changing did nothing.
     Problem(TrustProblem),
     /// The daemon refused the change: a later change of the same peer
     /// from another admin connection stands (IPC 2.10, `superseded`).
-    /// Nothing was written; the allowlist is read again to show that
+    /// Nothing was written; the list is read again to show that
     /// change, and nothing is retried.
     Superseded(TrustChange),
     /// The list a change left to read again could not be read: it may
@@ -189,8 +190,8 @@ impl TrustSettings {
         }
     }
 
-    /// The view opened: read the allowlist, unless a read or a change is
-    /// already on its way.
+    /// The view opened: read the identity's trusted peers, unless a read
+    /// or a change is already on its way.
     pub fn opened(&mut self) -> Option<Intent> {
         if self.reading || self.in_flight.is_some() {
             return None;
@@ -337,7 +338,7 @@ impl TrustSettings {
         }
     }
 
-    /// The daemon's answer to `change`: the allowlist read back, or why
+    /// The daemon's answer to `change`: the list read back, or why
     /// not -- and whether the change was made, which is what the person is
     /// told: "nothing was changed" only when nothing was. A change made or
     /// possibly made whose list was not read back is read again
@@ -505,13 +506,14 @@ impl TrustSettings {
         self.lost.iter().any(|(p, _)| p == peer)
     }
 
-    /// The allowlist as last read, or `None` before the first read.
+    /// The identity's trusted peers as last read, or `None` before the
+    /// first read.
     #[must_use]
     pub const fn list(&self) -> Option<&TrustList> {
         self.list.as_ref()
     }
 
-    /// The allowlist only while it is the daemon's word: `None` before
+    /// The list only while it is the daemon's word: `None` before
     /// the first read, after a read that failed, and after a change that
     /// may have been made until a read started after it succeeds, or its
     /// own read-back comes (`a_read_speaks_only_for_what_was_sent_before_it_started`).

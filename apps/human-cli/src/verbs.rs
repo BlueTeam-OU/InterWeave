@@ -699,7 +699,8 @@ async fn trust_settled<B: interweave_human_transport_client::SessionBinding, A: 
     }
 }
 
-/// Read the allowlist into the trust settings, as opening them does.
+/// Read the identity's trusted peers into the trust settings, as opening
+/// them does.
 async fn trust_opened<B: interweave_human_transport_client::SessionBinding, A: AdminBinding>(
     s: &mut Session<B, A>,
     r: &Run<'_>,
@@ -712,7 +713,7 @@ async fn trust_opened<B: interweave_human_transport_client::SessionBinding, A: A
     }
     Err(match trust.outcome().0 {
         Some(TrustOutcome::Problem(p) | TrustOutcome::NotReadAgain(p)) => trust_failure(*p),
-        _ => Failure::Refused("the allowlist was not read".to_owned()),
+        _ => Failure::Refused("the identity's trusted peers were not read".to_owned()),
     })
 }
 
@@ -723,19 +724,17 @@ async fn trust_list<B: interweave_human_transport_client::SessionBinding, A: Adm
 ) -> Result<(), Failure> {
     trust_opened(s, r).await?;
     let Some(list) = s.model().trust_settings().list() else {
-        return Err(Failure::Refused("the allowlist was not read".to_owned()));
+        return Err(Failure::Refused(
+            "the identity's trusted peers were not read".to_owned(),
+        ));
     };
+    // No origin: every row of an identity's set is its own, the seeded
+    // ones included (design/2026-11-04-identities.md §16 Q5).
     for row in &list.allowed {
-        let origin = match row.origin {
-            interweave_human_client_api::TrustOrigin::Configured => "configured",
-            interweave_human_client_api::TrustOrigin::AddedHere => "added",
-        };
         if r.json {
-            out.push_str(&output::json_line(
-                &json!({ "peer": row.peer.as_str(), "origin": origin }),
-            ));
+            out.push_str(&output::json_line(&json!({ "peer": row.peer.as_str() })));
         } else {
-            let _ = writeln!(out, "{}  {origin}", row.peer.as_str());
+            let _ = writeln!(out, "{}", row.peer.as_str());
         }
     }
     Ok(())

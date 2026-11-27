@@ -17,15 +17,17 @@ use std::sync::{Arc, Mutex};
 use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
-    ClientConfig, ClientEvent, Connectivity, Destination, Inbound, Origin, OutboundStatus,
-    Received, SendError, SendProblem, SessionProblem, SessionState, TransportClient, TrustList,
-    TrustProblem, TrustRow, TrustSetFailure,
+    ClientConfig, ClientEvent, Connectivity, Destination, FirstSeed, Inbound, NodePeer, Origin,
+    OutboundStatus, Received, SendError, SendProblem, SessionProblem, SessionState,
+    TransportClient, TrustList, TrustProblem, TrustRow, TrustSetFailure,
 };
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, DataCapability, DataSessionBinding, DataSessionPort,
     SessionEvent, SessionRequest, TrustChange, TrustRefusal,
 };
-use interweave_local_client_fake::{FakeConfig, FakeEndpoint, FakeNetwork, FakeNode};
+use interweave_local_client_fake::{
+    FakeConfig, FakeEndpoint, FakeNetwork, FakeNode, FakeTrustCall,
+};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointId, MediaType, MessageId, Payload,
@@ -2003,52 +2005,365 @@ fn trusting(node: &FakeNode) -> (TransportClient<FakeNode, Recording>, Recording
     (client, recording)
 }
 
-/// The allowlist as the daemon holds it, this profile's own identity
-/// beside it; a change is read back, and a revocation reaches an open
-/// session as the peer's disconnection (`LOCAL-CLIENT.md` section 7 item 11).
+/// An identity whose own session never opened (one that reads no status
+/// either) still names the node's peer as its trust list's local peer
+/// when another client of the node, sharing the cell, learned it: the
+/// node is one, so is its `PeerId`; without the cell the list names none
+/// and the node's own peer cannot be told from any other.
+#[tokio::test]
+async fn a_client_without_a_session_names_the_peer_another_learned() {
+    let (a, _b) = FakeNetwork::pair(node_config(), node_config());
+    let cell = NodePeer::new();
+    let mut first = client(&a, human(), memory())
+        .seeding(FirstSeed::new(human()))
+        .sharing_node_peer(cell.clone());
+    let added = client(&a, human(), memory())
+        .without_status()
+        .seeding(FirstSeed::new(human()))
+        .sharing_node_peer(cell.clone());
+
+    let before = added.identity_trust().await.expect("the set");
+    assert_eq!(before.local_peer, None, "nobody has learned it yet");
+
+    ready(&mut first, 0).await;
+    let after = added.identity_trust().await.expect("the set");
+    assert_eq!(after.local_peer, Some(a.peer().clone()));
+    assert_eq!(cell.get(), Some(a.peer().clone()));
+}
+
+/// The identity's trust as the daemon holds it, this node's own peer
+/// beside it, once a session or a status read learned it; a change is
+/// read back. A revoke for the identity changes its set alone: the
+/// operator's list still holds the peer, so nothing closes and the open
+/// session is told no `PeerDisconnected`, while the peer's direct to that
+/// identity is refused and its direct to another endpoint is delivered
+/// (`LOCAL-IPC.md`, the endpoint dimension, A 2026-11-19).
 #[tokio::test]
 async fn trust_is_read_allowed_and_revoked_and_read_back() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
-    let (settings, _) = trusting(&a);
-    let mut session = client(&a, human(), memory());
-    ready(&mut session, 0).await;
-    let _ = events(&mut session);
+    let mut me = client(&a, human(), memory()).seeding(FirstSeed::new(human()));
+    ready(&mut me, 0).await;
+    let _ = events(&mut me);
 
-    let read = settings.trust().await.expect("the allowlist");
+    let read = me.identity_trust().await.expect("the identity's trust");
     assert_eq!(
         read,
         TrustList {
             local_peer: Some(a.peer().clone()),
-            allowed: vec![TrustRow::configured(b.peer().clone())],
+            // Seeded: every row of the identity's own set is its own.
+            allowed: vec![TrustRow::added_here(b.peer().clone())],
         }
     );
 
     let stranger = ProfileIdentity::generate()
         .transport_identity()
         .expect("a peer");
-    let after = settings
-        .set_trust(stranger.clone(), true)
+    let after = me
+        .set_identity_trust(stranger.clone(), true)
         .await
         .expect("allowed");
     assert!(
         after
             .allowed
             .contains(&TrustRow::added_here(stranger.clone())),
-        "read back with it, as added here: {after:?}"
+        "read back with it: {after:?}"
     );
 
-    let after = settings
-        .set_trust(b.peer().clone(), false)
+    let after = me
+        .set_identity_trust(b.peer().clone(), false)
         .await
         .expect("revoked");
     assert!(!after.allows(b.peer()), "read back without it: {after:?}");
-    let _ = session.drain(16, 1).await;
+    assert_eq!(
+        a.operator_list(),
+        vec![b.peer().clone()],
+        "the operator's list is neither the allow's nor the revoke's"
+    );
+    let _ = me.drain(16, 1).await;
     assert!(
-        events(&mut session).contains(&ClientEvent::PeerDisconnected {
+        !events(&mut me).contains(&ClientEvent::PeerDisconnected {
             peer: b.peer().clone()
         }),
-        "the open session was told"
+        "another set holds the peer: nothing closed"
     );
+    let _held = raw(&a, Some(agent())).await;
+    let from_b = raw(&b, Some(agent())).await;
+    let send = |endpoint: EndpointId, n: u8| {
+        from_b.send_direct(
+            DirectDestination {
+                peer: a.peer().clone(),
+                endpoint: Some(endpoint),
+            },
+            MessageId::from_bytes([n; 16]),
+            Payload::new(
+                Some(MediaType::parse("text/plain").expect("valid")),
+                b"x".to_vec(),
+                LIMIT,
+            )
+            .expect("bounds"),
+        )
+    };
+    assert_eq!(
+        send(human(), 1).await,
+        Err(TransportError::RemoteEndpointUnavailable),
+        "the identity's route is refused to the peer"
+    );
+    assert_eq!(
+        send(agent(), 2).await,
+        Ok(agent()),
+        "another endpoint's is not"
+    );
+}
+
+/// A peer no other set holds -- the operator's list let go of it first,
+/// and no other endpoint has a set -- is closed by the identity's revoke:
+/// its last set let go, and the open session is told.
+#[tokio::test]
+async fn revoking_a_peer_no_other_set_holds_disconnects_it() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let mut me = client(&a, human(), memory()).seeding(FirstSeed::new(human()));
+    ready(&mut me, 0).await;
+    assert!(me.identity_trust().await.expect("read").allows(b.peer()));
+    let operator = a
+        .admin(BTreeSet::from([AdminCapability::Trust]))
+        .await
+        .expect("a port");
+    assert_eq!(
+        operator.set_trust(b.peer().clone(), false).await,
+        Ok(TrustChange::Set)
+    );
+    let _ = me.drain(16, 1).await;
+    let _ = events(&mut me);
+    let after = me
+        .set_identity_trust(b.peer().clone(), false)
+        .await
+        .expect("revoked");
+    assert!(!after.allows(b.peer()));
+    let _ = me.drain(16, 2).await;
+    assert!(
+        events(&mut me).contains(&ClientEvent::PeerDisconnected {
+            peer: b.peer().clone()
+        }),
+        "the last set let go: the session was told"
+    );
+}
+
+/// No trust act of the facade reads or writes the operator's list: a
+/// read, an allow, a revoke, a refused set and a failing one each name
+/// the identity's endpoint (architect-cto's ruling 1, 2026-11-26).
+#[tokio::test]
+async fn no_trust_call_reads_or_writes_the_operators_list() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let me = client(&a, agent(), memory()).seeding(FirstSeed::new(human()));
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer");
+    let _ = me.identity_trust().await.expect("read");
+    let _ = me
+        .set_identity_trust(stranger.clone(), true)
+        .await
+        .expect("allowed");
+    let _ = me
+        .set_identity_trust(stranger, false)
+        .await
+        .expect("revoked");
+    let _ = me.set_identity_trust(b.peer().clone(), false).await;
+    let _ = me.set_identity_trust(a.peer().clone(), true).await;
+    let unknown = client(&a, endpoint_id("ghost"), memory());
+    let _ = unknown.identity_trust().await;
+    assert_eq!(a.operator_trust_calls(), 0, "{:?}", a.trust_log());
+    assert!(
+        a.trust_log().iter().all(|(_, call)| match call {
+            FakeTrustCall::EndpointRead(endpoint, _) | FakeTrustCall::EndpointSet(endpoint, ..) => {
+                *endpoint == agent() || *endpoint == endpoint_id("ghost")
+            }
+            FakeTrustCall::Seed(endpoint) => *endpoint == human(),
+            FakeTrustCall::OperatorRead | FakeTrustCall::OperatorSet(..) => false,
+        }),
+        "every act names the identity it is made as: {:?}",
+        a.trust_log()
+    );
+}
+
+/// Each trust connection -- a read's, a write's -- asks the first
+/// identity's seed before anything else on it, though the client speaks
+/// as another identity.
+#[tokio::test]
+async fn every_trust_connection_seeds_the_first_identity_before_it_reads_or_writes() {
+    let (a, _b) = FakeNetwork::pair(node_config(), node_config());
+    let me = client(&a, agent(), memory()).seeding(FirstSeed::new(human()));
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer");
+    let _ = me.identity_trust().await.expect("read");
+    let _ = me
+        .set_identity_trust(stranger, true)
+        .await
+        .expect("allowed");
+    let log = a.trust_log();
+    let ports: BTreeSet<u64> = log.iter().map(|(port, _)| *port).collect();
+    assert_eq!(ports.len(), 2, "one connection per act: {log:?}");
+    for port in ports {
+        let calls: Vec<&FakeTrustCall> = log
+            .iter()
+            .filter(|(on, _)| *on == port)
+            .map(|(_, call)| call)
+            .collect();
+        assert_eq!(
+            calls.first(),
+            Some(&&FakeTrustCall::Seed(human())),
+            "the seed first: {calls:?}"
+        );
+        assert_eq!(
+            calls
+                .iter()
+                .filter(|call| matches!(call, FakeTrustCall::Seed(_)))
+                .count(),
+            1,
+            "once per connection: {calls:?}"
+        );
+    }
+}
+
+/// An added identity is never seeded -- not with a set given at its add,
+/// not with none -- only the first: its acts carry its own endpoint, and
+/// the seed names the first's.
+#[tokio::test]
+async fn an_added_identity_is_never_seeded() {
+    for given in [true, false] {
+        let (a, b) = FakeNetwork::pair(node_config(), node_config());
+        if given {
+            a.give_own_set(agent(), [], []);
+        }
+        let seed = FirstSeed::new(human());
+        let me = client(&a, agent(), memory()).seeding(seed.clone());
+        let read = me.identity_trust().await.expect("read");
+        assert_eq!(read.allows(b.peer()), !given, "{read:?}");
+        let _ = me
+            .set_identity_trust(b.peer().clone(), true)
+            .await
+            .expect("allowed");
+        assert!(
+            a.seeds().iter().all(|(endpoint, _)| *endpoint == human()),
+            "{:?}",
+            a.seeds()
+        );
+        assert!(
+            !a.trust_log()
+                .iter()
+                .any(|(_, call)| *call == FakeTrustCall::Seed(agent())),
+            "{:?}",
+            a.trust_log()
+        );
+        assert!(seed.answered());
+    }
+}
+
+/// A seed that fails draws no state: the read and the write after it on
+/// the same connection answer what they answer without one, still for
+/// the identity's endpoint, and `answered` stays false until a seed is
+/// answered -- here `present`, since the write made the set.
+#[tokio::test]
+async fn a_failed_seed_changes_nothing_the_read_or_the_write_says() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let seed = FirstSeed::new(human());
+    let failing = faulty_client(
+        &a,
+        FaultyBinding {
+            seed: Some(TransportError::BackendUnavailable),
+            ..FaultyBinding::clean(&a)
+        },
+    )
+    .seeding(seed.clone());
+    let read = failing.identity_trust().await.expect("read");
+    assert_eq!(
+        read.allowed,
+        vec![TrustRow::configured(b.peer().clone())],
+        "the inherited set, as read with no seed"
+    );
+    assert!(!seed.answered());
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer");
+    let after = failing
+        .set_identity_trust(stranger.clone(), true)
+        .await
+        .expect("allowed");
+    assert!(
+        after.allows(&stranger) && after.allows(b.peer()),
+        "{after:?}"
+    );
+    assert!(!seed.answered(), "still no seed answered");
+    assert!(a.seeds().is_empty());
+    let me = client(&a, human(), memory()).seeding(seed.clone());
+    let _ = me.identity_trust().await.expect("read");
+    assert_eq!(
+        a.seeds(),
+        vec![(human(), interweave_local_client_api::TrustSeed::Present)]
+    );
+    assert!(seed.answered(), "present is an answer");
+}
+
+/// The person's view is the peers BOTH members hold: a peer one member
+/// alone holds is not listed, and trusting it writes it into both.
+#[tokio::test]
+async fn a_peer_one_member_alone_holds_is_not_listed_and_trusting_it_writes_both() {
+    let (a, b) = FakeNetwork::pair(node_config(), node_config());
+    let half = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer");
+    a.give_own_set(
+        human(),
+        [b.peer().clone(), half.clone()],
+        [b.peer().clone()],
+    );
+    let me = client(&a, human(), memory());
+    let read = me.identity_trust().await.expect("read");
+    assert_eq!(read.allowed, vec![TrustRow::added_here(b.peer().clone())]);
+    let after = me
+        .set_identity_trust(half.clone(), true)
+        .await
+        .expect("allowed");
+    assert!(after.allows(&half), "{after:?}");
+    let port = a
+        .admin(BTreeSet::from([AdminCapability::Trust]))
+        .await
+        .expect("a port");
+    for direction in interweave_local_client_api::TrustDirection::ALL {
+        let view = port.endpoint_trust(human(), direction).await.expect("read");
+        assert!(
+            view.allowed.iter().any(|row| row.peer == half),
+            "{direction:?}: {view:?}"
+        );
+    }
+}
+
+/// An identity no entry of the daemon holds is `EndpointUnknown`, and a
+/// page without its `set` is refused by `ipc-client` as `Internal`
+/// (`admin.rs`'s `endpoint_trust_pages`): both are `Internal` to the
+/// person, a read and a write alike -- never the operator's list read in
+/// its place.
+#[tokio::test]
+async fn an_unknown_endpoint_or_a_page_without_its_set_is_internal() {
+    let (a, _b) = FakeNetwork::pair(node_config(), node_config());
+    let unknown = client(&a, endpoint_id("ghost"), memory());
+    assert_eq!(unknown.identity_trust().await, Err(TrustProblem::Internal));
+    let stranger = ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer");
+    assert_eq!(
+        unknown.set_identity_trust(stranger, true).await,
+        Err(TrustSetFailure::NotMade(TrustProblem::Internal))
+    );
+    let pageless = faulty_client(
+        &a,
+        FaultyBinding {
+            read: Some(TransportError::Internal),
+            ..FaultyBinding::clean(&a)
+        },
+    );
+    assert_eq!(pageless.identity_trust().await, Err(TrustProblem::Internal));
+    assert_eq!(a.operator_trust_calls(), 0);
 }
 
 /// This profile's own identity is never a peer to trust: the daemon's
@@ -2058,11 +2373,15 @@ async fn trusting_this_profiles_own_identity_is_refused() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
     let (settings, _) = trusting(&a);
     assert_eq!(
-        settings.set_trust(a.peer().clone(), true).await,
+        settings.set_identity_trust(a.peer().clone(), true).await,
         Err(TrustSetFailure::NotMade(TrustProblem::Refused))
     );
     assert_eq!(
-        settings.trust().await.expect("the allowlist").allowed,
+        settings
+            .identity_trust()
+            .await
+            .expect("the identity's trust")
+            .allowed,
         vec![TrustRow::configured(b.peer().clone())]
     );
 }
@@ -2074,9 +2393,12 @@ async fn trusting_this_profiles_own_identity_is_refused() {
 async fn a_trust_call_opens_a_connection_holding_admin_trust_alone() {
     let (a, b) = FakeNetwork::pair(node_config(), node_config());
     let (mut settings, recording) = trusting(&a);
-    let _ = settings.trust().await.expect("the allowlist");
     let _ = settings
-        .set_trust(b.peer().clone(), true)
+        .identity_trust()
+        .await
+        .expect("the identity's trust");
+    let _ = settings
+        .set_identity_trust(b.peer().clone(), true)
         .await
         .expect("a no-op allow");
     let trust_only = BTreeSet::from([AdminCapability::Trust]);
@@ -2093,14 +2415,16 @@ async fn a_trust_call_opens_a_connection_holding_admin_trust_alone() {
     );
 }
 
-/// An admin port over a fake node's that fails the set, or the read-back
-/// after it, with a chosen error -- the failures a fake never produces.
+/// An admin port over a fake node's that fails the seed, the set, or a
+/// read -- every read, or the read-back after the set -- with a chosen
+/// error: the failures a fake never produces.
 struct Faulty {
     inner: <FakeNode as AdminBinding>::Admin,
-    /// Every read fails with it, as a pre-2.3 daemon's does over IPC.
+    /// Every read fails with it, as a daemon below 3.0 answers one.
     read: Option<TransportError>,
     set: Option<TransportError>,
     read_back: Option<TransportError>,
+    seed: Option<TransportError>,
     /// The set is refused `superseded`, writing nothing (IPC 2.10).
     superseded: bool,
     set_called: std::sync::atomic::AtomicBool,
@@ -2135,6 +2459,20 @@ impl AdminPort for Faulty {
         self.inner.set_default_endpoint(endpoint).await
     }
     async fn trust(&self) -> Result<interweave_local_client_api::TrustAdminView, TransportError> {
+        self.inner.trust().await
+    }
+    async fn set_trust(
+        &self,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<TrustChange, TransportError> {
+        self.inner.set_trust(peer, allowed).await
+    }
+    async fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: interweave_local_client_api::TrustDirection,
+    ) -> Result<interweave_local_client_api::EndpointTrustView, TransportError> {
         if let Some(error) = self.read {
             return Err(error);
         }
@@ -2143,10 +2481,11 @@ impl AdminPort for Faulty {
         {
             return Err(error);
         }
-        self.inner.trust().await
+        self.inner.endpoint_trust(endpoint, direction).await
     }
-    async fn set_trust(
+    async fn set_endpoint_trust(
         &self,
+        endpoint: EndpointId,
         peer: TransportIdentity,
         allowed: bool,
     ) -> Result<TrustChange, TransportError> {
@@ -2158,7 +2497,16 @@ impl AdminPort for Faulty {
         if self.superseded {
             return Ok(TrustChange::Refused(TrustRefusal::Superseded));
         }
-        self.inner.set_trust(peer, allowed).await
+        self.inner.set_endpoint_trust(endpoint, peer, allowed).await
+    }
+    async fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> Result<interweave_local_client_api::TrustSeed, TransportError> {
+        if let Some(error) = self.seed {
+            return Err(error);
+        }
+        self.inner.seed_endpoint_trust(endpoint).await
     }
     async fn shutdown(&self, grace: std::time::Duration) -> Result<(), TransportError> {
         self.inner.shutdown(grace).await
@@ -2171,7 +2519,22 @@ struct FaultyBinding {
     read: Option<TransportError>,
     set: Option<TransportError>,
     read_back: Option<TransportError>,
+    seed: Option<TransportError>,
     superseded: bool,
+}
+
+impl FaultyBinding {
+    /// No fault: each test names the one it wants.
+    fn clean(node: &FakeNode) -> Self {
+        Self {
+            node: node.clone(),
+            read: None,
+            set: None,
+            read_back: None,
+            seed: None,
+            superseded: false,
+        }
+    }
 }
 
 impl AdminBinding for FaultyBinding {
@@ -2188,11 +2551,33 @@ impl AdminBinding for FaultyBinding {
                 read: this.read,
                 set: this.set,
                 read_back: this.read_back,
+                seed: this.seed,
                 superseded: this.superseded,
                 set_called: std::sync::atomic::AtomicBool::new(false),
             })
         }
     }
+}
+
+/// A client speaking as `human` whose admin connections are `binding`'s.
+fn faulty_client(
+    node: &FakeNode,
+    binding: FaultyBinding,
+) -> TransportClient<FakeNode, FaultyBinding> {
+    TransportClient::new(
+        node.clone(),
+        binding,
+        memory(),
+        ClientConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human()],
+            channels: Vec::new(),
+            max_payload_bytes: LIMIT,
+        },
+        wall(),
+        0,
+    )
+    .expect("an empty store")
 }
 
 /// A trust change's failure says whether it was made, by where it failed:
@@ -2228,75 +2613,55 @@ async fn a_trust_failure_says_whether_the_change_was_made() {
         (None, None, true, TrustSetFailure::Superseded, false),
     ] {
         let (a, _b) = FakeNetwork::pair(node_config(), node_config());
-        let binding = FaultyBinding {
-            node: a.clone(),
-            read: None,
-            set,
-            read_back,
-            superseded,
-        };
-        let client = TransportClient::new(
-            a.clone(),
-            binding,
-            memory(),
-            ClientConfig {
-                client_kind: "human-client".to_owned(),
-                endpoints: vec![human()],
-                channels: Vec::new(),
-                max_payload_bytes: LIMIT,
+        let client = faulty_client(
+            &a,
+            FaultyBinding {
+                set,
+                read_back,
+                superseded,
+                ..FaultyBinding::clean(&a)
             },
-            wall(),
-            0,
-        )
-        .expect("an empty store");
+        );
         let stranger = ProfileIdentity::generate()
             .transport_identity()
             .expect("a peer");
         assert_eq!(
-            client.set_trust(stranger.clone(), true).await,
+            client.set_identity_trust(stranger.clone(), true).await,
             Err(expected)
         );
         let (settings, _) = trusting(&a);
-        let held = settings.trust().await.expect("the allowlist");
+        let held = settings
+            .identity_trust()
+            .await
+            .expect("the identity's trust");
         assert_eq!(held.allows(&stranger), made, "{expected:?}");
     }
 }
 
-/// A daemon that does not speak trust's version -- `ipc-client` refuses a
-/// trust read `ProtocolUnsupported` below IPC 2.3 -- reads as
+/// A daemon that does not speak trust's version -- one below IPC 3.0
+/// answers the endpoint read `ProtocolUnsupported` -- reads as
 /// `Incompatible`, the cause the person can act on, never the generic
 /// failure; a change made there is reported made but not read back, under
 /// the same cause.
 #[tokio::test]
 async fn a_daemon_without_trusts_version_reads_as_incompatible() {
     let (a, _b) = FakeNetwork::pair(node_config(), node_config());
-    let binding = FaultyBinding {
-        node: a.clone(),
-        read: Some(TransportError::ProtocolUnsupported),
-        set: None,
-        read_back: None,
-        superseded: false,
-    };
-    let client = TransportClient::new(
-        a.clone(),
-        binding,
-        memory(),
-        ClientConfig {
-            client_kind: "human-client".to_owned(),
-            endpoints: vec![human()],
-            channels: Vec::new(),
-            max_payload_bytes: LIMIT,
+    let client = faulty_client(
+        &a,
+        FaultyBinding {
+            read: Some(TransportError::ProtocolUnsupported),
+            ..FaultyBinding::clean(&a)
         },
-        wall(),
-        0,
-    )
-    .expect("an empty store");
-    assert_eq!(client.trust().await, Err(TrustProblem::Incompatible));
+    );
+    assert_eq!(
+        client.identity_trust().await,
+        Err(TrustProblem::Incompatible)
+    );
     let stranger = ProfileIdentity::generate()
         .transport_identity()
         .expect("a peer");
     assert_eq!(
-        client.set_trust(stranger, true).await,
+        client.set_identity_trust(stranger, true).await,
         Err(TrustSetFailure::MadeNotReadBack(TrustProblem::Incompatible))
     );
 }

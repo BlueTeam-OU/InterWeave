@@ -374,6 +374,22 @@ async fn trust_administration_revokes_as_policy() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn endpoint_trust_is_the_endpoints_own() {
+    let pair = IpcPair::start().await;
+    let (a, b) = pair.bindings();
+    suite::endpoint_trust_is_the_endpoints_own(
+        &a,
+        &b,
+        &pair.b_peer,
+        &pair.a_peer,
+        &human(),
+        &agent(),
+    )
+    .await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn bootstrap_addresses_answer_alike_at_every_binding() {
     let pair = IpcPair::start().await;
     let (a, _) = pair.bindings();

@@ -38,8 +38,8 @@ Agreed with the client's role before it was built (relay seqs 10630, 10639 and 1
 - `connectivity()`, always present: `Unknown` is never shown as `Offline`.
 - `session_notice()`, each notice with the `Intent` that resolves it.
 - `composer(key)`.
-- `trust(peer)`: always "not verified by this client": the allowlist says which peers this profile admits, not who a peer is, so it does not answer this.
-- `trust_settings()`: the trust settings (`human-client-ui.md` §8) -- the allowlist as the daemon last said, the PeerId being typed, the change waiting for confirmation, the change on its way, and the last outcome with a count that changes at each.
+- `trust(peer)`: always "not verified by this client": the trust list says which peers an identity admits, not who a peer is, so it does not answer this.
+- `trust_settings()`: the trust settings (`human-client-ui.md` §8) -- the identity's trusted peers (its own set, never the operator's list) as the daemon last said, the PeerId being typed, the change waiting for confirmation, the change on its way, and the last outcome with a count that changes at each.
 - `peers()`: peers by address (ADR-0062, `design/2026-10-22-add-a-peer.md`; `src/peers.rs`) -- the address list as the runtime last said or why it is not on show, the rows in their states against the trust list, the add page's field, note, result and step-two blocks, the snackbar and the focus asked for, each with a count; and `no_reach()`, the notice's condition: the address list and the trust list both read and both empty, never a connection signal, and an unreadable list claims nothing (`tests/peers.rs`).
 - `diagnostics()`, and `item_diagnostics(key)`: an outbound row's raw failure code. It is kept off `MessageItem` so a view cannot render it by accident (`human-client-ui.md` §12).
 
