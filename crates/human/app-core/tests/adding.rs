@@ -548,8 +548,10 @@ async fn a_create_that_lands_deletes_the_record_holds_the_identity_and_writes_it
 
 /// While a record names the id -- its add not answered -- nothing is
 /// written under it and nothing leases it: no card, no session, not held,
-/// however many turns run. Mutation: the card written as the Create
-/// starts -- a card stands under the id.
+/// however many turns run. A Create while one runs does not start and is
+/// told so. Mutations: the card written as the Create starts -- a card
+/// stands under the id; a Create that does not start telling nothing --
+/// no `NotStarted`.
 #[tokio::test]
 async fn while_a_record_names_the_id_nothing_is_written_under_it() {
     let mut device = Device::new();
@@ -559,6 +561,8 @@ async fn while_a_record_names_the_id_nothing_is_written_under_it() {
     offered(&mut roster, 5);
     roster.add(create("Anna"), 5);
     assert!(roster.take_add_told().is_empty(), "the add is waited for");
+    roster.add(create("Anna"), 5);
+    assert_eq!(roster.take_add_told(), [AddTold::NotStarted], "one runs");
     let records = device.records();
     assert_eq!(records.len(), 1, "the record names the form's key");
     let id = records[0].clone();
@@ -893,4 +897,52 @@ async fn an_identity_whose_hold_is_refused_is_told_and_held_at_a_later_poll() {
     assert_eq!(roster.take_add_told(), [AddTold::Held(id.clone())]);
     assert!(roster.held().any(|e| e == &id), "held with no restart");
     assert_eq!(roster.take_held_more().len(), 1);
+}
+
+/// Done closes the form (identities §6.2; contact cards §5.2, "A way of
+/// leaving"): a Create that ends Created leaves no form open, so a
+/// Create then is told not started; the next opening makes a new form,
+/// whose Create makes a second key and tells a second outcome; and the
+/// closing is a settle moment, so a record planted after Done is settled
+/// at the next turn. Mutations: the form not cleared at Created -- the
+/// second Create is told not started and nothing is made; the closing
+/// owing no settle -- the planted record stays.
+#[tokio::test]
+async fn done_closes_the_form_and_the_next_opens_a_new_one() {
+    let mut device = Device::new();
+    let store = memory();
+    let mut rows = store.handle_speaking_as(human());
+    let mut roster = device.roster(store, Vec::new());
+    started(&mut roster).await;
+    offered(&mut roster, 5);
+    roster.add(create("Anna"), 5);
+    let (first, _, _) = created(&roster.take_add_told());
+
+    let planted = device.left_by_a_form(&mut rows);
+    roster.turn(6).await;
+    assert!(
+        device.log.steps().contains(&Step::Removed(planted.clone())),
+        "settled at Done's closing: {:?}",
+        device.log.steps()
+    );
+    assert!(device.records().is_empty());
+
+    roster.add(create("Bruno"), 7);
+    assert_eq!(
+        roster.take_add_told(),
+        [AddTold::NotStarted],
+        "no form open"
+    );
+
+    roster.add(AddAct::Opened, 8);
+    assert_eq!(roster.take_add_told(), [AddTold::Offered]);
+    roster.add(create("Bruno"), 8);
+    let told = roster.take_add_told();
+    let (second, alias, _) = created(&told);
+    assert_ne!(second, first, "a key of its own");
+    assert_eq!(alias.as_deref(), Some("bruno"));
+    assert!(told.contains(&AddTold::Held(second.clone())), "{told:?}");
+    assert!(device.key_file(&first) && device.key_file(&second));
+    assert_eq!(device.log.count(|s| matches!(s, Step::Added { .. })), 2);
+    assert_eq!(roster.held().len(), 3);
 }

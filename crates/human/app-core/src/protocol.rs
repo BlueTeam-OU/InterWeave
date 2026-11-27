@@ -198,7 +198,10 @@ pub enum AddAct {
     /// offered only once a first-identity seed answered in this run
     /// ([`AddTold::Offered`]).
     Opened,
-    /// Create, with the card the new identity is given.
+    /// Create, with the card the new identity is given. One that ends
+    /// Created closes the form -- Done is a way of leaving it, and so a
+    /// settle moment -- and the next [`Self::Opened`] opens a new form.
+    /// One that does not start is told [`AddTold::NotStarted`].
     Create {
         /// The name.
         name: String,
@@ -208,8 +211,9 @@ pub enum AddAct {
         /// ([`crate::card_photo::prepare_photo`]'s bytes), or none.
         photo: Option<Vec<u8>>,
     },
-    /// The form was left, by any way of leaving: a settle moment. The
-    /// app's end is not a leaving.
+    /// The form was left, by any way of leaving other than Done, which a
+    /// Create ending Created makes itself: a settle moment. The app's
+    /// end is not a leaving.
     Left,
     /// The list of identities opened: a settle moment.
     ListOpened,
@@ -231,6 +235,10 @@ pub enum AddTold {
     /// The card a Create carried is outside a card's bounds: nothing was
     /// made, written or sent.
     OutOfBounds,
+    /// A Create did not start: no form was open -- none opened, or the
+    /// last closed at Done -- or a Create of it was running. Nothing was
+    /// made, written or sent.
+    NotStarted,
     /// A Create ended. `card` is said for a Create that made the
     /// identity alone: whether its card was written.
     Ended {

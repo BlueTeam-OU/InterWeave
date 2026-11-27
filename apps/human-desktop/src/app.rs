@@ -385,6 +385,7 @@ const fn add_class(told: &AddTold) -> &'static str {
         AddTold::WaitsSeed => "create waits for the first identity's seed",
         AddTold::NoSeed => "the first identity's seed was not answered",
         AddTold::OutOfBounds => "the card is outside a card's bounds",
+        AddTold::NotStarted => "create did not start",
         AddTold::Ended { outcome, card } => match (outcome, card) {
             (AddOutcome::Created { .. }, Some(CardSaved::Saved)) => "created, card saved",
             (AddOutcome::Created { .. }, Some(CardSaved::NotSaved)) => "created, card not saved",

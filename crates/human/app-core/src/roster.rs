@@ -695,7 +695,13 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     ///   Nothing is written under its id while a record names it
     ///   (`while_a_record_names_the_id_nothing_is_written_under_it`), and
     ///   the add is polled, never awaited, so it holds no identity's turn
-    ///   (`a_create_never_holds_another_identitys_turn`).
+    ///   (`a_create_never_holds_another_identitys_turn`). A Create that
+    ///   ends Created closes the form, Done being a way of leaving it: a
+    ///   settle moment, and the next [`AddAct::Opened`] opens a new form
+    ///   with a key of its own
+    ///   (`done_closes_the_form_and_the_next_opens_a_new_one`). A Create
+    ///   that does not start -- no form open, or one running -- is told
+    ///   [`AddTold::NotStarted`].
     /// - [`AddAct::Left`] leaves the form and [`AddAct::ListOpened`] is
     ///   the list's opening: each a settle moment, as the first turn is
     ///   and a record written at the bound is (that one inside the form's
@@ -737,6 +743,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 photo,
             } => {
                 let Some(form) = self.adding.form.as_mut() else {
+                    self.adding.told.push(AddTold::NotStarted);
                     return;
                 };
                 if !self.seed.answered() {
@@ -762,6 +769,8 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                         surname,
                         photo,
                     });
+                } else {
+                    self.adding.told.push(AddTold::NotStarted);
                 }
             }
             AddAct::Left => {
@@ -870,6 +879,12 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             return;
         };
         let (endpoint, alias) = (endpoint.clone(), alias.clone());
+        // Done is a way of leaving the form (identities §6.2, contact
+        // cards §5.2): it closes, which is a settle moment, and the next
+        // opening makes a new form and a new key. A done form kept open
+        // would start no Create again, and tell nothing of one.
+        self.adding.form = None;
+        self.adding.owed = true;
         // The record is deleted before `Created` is given, so this is the
         // first row written under the id.
         let saved = card.is_some_and(|card| {
