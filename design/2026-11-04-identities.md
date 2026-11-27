@@ -1024,9 +1024,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   itself. The app's end does not close a form: a record left when the
   app ends is settled at the next start. The closing is a moment of its
   own (architect-cto's ruling, REPLY 01a21bbc-0911, and REQUEST 01a21bbc-4278;
-  ADR-0061 decision 7, A 2026-11-27, not on `main` as this is written:
-  it rides rust-ui-dev-02's PR, which merges before or with this
-  text): with one identity held, the form
+  ADR-0061 decision 7, A 2026-11-27, which lands with this text):
+  with one identity held, the form
   opens from the card editor, and Back returns there, so Your
   identities does not open after Back (cards §5.1, "Shown while two or
   more identities are held"), and without that moment the form's record
