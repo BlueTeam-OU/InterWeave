@@ -40,8 +40,23 @@ pub(crate) fn private_tempdir_in(dir: impl AsRef<Path>) -> tempfile::TempDir {
     temp
 }
 
+/// What v15 added (the pending-add record: STATE.md's pending-add
+/// paragraph), undone on a file this build made, back at v14. A macro, so
+/// every earlier undo begins with the same text: a file faked at v13 that
+/// kept v15's table would refuse the migration that builds it.
+macro_rules! undo_v15 {
+    () => {
+        "DROP TABLE pending_adds;
+     PRAGMA user_version = 14;
+     "
+    };
+}
+
+/// [`undo_v15!`] as a string: a file this build made, back at v14.
+pub(crate) const UNDO_V15: &str = undo_v15!();
+
 /// What v14 changed (every row's local identity: STATE.md's v14
-/// paragraph), undone on a PLAINTEXT file this build made: each table that
+/// paragraph), undone after v15's on a PLAINTEXT file this build made: each table that
 /// gained `local_endpoint_id` rebuilt in v13's shape, its rows copied
 /// without it and its indexes as v13 left them, the AUTOINCREMENT
 /// high-water marks kept, and the discard counts row removed. Foreign keys
@@ -51,7 +66,9 @@ pub(crate) fn private_tempdir_in(dir: impl AsRef<Path>) -> tempfile::TempDir {
 /// this build wrote.
 macro_rules! undo_v14 {
     () => {
-        "PRAGMA foreign_keys = OFF;
+        concat!(
+            undo_v15!(),
+            "PRAGMA foreign_keys = OFF;
      CREATE TEMP TABLE undo_v14_seq AS SELECT name, seq FROM sqlite_sequence;
      DELETE FROM settings WHERE key = 'v14_discarded';
      CREATE TABLE pending_outbound_v13 (
@@ -212,6 +229,7 @@ macro_rules! undo_v14 {
      DROP TABLE undo_v14_seq;
      PRAGMA user_version = 13;
      "
+        )
     };
 }
 
