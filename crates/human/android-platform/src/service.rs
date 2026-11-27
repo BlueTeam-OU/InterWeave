@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use interweave_human_app_core::KeyProblem;
 use interweave_human_app_core::{
-    HeldEntry, HeldList, KeySource, Roster, RosterConfig, RosterError, held_list,
+    AddFactory, HeldEntry, HeldList, KeySource, Roster, RosterConfig, RosterError, held_list,
 };
 use interweave_human_store::at_rest;
 use interweave_human_store::key_custody::{CipherFailure, Custody, KeyCipher};
@@ -868,16 +868,30 @@ impl ServiceHost {
         let cipher = SharedCipher::new(launch.store_cipher);
         let sources = key_sources(host.paths(), &held, || Box::new(cipher.clone()));
         let (data, admin) = (data(&host), host.binding());
+        // What an identity made while the client runs is held with
+        // (Create through the embedded host, ADR-0061 decision 7): the
+        // same bindings and the same custody the identities held at the
+        // start use.
+        let factory = AddFactory {
+            bindings: {
+                let (data, admin) = (data.clone(), admin.clone());
+                Box::new(move |_| (data.clone(), admin.clone()))
+            },
+            admin: Arc::new(admin.clone()),
+            paths: host.paths().clone(),
+            cipher: Arc::new(cipher.clone()),
+        };
         let roster_config = roster_config(&config, &held);
         let make = self.with_key_sources(
             move || {
-                Roster::new(
+                Ok(Roster::new(
                     roster_config,
                     store,
                     move |_| (data.clone(), admin.clone()),
                     wall_ms,
                     0,
-                )
+                )?
+                .adding(factory))
             },
             sources,
         );
