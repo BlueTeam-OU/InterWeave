@@ -94,7 +94,7 @@ fn ada_card(n: u32, peer: &TransportIdentity, over_label: bool) -> Vec<u8> {
 }
 
 /// A file this build made, faked back to v9 (the store's own undo of
-/// v14 to v10), holding Ada's contact, her route under her label with her
+/// v15 to v10), holding Ada's contact, her route under her label with her
 /// key recorded, and her card unread, signed over that label.
 fn v9_store(path: &std::path::Path, peer: &TransportIdentity) {
     drop(HumanStore::open(path, &endpoint_id("human"), StoreOptions::default()).expect("a store"));

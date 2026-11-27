@@ -17,12 +17,17 @@
 
 mod backoff;
 mod client;
+mod identity_add;
 mod problem;
 mod queue;
 mod trust;
 
 pub use client::{
     AssertingBinding, CancelledSend, ClientConfig, SessionBinding, TransportClient, WallClock,
+};
+pub use identity_add::{
+    ADD_WAIT_MS, AddOutcome, AliasRule, Ended, FormAdd, KeptBecause, Left, Local, PendingAddStore,
+    SeedAsk, Settle, Settled,
 };
 pub use trust::{FirstSeed, NodePeer};
 // The caller-facing vocabulary lives in `interweave-human-client-api`,

@@ -1118,7 +1118,11 @@ fn the_upgrade_gives_the_rows_to_the_first_identity_whatever_endpoint_is_named()
         let out = human(&home, &args, "");
         assert_eq!(code(&out), Some(3), "{case}: no daemon: {}", said(&out));
         let (owners, version) = own_card_owners(&home);
-        assert_eq!(version, 14, "{case}: migrated");
+        assert_eq!(
+            version,
+            interweave_human_store::SCHEMA_VERSION,
+            "{case}: migrated"
+        );
         assert_eq!(owners, [human_id()], "{case}: the first identity's card");
     }
 }

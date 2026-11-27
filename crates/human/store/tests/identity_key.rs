@@ -1058,3 +1058,65 @@ fn sealed_lists_the_ids_by_file_name_and_opens_no_file() {
     write_legacy(&paths, "human", &FilesystemCustody);
     assert_eq!(identity_key::sealed(&paths), Ok(made));
 }
+
+/// A key file at its key path is present whether or not this process can
+/// read it -- mode 0000, or one others can read, which `open` refuses --
+/// and an id with no file, or whose file was moved aside, has none
+/// (`design/2026-11-04-identities.md` §6.2, the settle's "key file at its
+/// key path"). Mutation: `present` answering `open(..)?.is_some()` -- the
+/// unreadable file is an error, not present.
+#[test]
+fn a_key_file_stands_at_its_path_whether_or_not_it_can_be_read() {
+    let (_dir, paths) = desktop_paths();
+    let unmade = IdentityKey::generate().expect("a key").endpoint().clone();
+    assert_eq!(
+        identity_key::present(&paths, &unmade),
+        Ok(false),
+        "never made"
+    );
+
+    let id = identity_key::create(&paths, &FilesystemCustody)
+        .expect("created")
+        .endpoint()
+        .clone();
+    let file = identity_key::key_path(&paths, &id);
+    assert_eq!(identity_key::present(&paths, &id), Ok(true), "readable");
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o000)).expect("chmod");
+    assert!(
+        std::fs::File::open(&file).is_err(),
+        "the premise: this process cannot read it"
+    );
+    assert_eq!(identity_key::present(&paths, &id), Ok(true), "mode 0000");
+
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).expect("chmod");
+    assert!(
+        identity_key::open(&paths, &id, &FilesystemCustody).is_err(),
+        "the premise: open refuses it"
+    );
+    assert_eq!(
+        identity_key::present(&paths, &id),
+        Ok(true),
+        "others can read it"
+    );
+
+    let aside = file.with_extension("aside");
+    std::fs::rename(&file, &aside).expect("moved aside");
+    assert_eq!(identity_key::present(&paths, &id), Ok(false), "moved aside");
+
+    // A link at the name stands there too, even one that leads nowhere,
+    // as `install` counts it.
+    std::os::unix::fs::symlink("nowhere", &file).expect("a dangling link");
+    assert_eq!(identity_key::present(&paths, &id), Ok(true), "a link");
+
+    // The folder is judged first: a loose one answers no presence at all.
+    let folder = paths.state_dir().join("endpoint-keys");
+    std::fs::set_permissions(&folder, std::fs::Permissions::from_mode(0o755)).expect("chmod");
+    assert_eq!(
+        identity_key::present(&paths, &id),
+        Err(IdentityKeyFileError::Read(
+            identity_key::KeyFileRead::DirUnsafe
+        )),
+        "a loose folder"
+    );
+}

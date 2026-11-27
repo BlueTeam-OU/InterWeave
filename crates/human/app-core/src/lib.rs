@@ -20,6 +20,7 @@
 
 #![forbid(unsafe_code)]
 
+mod alias;
 pub mod card_photo;
 mod cards;
 mod facade;
@@ -32,6 +33,7 @@ mod roster;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
 
+pub use alias::alias_for;
 pub use facade::{CANCELLED_CAP, FacadeSide, READ_COPY_CAP};
 pub use facade_trait::Facade;
 /// Why the identity's key cannot be used, as a root logs it.
@@ -42,8 +44,12 @@ pub use profile::{
     CLIENT_KIND, HeldEntry, HeldList, IdentityRefused, KeySource, held_list, identity_key,
     identity_key_under, leasable_endpoints, resolve_identity,
 };
-pub use protocol::{Command, Crossing, Failure, Start, Update, WindowCommand};
-pub use roster::{Roster, RosterConfig, RosterError, Routed, SwitchOutcome};
+pub use protocol::{
+    AddAct, AddTold, CardSaved, Command, Crossing, Failure, Start, Update, WindowCommand,
+};
+pub use roster::{
+    AddFactory, Bindings, HoldRefused, Roster, RosterConfig, RosterError, Routed, SwitchOutcome,
+};
 
 // ui-model does not depend on profile-config, so this is the one place
 // that can hold the two bounds equal: the model refuses a held list longer

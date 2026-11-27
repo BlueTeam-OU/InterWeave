@@ -48,3 +48,5 @@ interweave-profile-identity = { path = "../../identity/profile-identity" }
 rusqlite = { workspace = true }
 tempfile = { workspace = true }
 tokio = { workspace = true, features = ["macros", "rt", "sync", "time"] }
+# The secret a test cipher hands back (`KeyCipher::open`), in tests/identity_add.rs.
+zeroize = { version = "1", default-features = false, features = ["alloc"] }

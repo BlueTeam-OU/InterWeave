@@ -57,6 +57,11 @@ impl FirstSeed {
     pub fn answered(&self) -> bool {
         self.answered.load(Ordering::Acquire)
     }
+
+    /// Record that a seed was answered, for every clone.
+    pub(crate) fn answer(&self) {
+        self.answered.store(true, Ordering::Release);
+    }
 }
 
 /// This node's `PeerId` as any client of the process learned it. Every
@@ -123,7 +128,7 @@ impl<P: AdminPort> IdentityTrustPort<P> {
         if let Some(seed) = seed
             && port.seed_endpoint_trust(seed.first.clone()).await.is_ok()
         {
-            seed.answered.store(true, Ordering::Release);
+            seed.answer();
         }
         Ok(Self { port, endpoint })
     }

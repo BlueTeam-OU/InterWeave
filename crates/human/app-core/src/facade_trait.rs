@@ -5,13 +5,13 @@
 //! can name the same seam; the desktop does today. No tokio and no platform code.
 
 use interweave_human_store::StoreError;
-use interweave_human_transport_client::SessionBinding;
+use interweave_human_transport_client::{AssertingBinding, SessionBinding};
 use interweave_human_ui_model::HeldIdentity;
 use interweave_local_client_api::AdminBinding;
 use interweave_transport_api::EndpointId;
 
 use crate::facade::FacadeSide;
-use crate::protocol::{Command, Start};
+use crate::protocol::{AddAct, AddTold, Command, Start};
 use crate::roster::{Roster, Routed, SwitchOutcome};
 
 /// What a root's facade thread drives: the roster a client composes
@@ -49,9 +49,27 @@ pub trait Facade {
     fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
         None
     }
+    /// The identities held since this was last asked, each with its
+    /// windowed start: one made while the facade runs, held with no
+    /// restart. None from a facade that holds no more than it was built
+    /// with.
+    fn take_held_more(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+        Vec::new()
+    }
+    /// Carry out what the person did with the add form or the list of
+    /// identities. A facade that cannot add does nothing and tells
+    /// nothing, so no Create is offered.
+    fn add(&mut self, act: AddAct, now: u64) {
+        let _ = (act, now);
+    }
+    /// What came of the add form's acts and of the settles since last
+    /// asked; none from a facade that cannot add.
+    fn take_add_told(&mut self) -> Vec<AddTold> {
+        Vec::new()
+    }
 }
 
-impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
+impl<B: SessionBinding, A: AssertingBinding> Facade for Roster<B, A> {
     fn held(&self) -> Vec<EndpointId> {
         Roster::held(self).cloned().collect()
     }
@@ -89,6 +107,15 @@ impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
     }
     fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
         Roster::held_if_changed(self)
+    }
+    fn take_held_more(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+        Roster::take_held_more(self)
+    }
+    fn add(&mut self, act: AddAct, now: u64) {
+        Roster::add(self, act, now);
+    }
+    fn take_add_told(&mut self) -> Vec<AddTold> {
+        Roster::take_add_told(self)
     }
 }
 

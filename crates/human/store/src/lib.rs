@@ -65,6 +65,7 @@ pub use store::contacts::{
     ContactRestored, ContactRoute, DeletedContact, KeyStanding, OwnCard, PhotoAccepted,
     RemovedPhoto, RouteDeleted, ValueSource, direct_conversation_id, name_key,
 };
+pub use store::pending_adds::PENDING_ADD_CAP;
 pub use store::window::{
     ConversationUnread, InboundCounts, Order, PageRange, StoreConversation, WindowCursor,
     WindowLimits, WindowPage,
@@ -268,6 +269,13 @@ pub enum StoreError {
     /// A confirmed discard found the store no longer as the person saw it
     /// confirmed: nothing was removed, and the client asks again.
     DiscardChanged,
+    /// The pending-add record already holds [`PENDING_ADD_CAP`] other
+    /// ids: the row was not written and no row was evicted to make room
+    /// (STATE.md's pending-add paragraph, A 2026-11-26 (ii)), a row being
+    /// the one thing that names its key. Not degradation and not recovery:
+    /// the client settles the rows it holds and writes once more
+    /// (A 2026-11-26 (iii)).
+    PendingAddBound,
 }
 
 impl StoreError {
@@ -406,6 +414,10 @@ impl core::fmt::Display for StoreError {
             Self::ProfileFormat(e) => write!(f, "the profile's format marker: {e}"),
             Self::DiscardChanged => f.write_str(
                 "the message store changed since the discard was confirmed; nothing was removed",
+            ),
+            Self::PendingAddBound => write!(
+                f,
+                "the store already holds {PENDING_ADD_CAP} identities being added; nothing was written"
             ),
             Self::UnsupportedPlatform => write!(
                 f,

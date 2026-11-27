@@ -328,6 +328,29 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         true
     }
 
+    /// Name identities held since [`Self::hold`]: one made while the
+    /// client runs ([`crate::Roster::take_held_more`]). Each not yet held
+    /// is given a model of its own behind the front, told the facts every
+    /// model is told; the front does not change. Called before the held
+    /// list that names them ([`Self::held_changed`]) and before any update
+    /// for them. False, and nothing held, on a model side never named.
+    /// (`an_identity_held_later_gets_a_model_of_its_own`)
+    pub fn hold_more(&mut self, more: &[EndpointId]) -> bool {
+        if self.identity.is_none() {
+            return false;
+        }
+        for identity in more {
+            if self.identity.as_ref() != Some(identity)
+                && !self.behind.iter().any(|(e, _)| e == identity)
+            {
+                let mut made = Behind::new();
+                self.facts.tell(&mut made.model);
+                self.behind.push((identity.clone(), made));
+            }
+        }
+        true
+    }
+
     /// The held identities as the facade side read them, told to every
     /// model held, in front or behind
     /// ([`interweave_human_ui_model::Identities::held_changed`]): each
@@ -429,7 +452,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             .is_some_and(|to| self.switch(&to, &mut *send));
         if !switched_in {
             // Held by the list and with no model here (added after the
-            // identities were named): the switcher closes, nothing
+            // identities were named, and not named since by
+            // `hold_more`): the switcher closes, nothing
             // switches, focus back on the switch, as a choice of the row
             // in front.
             self.model

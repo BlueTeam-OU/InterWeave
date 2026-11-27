@@ -29,7 +29,7 @@ use rusqlite::{Connection, OptionalExtension as _, Transaction, params};
 use crate::StoreError;
 
 /// The schema version this build writes and expects.
-pub const SCHEMA_VERSION: i64 = 14;
+pub const SCHEMA_VERSION: i64 = 15;
 
 /// The three tables ADR-0044 lets hold content.
 const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_inbound"];
@@ -42,7 +42,9 @@ const RETENTION_TABLES: &[&str] = &["pending_outbound", "unread_inbound", "kept_
 /// the conversation index (`RETENTION.md` §5, plan §17 (4)), since v7
 /// the read pairs (STATE.md, plan §18 (5)), and since v9 each identity's
 /// own card (STATE.md `own_cards`, plan §29 step 2), the person's own
-/// presentation and no one else's content.
+/// presentation and no one else's content, and since v15 the pending-add
+/// record (STATE.md's pending-add paragraph), one `EndpointId` per row and
+/// nothing else.
 pub const REQUIRED_TABLES: &[&str] = &[
     "pending_outbound",
     "unread_inbound",
@@ -53,6 +55,7 @@ pub const REQUIRED_TABLES: &[&str] = &[
     "conversation_index",
     "read_pairs",
     "own_cards",
+    "pending_adds",
 ];
 
 /// Table names that would make this a conversation archive.
@@ -186,6 +189,9 @@ fn run_migrations(
     if current < 14 {
         migration_14(&tx, first_identity, current > 0)?;
         foreign_keys_hold(&tx)?;
+    }
+    if current < 15 {
+        migration_15(&tx)?;
     }
     // The version bump rides the SAME transaction as the DDL above, which
     // is what makes a crashed migration a no-op rather than a schema the
@@ -864,6 +870,23 @@ fn foreign_keys_hold(tx: &Transaction<'_>) -> Result<(), StoreError> {
         )));
     }
     Ok(())
+}
+
+/// v15 — the pending-add record (STATE.md's pending-add paragraph,
+/// ADR-0061 decision 7, A 2026-11-26): one row per local `EndpointId` the
+/// add form asked for and the client does not yet know to be an identity.
+/// The id and nothing else -- no alias, no client kinds, no name, no
+/// time: the form's values are the session's. Keyed by the id, so two
+/// forms cannot write one id twice. A table build only: no row is written.
+fn migration_15(tx: &Transaction<'_>) -> Result<(), StoreError> {
+    tx.execute_batch(
+        "
+        CREATE TABLE pending_adds (
+            endpoint_id  TEXT  NOT NULL PRIMARY KEY
+        );
+        ",
+    )
+    .map_err(migration_error)
 }
 
 /// v13 — a reply's target by its id (STATE.md's v13 paragraph;
@@ -2238,6 +2261,17 @@ const EXPECTED_SCHEMA: &[TableShape] = &[
             col("created_at", "INTEGER", true),
             col("updated_at", "INTEGER", true),
         ],
+        unique_keys: &[&["endpoint_id"]],
+        generated: &[],
+        autoincrement: false,
+        indexes: &[],
+        foreign_keys: &[],
+    },
+    TableShape {
+        // CONTENT-FREE BY SHAPE: the id and no other column
+        // (`the_pending_add_table_holds_the_id_and_nothing_else`).
+        name: "pending_adds",
+        columns: &[("endpoint_id", "TEXT", true, true)],
         unique_keys: &[&["endpoint_id"]],
         generated: &[],
         autoincrement: false,

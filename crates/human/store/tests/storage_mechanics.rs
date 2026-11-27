@@ -253,14 +253,15 @@ fn a_fresh_store_has_exactly_the_allowed_tables() {
             "conversation_index".to_owned(),
             "kept_inbound".to_owned(),
             "own_cards".to_owned(),
+            "pending_adds".to_owned(),
             "pending_outbound".to_owned(),
             "read_pairs".to_owned(),
             "settings".to_owned(),
             "unread_inbound".to_owned(),
         ],
         "the three retention tables and the content-free metadata (settings, contacts, \
-         their routes, the conversation index, the read pairs, each identity's own card), \
-         nothing more"
+         their routes, the conversation index, the read pairs, each identity's own card, \
+         the pending-add record), nothing more"
     );
 }
 

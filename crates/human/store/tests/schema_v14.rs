@@ -19,7 +19,7 @@ mod common;
 
 use interweave_human_store::{
     AppMessageId, DiscardedAtV14, HumanStore, InboundKind, InboundOrigin, NewInbound, NewOutbound,
-    OutboundDestination, READ_PAIR_CAP, SCHEMA_VERSION, StoreError, StoreOptions,
+    OutboundDestination, READ_PAIR_CAP, StoreError, StoreOptions,
 };
 use interweave_test_support::endpoint_keys::{endpoint_id, signing_key};
 use interweave_transport_api::{DirectDestination, EndpointId, MessageId, TransportIdentity};
@@ -1175,12 +1175,6 @@ fn a_new_store_keeps_no_page_the_migrations_replaced() {
         .query_row("PRAGMA freelist_count", [], |r| r.get(0))
         .expect("the free pages");
     assert_eq!(free, 0);
-}
-
-/// The version this build writes.
-#[test]
-fn this_build_writes_v14() {
-    assert_eq!(SCHEMA_VERSION, 14);
 }
 
 fn outbound(n: u32, peer: &TransportIdentity, endpoint: &EndpointId) -> NewOutbound {

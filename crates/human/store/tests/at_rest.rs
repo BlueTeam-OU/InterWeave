@@ -631,6 +631,46 @@ fn a_discard_leaves_every_identity_key_and_the_profiles_other_state() {
     );
 }
 
+/// A discard of the store takes the pending-add rows with every other row
+/// and deletes no file in `endpoint-keys/`, the key a row names among
+/// them (STATE.md's pending-add paragraph, A 2026-11-26 (ii)): the
+/// discard of a record is the record's own, never the store's. Mutation:
+/// a discard that also removes `endpoint-keys/` -- the key file is gone.
+#[test]
+fn a_discard_takes_the_pending_add_rows_and_leaves_the_keys_they_name() {
+    let (_dir, paths) = profile();
+    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let mut store =
+        HumanStore::open_profile(&paths, &FilesystemCustody, &human, StoreOptions::default())
+            .unwrap();
+    let added = interweave_human_store::identity_key::create(&paths, &FilesystemCustody)
+        .unwrap()
+        .endpoint()
+        .clone();
+    store.add_pending_add(&added).unwrap();
+    assert_eq!(store.pending_adds().unwrap(), std::slice::from_ref(&added));
+    drop(store);
+    let key_file = interweave_human_store::identity_key::key_path(&paths, &added);
+    let sealed = std::fs::read(&key_file).unwrap();
+
+    let plan = at_rest::plan_discard(&paths, &FilesystemCustody).unwrap();
+    at_rest::discard(&paths, &FilesystemCustody, plan.confirm()).unwrap();
+
+    assert_eq!(
+        std::fs::read(&key_file).unwrap(),
+        sealed,
+        "the key it named"
+    );
+    let store =
+        HumanStore::open_profile(&paths, &FilesystemCustody, &human, StoreOptions::default())
+            .unwrap();
+    assert_eq!(
+        store.pending_adds().unwrap(),
+        Vec::new(),
+        "the rows are gone"
+    );
+}
+
 #[test]
 fn a_discard_during_a_stalled_rewrite_removes_the_plaintext_and_keeps_the_key_and_the_copy() {
     let (dir, paths) = profile();

@@ -32,6 +32,7 @@ use crate::records::{
 use crate::schema::{migrate, verify_shape};
 
 pub mod contacts;
+pub mod pending_adds;
 pub mod window;
 
 /// A stored timestamp, refusing a negative one rather than flattening it.
