@@ -8718,9 +8718,11 @@ read at `main` 2c0e5d9b4, where no program under `crates/human` or
   reaches nothing of, then the screens. From the second, an identity
   a person made is one no shipped program removes. `main` is no
   release, and the Stage 22 release is not tagged without Remove.
-  Carried by name with the second change: the page of an identity
-  that is not in front, the command-line client's create verb, and
-  Android's Add.
+  The second change builds, with the form, the page of an identity
+  that is not in front (`design/2026-11-04-identities.md` §6.2,
+  step 4: a new identity's row always opens a page), without its
+  Remove. Carried by name past the second change: the command-line
+  client's create verb, and Android's Add.
 - **Not built as this note is written:** the form, the record, the
   refusal of a named id and `human-client-ui.md` §13's criteria for
   the unknown outcome and the record, which rust-ui-dev-02 proposes
