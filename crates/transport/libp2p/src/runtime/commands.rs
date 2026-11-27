@@ -1513,8 +1513,9 @@ pub(super) fn translate(
             // a caller learning a cached LAN peer as `listen` returned
             // met ADR-0052 rule 3's refusal for want of the private
             // listener the next event would have reported (j237). So it
-            // keeps its first address and is answered with it once the
-            // Swarm has nothing ready (`dialing::answer_settled_listens`).
+            // keeps an address and is answered with it once the Swarm
+            // has nothing ready (`dialing::answer_settled_listens`): its
+            // first, or the earliest still bound if that one expired.
             if let Some(pending) = listens.get_mut(&listener_id)
                 && pending.wildcard
             {
@@ -1575,7 +1576,10 @@ pub(super) fn translate(
             reason,
         } => {
             if let Some(pending) = listens.remove(&listener_id) {
-                let bound = pending.first.is_some();
+                // Bound by the listener's entry, not by `first`, which
+                // every address expiring clears on a listener still bound
+                // (`a_held_listener_that_closes_with_every_address_expired_is_withdrawn`).
+                let bound = active.contains_key(listener_id);
                 let _ = pending.reply.send(Err(SubstrateError::Transport(
                     if bound {
                         "the listener closed before it was answered"
@@ -1617,7 +1621,8 @@ pub(super) fn translate(
                 // after this event no longer finds it in `listens`, so it
                 // is closed here as `NewListenAddr` closes one
                 // (`a_listener_error_closes_a_held_listen_whose_caller_has_gone`).
-                // One with no address yet is answered with the error, and
+                // One with no address to answer with -- not bound yet, or
+                // every address expired -- is answered with the error, and
                 // a caller told its listen failed owns nothing: the error
                 // is not fatal, so the listener is closed here or its
                 // later addresses would be reported as `Listening` for a
@@ -2442,6 +2447,53 @@ mod command_helper_tests {
             "nothing bound to answer with"
         );
         assert!(listens.contains_key(&lone));
+    }
+
+    #[test]
+    fn a_held_listener_that_closes_with_every_address_expired_is_withdrawn() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let id = ListenerId::next();
+        let (held, mut answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(id, held);
+        // Control: one closing before it ever bound is answered and
+        // reports nothing, there being no `Listening` to withdraw.
+        let never = ListenerId::next();
+        let (unbound, mut never_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(never, unbound);
+        super::translate(
+            new_listen_addr(id, addr(19)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        super::translate(
+            libp2p::swarm::SwarmEvent::ExpiredListenAddr {
+                listener_id: id,
+                address: addr(19),
+            },
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        assert!(listens[&id].first.is_none(), "nothing left to answer with");
+        let closed = |listener_id| libp2p::swarm::SwarmEvent::ListenerClosed {
+            listener_id,
+            addresses: Vec::new(),
+            reason: Ok(()),
+        };
+        let withdrawn = super::translate(closed(id), &mut listens, &mut active, &mut abandoned);
+        let silent = super::translate(closed(never), &mut listens, &mut active, &mut abandoned);
+        assert!(matches!(
+            withdrawn,
+            Some(SwarmEvent::ListeningStopped { .. })
+        ));
+        assert!(!active.contains_key(id), "its slot is given back");
+        assert!(silent.is_none());
+        assert!(matches!(answer.try_recv(), Ok(Err(_))));
+        assert!(matches!(never_answer.try_recv(), Ok(Err(_))));
+        assert!(listens.is_empty());
     }
 
     #[test]

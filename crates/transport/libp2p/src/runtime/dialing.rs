@@ -2068,10 +2068,12 @@ pub(super) struct PendingListen {
     /// listener reports one address per interface and the answer waits
     /// for all of them ([`is_wildcard_listen`]).
     pub(super) wildcard: bool,
-    /// The first address a wildcard listener reported: what `listen`
-    /// answers with, held until the Swarm has nothing more ready
-    /// ([`answer_settled_listens`]). `None` until the listener has
-    /// bound; a listener holding one is in [`ActiveListeners`] too.
+    /// The address `listen` answers with: the first a wildcard listener
+    /// reported, or the earliest still bound once that one expired,
+    /// held until the Swarm has nothing more ready
+    /// ([`answer_settled_listens`]). `None` until the listener has bound,
+    /// and again once every address it reported has expired; whether it
+    /// is bound is its entry in [`ActiveListeners`], not this.
     pub(super) first: Option<Multiaddr>,
 }
 
@@ -2121,7 +2123,7 @@ pub(super) fn bound_or_binding(listens: &PendingListens, active: &ActiveListener
         .saturating_add(active.len())
 }
 
-/// Answer every held wildcard listen with its first address, returning
+/// Answer every held wildcard listen with its held address, returning
 /// the listeners whose caller has gone, for the caller to close.
 ///
 /// THE SWARM HAD NOTHING READY, which is when every address the

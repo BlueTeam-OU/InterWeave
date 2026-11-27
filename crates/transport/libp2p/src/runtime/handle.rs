@@ -103,8 +103,9 @@ impl SwarmRuntime {
     /// so it waits for the listener to report it.
     ///
     /// On an UNSPECIFIED IP (`0.0.0.0`, `::`) the listener reports one
-    /// address per interface, and the answer -- still the first it
-    /// reported -- waits until the Swarm has nothing more ready, so
+    /// address per interface, and the answer -- the first it reported,
+    /// or the earliest still bound if that one expired -- waits until
+    /// the Swarm has nothing more ready, so
     /// every interface its watcher already holds is bound, recorded and
     /// counted by ADR-0052 rule 3 ([`Self::listener_widenings`]) when
     /// this returns. As this was found (j237) it answered at the first,
@@ -112,12 +113,16 @@ impl SwarmRuntime {
     /// raced the LAN address's report
     /// (`a_wildcard_listen_answers_once_its_lan_address_is_observed`).
     /// An interface the watcher has not seen yet is not waited for.
-    /// The wait itself has no time bound: libp2p polls listeners only
-    /// once its behaviour and connections have nothing ready, so the
-    /// answer waits for that, which a node at start, with nothing
-    /// connected, reaches at once. A caller that wants a bound times out
-    /// its own call, and the listener its dropped answer leaves is
-    /// closed.
+    /// The wait itself has no time bound: libp2p-swarm 0.48's
+    /// `poll_next_event` polls the listeners after the behaviour and the
+    /// connection pool, and returns to the behaviour after each ready
+    /// item, so the answer waits until both have nothing ready, which a
+    /// node at start, with nothing connected, reaches at once. A caller
+    /// that wants a bound times out its own call, and the listener its
+    /// dropped answer leaves is closed: the settling answer names it
+    /// (`settling_names_a_held_listen_whose_caller_left_and_skips_an_unbound_one`)
+    /// and the task closes what it names, a step no test drives with a
+    /// dropped answer.
     ///
     /// # Errors
     /// Returns [`SubstrateError::Stopped`] if the task is gone,
