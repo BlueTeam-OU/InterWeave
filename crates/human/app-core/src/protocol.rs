@@ -257,6 +257,10 @@ pub enum AddTold {
     /// its hold is tried again at each later poll, [`Self::Held`] told
     /// when it is.
     NotHeld(EndpointId),
+    /// As [`Self::NotHeld`], and no later poll tries it: the queue of
+    /// identities waiting to be held is full. Told apart so that no retry
+    /// is promised that will not happen; only a restart can hold it.
+    NotHeldUntilRestart(EndpointId),
 }
 
 /// Whether the card of a Create that made its identity was written.

@@ -274,6 +274,31 @@ impl<A> Adding<A> {
             told: Vec::new(),
         }
     }
+
+    /// Queue `endpoint` for a later hold. Whether it is queued: an id
+    /// already queued is, one that finds the queue at [`IDENTITY_CAP`]
+    /// is not (`the_unheld_queue_stops_at_the_cap_and_says_so`).
+    fn queue_unheld(&mut self, endpoint: EndpointId, alias: Option<String>) -> bool {
+        if self.unheld.iter().any(|(e, _)| *e == endpoint) {
+            return true;
+        }
+        if self.unheld.len() < IDENTITY_CAP {
+            self.unheld.push((endpoint, alias));
+            return true;
+        }
+        false
+    }
+}
+
+/// What [`Roster::hold_again`] came to.
+#[derive(Debug, PartialEq, Eq)]
+enum HoldOutcome {
+    /// Held now, or held already.
+    Held,
+    /// Refused and queued for a later poll.
+    Queued,
+    /// Refused and not queued: the queue is at [`IDENTITY_CAP`].
+    Dropped,
 }
 
 /// An open add form: its add, the card of its running Create, and its
@@ -915,34 +940,43 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     /// Its record is deleted already, so a refusal -- the store unread,
     /// the bound -- is told [`AddTold::NotHeld`] and the hold is tried
     /// again at each later poll until it is held
-    /// (`an_identity_whose_hold_is_refused_is_told_and_held_at_a_later_poll`).
+    /// (`an_identity_whose_hold_is_refused_is_told_and_held_at_a_later_poll`);
+    /// one the full queue cannot take is told
+    /// [`AddTold::NotHeldUntilRestart`] and never tried again.
     fn hold_told(&mut self, endpoint: EndpointId, alias: Option<String>)
     where
         A: AssertingBinding,
     {
-        if self.hold_again(endpoint.clone(), alias) {
-            self.adding.told.push(AddTold::NotHeld(endpoint));
+        match self.hold_again(endpoint.clone(), alias) {
+            HoldOutcome::Held => {}
+            HoldOutcome::Queued => self.adding.told.push(AddTold::NotHeld(endpoint)),
+            HoldOutcome::Dropped => self
+                .adding
+                .told
+                .push(AddTold::NotHeldUntilRestart(endpoint)),
         }
     }
 
-    /// Try to hold `endpoint` and tell it held; refused, keep it for the
-    /// next poll. Whether the hold was refused.
-    fn hold_again(&mut self, endpoint: EndpointId, alias: Option<String>) -> bool
+    /// Try to hold `endpoint` and tell it held; refused, queue it for the
+    /// next poll. What it returns: `Held` when it was held or already is,
+    /// `Queued` when refused and queued, `Dropped` when refused and the
+    /// queue is full, so no later poll will try it.
+    fn hold_again(&mut self, endpoint: EndpointId, alias: Option<String>) -> HoldOutcome
     where
         A: AssertingBinding,
     {
         match self.hold_added(endpoint.clone(), alias.clone()) {
             Ok(()) => {
                 self.adding.told.push(AddTold::Held(endpoint));
-                false
+                HoldOutcome::Held
             }
-            Err(HoldRefused::Held) => false,
+            Err(HoldRefused::Held) => HoldOutcome::Held,
             Err(_) => {
-                let unheld = &mut self.adding.unheld;
-                if unheld.len() < IDENTITY_CAP && !unheld.iter().any(|(e, _)| *e == endpoint) {
-                    unheld.push((endpoint, alias));
+                if self.adding.queue_unheld(endpoint, alias) {
+                    HoldOutcome::Queued
+                } else {
+                    HoldOutcome::Dropped
                 }
-                true
             }
         }
     }
@@ -1095,6 +1129,30 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn id(n: u8) -> EndpointId {
+        EndpointId::from_ed25519_public(&[n; 32])
+    }
+
+    /// The queue of unheld identities takes at most [`IDENTITY_CAP`], says
+    /// when it did not, and counts an id it already holds as queued.
+    /// Mutations: `<` to `<=` -- one over the cap is queued and the
+    /// length assert fails; the full queue answering queued -- the last
+    /// assert fails; a repeat pushed again -- the length assert fails.
+    #[test]
+    fn the_unheld_queue_stops_at_the_cap_and_says_so() {
+        let mut adding = Adding::<()>::new();
+        for n in 0..IDENTITY_CAP {
+            let n = u8::try_from(n).expect("a small cap");
+            assert!(adding.queue_unheld(id(n), None), "room for {n}");
+        }
+        assert_eq!(adding.unheld.len(), IDENTITY_CAP);
+        assert!(adding.queue_unheld(id(0), None), "a repeat is queued");
+        assert_eq!(adding.unheld.len(), IDENTITY_CAP, "a repeat adds none");
+        let over = u8::try_from(IDENTITY_CAP).expect("a small cap");
+        assert!(!adding.queue_unheld(id(over), None), "no room");
+        assert_eq!(adding.unheld.len(), IDENTITY_CAP, "nothing past the cap");
+    }
 
     /// Each session state is told as identities §5.2 names it: Ready
     /// ready; re-opening, Starting, after a Try again or not; re-opening
