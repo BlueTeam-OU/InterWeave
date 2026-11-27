@@ -2386,7 +2386,7 @@ Asked of architect-cto with this note's j200 revision (QUESTION
   Add" is restated "offers no Create" in the plan's note of
   2026-11-27, which lands with this text. (b) The form's opening may ask the seed on
   an administrative connection of its own, for the first identity
-  alone; `LOCAL-IPC.md`'s "opened for a trust act" is widened in the
-  same supply; what asks again while the form waits is this note's to
+  alone; `LOCAL-IPC.md`'s "opened for a trust act" is widened
+  (A 2026-11-27), which also lands with this text; what asks again while the form waits is this note's to
   design (§6.2: Try again, no timer). No state is drawn for the seed
   outside the form, and the answered flag stays per process run.
