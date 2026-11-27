@@ -8710,7 +8710,17 @@ read at `main` 2c0e5d9b4, where no program under `crates/human` or
   write no store row, are unchanged. A limit carried by name:
   `identities default` naming such an id makes the discard's remove
   answer `default`, and the record is kept and settled again until
-  the person moves the default.
+  the person moves the default. A second, raised by the review of the
+  engine's change: `identities list` reads the daemon's endpoint
+  list and opens no store, which it could not while a graphical
+  client holds the store's lock, so it cannot tell such an id from an
+  identity, and §13's row is restated to the surfaces that read the
+  store. Read at 9aaf554f7 the verb printed the daemon's rows for the
+  entries `config.yaml` authors for this client, or for the one
+  `--endpoint` names, so it printed such an id where the alias the add
+  sent was named and not otherwise; a list that prints the entries the
+  overlay added prints it wherever the daemon holds it. A data verb
+  naming the id is refused as above.
 - **Owed before this stage closes and before any release from a tree
   where a client offers Create: Remove, in each client that offers
   it.** The form lands before Remove is built, in two changes of
