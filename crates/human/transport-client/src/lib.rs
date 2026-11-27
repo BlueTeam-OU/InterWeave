@@ -17,6 +17,7 @@
 
 mod backoff;
 mod client;
+mod identity_add;
 mod problem;
 mod queue;
 mod trust;
@@ -24,6 +25,7 @@ mod trust;
 pub use client::{
     AssertingBinding, CancelledSend, ClientConfig, SessionBinding, TransportClient, WallClock,
 };
+pub use identity_add::{ADD_WAIT_MS, AddOutcome, AliasRule, FormAdd, Left, Local, PendingAddStore};
 pub use trust::{FirstSeed, NodePeer};
 // The caller-facing vocabulary lives in `interweave-human-client-api`,
 // where the UI model can name it without reaching this crate's store
