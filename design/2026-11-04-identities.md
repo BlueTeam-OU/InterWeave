@@ -763,7 +763,11 @@ when to ask again.
 4. **Done**: Your identities opens, the new row focused, and
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
    yet.") with
-   no Undo; Remove is the way back, and it confirms (§7). The new
+   no Undo; Remove is the way back, and it confirms (§7). Until Remove
+   is built, the identity's page has no Remove. The plan's §30 note of
+   2026-11-27 records that interim, and says that Remove is owed
+   before Stage 22 closes and before any release from a tree where a
+   client offers Create, including the Stage 22 release. The new
    identity is **not** put in front: switching is the person's act
    (cards §5.7.3). Remove, and the Save that `IdentityCardNotSaved`
    sends the person to, are on the identity's page, and a new identity
@@ -1875,7 +1879,7 @@ pass before it lands.
     the record. The id is then an identity, named by the alias given
     on the command line, with
     `IdentityCardNotSaved` under its row. Needs
-    D1 and ADR-0061 decision 7 (A 2026-11-26). (s) As (n), with the
+    D1 and ADR-0061 decision 7 (A 2026-11-26, A 2026-11-27). (s) As (n), with the
     settle's remove left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): the record stays. Then
     the failure is no longer made. At the next opening of Your
