@@ -25,7 +25,7 @@ use interweave_human_android_platform::{
 };
 use interweave_human_app_core::{AddAct, AddTold, Update};
 use interweave_human_store::identity_key;
-use interweave_human_store::key_custody::FilesystemCustody;
+use interweave_human_store::key_custody::{FilesystemCustody, KeyCipher};
 use interweave_human_transport_client::AddOutcome;
 use interweave_human_ui_model::HeldIdentity;
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
@@ -71,6 +71,11 @@ fn start(app: &App, service: &ServiceHost) -> Result<(), StartRefused> {
         store_cipher: Box::new(FilesystemCustody),
         unlock: None,
     })
+}
+
+fn start_offline(app: &App, service: &ServiceHost) -> Result<(), StartRefused> {
+    let cipher: Arc<dyn KeyCipher + Send + Sync> = Arc::new(FilesystemCustody);
+    service.start_without_network(&app.dir, PROFILE, cipher)
 }
 
 /// What a view was sent, in the order it was sent, reduced to what these
@@ -298,4 +303,122 @@ fn a_view_attached_after_a_create_is_told_the_new_identity_held() {
     );
     assert_eq!(late.rows.len(), 2);
     let _ = service.stop(GRACE);
+}
+
+/// A pending-add record naming a key sealed in `endpoint-keys/` and
+/// listed by the daemon -- as an earlier run's form whose add ended
+/// unknown left them: the service has run once, nothing holds the store,
+/// and the record is written under the identity the store opens as.
+fn left_by_an_earlier_run(app: &App) -> (EndpointId, EndpointId) {
+    use interweave_human_store::{HumanStore, StoreOptions};
+    use interweave_profile_config::endpoint_overlay::{Added, EndpointOverlay};
+    use interweave_profile_config::{ClientKind, ProfileConfig, endpoint_key};
+    let first = common::provision_first_identity(&app.dir, PROFILE);
+    let paths = paths(app);
+    let service = ServiceHost::new();
+    start_offline(app, &service).expect("the posture starts");
+    service.stop(GRACE).expect("it ran");
+    let key = identity_key::create(&paths, &FilesystemCustody).expect("a key");
+    let found = key.endpoint().clone();
+    let mut store =
+        HumanStore::open_profile(&paths, &FilesystemCustody, &first, StoreOptions::default())
+            .expect("the store");
+    store.add_pending_add(&found).expect("a record");
+    drop(store);
+    let config = ProfileConfig::load(&paths).expect("the profile");
+    match EndpointOverlay::default().add(
+        &config.endpoints,
+        Some(&paths),
+        &endpoint_key::key_file_name(&found),
+        "found",
+        vec![ClientKind::parse("human-client").expect("a kind")],
+    ) {
+        Added::Added { overlay, .. } => overlay
+            .write_within(&EndpointOverlay::path_for(&paths), paths.boundary())
+            .expect("written"),
+        other => panic!("{other:?}"),
+    }
+    (first, found)
+}
+
+/// What the store of the profile names as pending adds, read once the
+/// service has stopped and nothing holds the store.
+fn pending_adds(app: &App, first: &EndpointId) -> Vec<EndpointId> {
+    use interweave_human_store::{HumanStore, StoreOptions};
+    HumanStore::open_profile(
+        &paths(app),
+        &FilesystemCustody,
+        first,
+        StoreOptions::default(),
+    )
+    .expect("the store")
+    .pending_adds()
+    .expect("the record")
+}
+
+/// A record an earlier run left, whose id the daemon lists with its key
+/// file at its key path, is settled at the service's start with no
+/// restart: the id is held after the start, named to the view before any
+/// update for it, and the record is gone and the key kept. Through the
+/// real embedded host and the real facade thread. Mutations (run, each
+/// failing it): the roster built without `.adding(factory)` -- nothing is
+/// settled; `HeldMore` told after the identity's start update -- the
+/// order assert fails.
+#[test]
+fn a_record_left_by_an_earlier_run_is_settled_at_start_through_the_real_thread() {
+    let app = app();
+    let (first, found) = left_by_an_earlier_run(&app);
+    assert_eq!(pending_adds(&app, &first), [found.clone()], "the control");
+    let service = ServiceHost::new();
+    let mut view = View::attach(&service);
+    start(&app, &service).expect("the service starts");
+    view.until("the found identity held and its rows told", |v| {
+        v.told(&AddTold::Held(found.clone()))
+            && v.said
+                .iter()
+                .any(|s| matches!(s, Said::Rows(rows) if rows.contains(&found)))
+    });
+    assert_eq!(
+        view.said.first(),
+        Some(&Said::Held(vec![first.clone()])),
+        "the start named the first alone: a record names no identity yet"
+    );
+    let more = view
+        .at(&Said::HeldMore(vec![found.clone()]))
+        .expect("told it held");
+    let first_for_it = view
+        .said
+        .iter()
+        .position(|s| matches!(s, Said::Update(id, _) if *id == found))
+        .expect("an update for it");
+    assert!(more < first_for_it, "{:?}", view.said);
+    assert_eq!(
+        view.at(&Said::Update(found.clone(), true)),
+        Some(first_for_it),
+        "its start is its first update: {:?}",
+        view.said
+    );
+    let held = view
+        .at(&Said::Add(AddTold::Held(found.clone())))
+        .expect("told");
+    let rows = view
+        .said
+        .iter()
+        .position(|s| matches!(s, Said::Rows(rows) if rows.contains(&found)))
+        .expect("rows");
+    assert!(more < held && more < rows, "{:?}", view.said);
+    assert_eq!(
+        view.held.as_ref().map(|h| h.front.clone()),
+        Some(first.clone()),
+        "the front unchanged"
+    );
+    let _ = service.stop(GRACE);
+    assert!(
+        pending_adds(&app, &first).is_empty(),
+        "the record is deleted"
+    );
+    assert!(
+        identity_key::key_path(&paths(&app), &found).exists(),
+        "the key is kept"
+    );
 }
