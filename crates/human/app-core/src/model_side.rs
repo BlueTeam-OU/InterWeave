@@ -616,18 +616,38 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.daemon_seen(Some(false));
     }
 
-    /// Every draft holding text ([`UiModel::drafts`]), for the model a new
-    /// runtime's start makes.
+    /// Every draft holding text ([`UiModel::drafts`]) of every identity
+    /// held, in front or behind, each named by its identity, for the side
+    /// a new runtime's start makes. The front's come first. Before the
+    /// held identities are named ([`Self::hold`]) the front has no
+    /// identity to name its drafts by, and there are none to give.
     #[must_use]
-    pub fn drafts(&self) -> Vec<(ConversationKey, String)> {
-        self.model.drafts()
+    pub fn held_drafts(&self) -> Vec<(EndpointId, ConversationKey, String)> {
+        let front = self.identity.iter().map(|e| (e, &self.model));
+        let behind = self.behind.iter().map(|(e, b)| (e, &b.model));
+        front
+            .chain(behind)
+            .flat_map(|(identity, model)| {
+                model
+                    .drafts()
+                    .into_iter()
+                    .map(|(key, draft)| (identity.clone(), key, draft))
+            })
+            .collect()
     }
 
-    /// Carry `drafts` over from the model before this one: what is written
-    /// waits across a restart (unlock note §11, A17).
-    pub fn carry_drafts(&mut self, drafts: Vec<(ConversationKey, String)>) {
-        for (key, draft) in drafts {
-            self.model.draft_changed(key, draft);
+    /// Carry `drafts` over from the side before this one, each into the
+    /// model of the identity it was written as: what is written waits
+    /// across a restart (unlock note §11, A17). A draft of an identity
+    /// this side does not hold is dropped, there being no model to hold
+    /// it; later drafts of one conversation win.
+    pub fn carry_held_drafts(&mut self, drafts: Vec<(EndpointId, ConversationKey, String)>) {
+        for (identity, key, draft) in drafts {
+            if self.identity.as_ref() == Some(&identity) {
+                self.model.draft_changed(key, draft);
+            } else if let Some((_, behind)) = self.behind.iter_mut().find(|(e, _)| *e == identity) {
+                behind.model.draft_changed(key, draft);
+            }
         }
     }
 
@@ -1474,18 +1494,31 @@ mod tests {
         );
     }
 
-    /// A draft carried over into a new model reads as written there.
+    /// The drafts of every held identity, the front's and the one behind
+    /// it, carry into a new side made with the same held list, each into
+    /// its own identity's model; a draft of an identity the new side does
+    /// not hold is dropped. Mutations run: `held_drafts` listing only the
+    /// front's model -- the second identity's draft is gone; the carry
+    /// writing every draft into the front's model -- the front reads the
+    /// last draft carried, the unheld identity's.
     #[test]
-    fn drafts_carry_over_into_a_new_model() {
+    fn drafts_carry_over_into_the_model_of_each_identity() {
         let mut old = ModelSide::new(Nothing, Nothing);
-        let key = ConversationKey::Channel(
-            interweave_transport_api::ChannelId::parse("general").expect("a channel"),
-        );
-        old.model
-            .draft_changed(key.clone(), "still here".to_owned());
+        old.hold(&[first(), second()], &first());
+        old.model.draft_changed(general(), "of first".to_owned());
+        let (_, behind) = old.behind.first_mut().expect("second behind");
+        behind
+            .model
+            .draft_changed(general(), "of second".to_owned());
+        let mut drafts = old.held_drafts();
+        drafts.push((endpoint_id("gone"), general(), "of nobody".to_owned()));
+
         let mut new = ModelSide::new(Nothing, Nothing);
-        new.carry_drafts(old.drafts());
-        assert_eq!(new.model().composer(&key).draft, "still here");
+        new.hold(&[first(), second()], &first());
+        new.carry_held_drafts(drafts);
+        let draft = |e: &EndpointId| new.model_of(e).expect("held").composer(&general()).draft;
+        assert_eq!(draft(&first()), "of first");
+        assert_eq!(draft(&second()), "of second");
     }
 
     fn started(undecodable_unread: usize, undecodable_other: usize) -> Update {
@@ -1826,7 +1859,7 @@ mod tests {
     fn naming_the_held_identities_keeps_the_model_shown_as_the_fronts() {
         let mut side = ModelSide::new(Nothing, Nothing);
         assert_eq!(side.front(), None);
-        side.carry_drafts(vec![(general(), "written".to_owned())]);
+        side.model.draft_changed(general(), "written".to_owned());
         assert!(side.hold(&[first(), second()], &first()));
         assert_eq!(side.front(), Some(&first()));
         let shown = side.model_of(&first()).expect("the front's");
@@ -2062,7 +2095,7 @@ mod tests {
         assert!(log.borrow().is_empty(), "nothing done: {:?}", log.borrow());
 
         // The old front shows a switch's snackbar and holds a draft.
-        side.carry_drafts(vec![(general(), "written".to_owned())]);
+        side.model.draft_changed(general(), "written".to_owned());
         let identities = side.model.identities_mut();
         identities
             .held_changed(vec![held("a", true), held("b", false)])
