@@ -800,6 +800,11 @@ pub enum Settled {
     /// Discarded: its key path and platform key emptied, its remove
     /// answered `removed` or `EndpointUnknown`, and its record deleted.
     Discarded(EndpointId),
+    /// The record no longer named the id when this settle came to act on
+    /// it: another settle over the same records -- the roster's, or a
+    /// form's at the bound -- settled it first, and this one did nothing
+    /// (`a_record_another_settle_settled_first_is_left_with_no_act`).
+    Gone(EndpointId),
     /// Kept, to be settled again at the next moment.
     Kept {
         /// The record's id.
@@ -826,6 +831,9 @@ pub enum KeptBecause {
     RemoveNotDone,
     /// The record's delete failed.
     RecordNotDeleted,
+    /// Whether the record still names the id could not be read: nothing
+    /// was done.
+    RecordUnread,
 }
 
 /// Where the settle of the record in hand is.
@@ -839,6 +847,16 @@ enum Settling {
 /// record's delete or its discard. The moments it runs at -- the start,
 /// the list's opening, a form's closing -- are the caller's; the fourth,
 /// a write refused at the bound, is [`FormAdd`]'s own.
+///
+/// Two settles can hold the same record at once -- the caller's and a
+/// form's at the bound -- each with a list answered at its own time. So
+/// each reads the record again before it acts on one, and leaves an id
+/// the record no longer names with no act ([`Settled::Gone`]): a stale
+/// Absent would otherwise empty the key path of an identity the other
+/// settle has just found
+/// (`a_record_another_settle_settled_first_is_left_with_no_act`). Every
+/// settle is polled on its caller's one thread, so nothing runs between
+/// that read and the act.
 pub struct Settle<A> {
     binding: Arc<A>,
     records: VecDeque<EndpointId>,
@@ -933,6 +951,9 @@ impl<A: AssertingBinding> Settle<A> {
         let Answered::Answer(Ok(views)) = answer else {
             return self.kept(endpoint, KeptBecause::ListFailed);
         };
+        if !self.still_recorded(&endpoint, local) {
+            return;
+        }
         match seen(&views, &endpoint, local.paths) {
             Seen::Found(alias) => match local.store.forget_pending_add(&endpoint) {
                 Ok(_) => self.report.push(Settled::Identity { endpoint, alias }),
@@ -962,6 +983,9 @@ impl<A: AssertingBinding> Settle<A> {
         match answer {
             Answered::Answer(
                 Ok(EndpointRemoveChange::Removed { .. }) | Err(TransportError::EndpointUnknown),
+            ) if !self.still_recorded(&endpoint, local) => {}
+            Answered::Answer(
+                Ok(EndpointRemoveChange::Removed { .. }) | Err(TransportError::EndpointUnknown),
             ) => match local.store.forget_pending_add(&endpoint) {
                 Ok(_) => self.report.push(Settled::Discarded(endpoint)),
                 Err(_) => self.kept(endpoint, KeptBecause::RecordNotDeleted),
@@ -973,6 +997,27 @@ impl<A: AssertingBinding> Settle<A> {
 
     fn kept(&mut self, endpoint: EndpointId, because: KeptBecause) {
         self.report.push(Settled::Kept { endpoint, because });
+    }
+
+    /// Whether the record still names `endpoint`, read just before an
+    /// act on it. When it does not, or cannot be read, the record's
+    /// settle ends here with what is reported for it.
+    fn still_recorded<S: PendingAddStore + ?Sized>(
+        &mut self,
+        endpoint: &EndpointId,
+        local: &Local<'_, S>,
+    ) -> bool {
+        match local.store.pending_adds() {
+            Ok(records) if records.contains(endpoint) => true,
+            Ok(_) => {
+                self.report.push(Settled::Gone(endpoint.clone()));
+                false
+            }
+            Err(_) => {
+                self.kept(endpoint.clone(), KeptBecause::RecordUnread);
+                false
+            }
+        }
     }
 }
 

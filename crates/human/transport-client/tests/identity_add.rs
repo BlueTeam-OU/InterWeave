@@ -83,6 +83,9 @@ enum Step {
 #[derive(Debug, Clone)]
 enum Reply<T> {
     Now(T),
+    /// Not answered at the poll that sends it, and answered at the next:
+    /// an answer that waits while something else runs.
+    Later(T),
     /// Never answered: the call stays pending until it is dropped.
     Holds,
 }
@@ -102,12 +105,16 @@ struct Script {
     seeds: VecDeque<Reply<Result<TrustSeed, TransportError>>>,
     /// What a list answers.
     listed: Vec<EndpointAdminView>,
+    /// What the next lists answer, each in place of `listed`.
+    views: VecDeque<Vec<EndpointAdminView>>,
     /// Where key files are, for the steps that say whether one stood.
     paths: Option<ProfilePaths>,
     /// The next this many record writes are refused.
     refuse_writes: usize,
     /// Every record delete fails while this is set.
     refuse_forgets: bool,
+    /// Every record read fails while this is set.
+    refuse_reads: bool,
     /// Every platform key retire fails while this is set.
     refuse_retires: bool,
 }
@@ -198,6 +205,10 @@ fn reply<T: Send + 'static>(reply: Reply<T>) -> impl Future<Output = T> + Send +
     let mut held = Some(reply);
     std::future::poll_fn(move |_| match held.take() {
         Some(Reply::Now(answer)) => Poll::Ready(answer),
+        Some(Reply::Later(answer)) => {
+            held = Some(Reply::Now(answer));
+            Poll::Pending
+        }
         Some(Reply::Holds) | None => {
             held = Some(Reply::Holds);
             Poll::Pending
@@ -214,9 +225,12 @@ impl AdminPort for ScriptedPort {
     ) -> impl Future<Output = Result<Vec<EndpointAdminView>, TransportError>> + Send {
         let answer = self.log.with(|s| {
             s.steps.push(Step::Listed);
+            let views = s.views.pop_front().unwrap_or_else(|| s.listed.clone());
             match s.lists.pop_front().unwrap_or(Reply::Now(Ok(()))) {
-                Reply::Now(Ok(())) => Reply::Now(Ok(s.listed.clone())),
+                Reply::Now(Ok(())) => Reply::Now(Ok(views)),
+                Reply::Later(Ok(())) => Reply::Later(Ok(views)),
                 Reply::Now(Err(e)) => Reply::Now(Err(e)),
+                Reply::Later(Err(e)) => Reply::Later(Err(e)),
                 Reply::Holds => Reply::Holds,
             }
         });
@@ -335,6 +349,9 @@ impl PendingAddStore for Records {
     }
 
     fn pending_adds(&self) -> Result<Vec<EndpointId>, StoreError> {
+        if self.log.with(|s| s.refuse_reads) {
+            return Err(StoreError::Degraded);
+        }
         self.store.pending_adds()
     }
 
@@ -1379,6 +1396,104 @@ fn the_settle_skips_the_open_forms_record_and_no_other() {
         2,
         "one list per record settled"
     );
+}
+
+/// Two settles over one record, its list or its remove answered to each
+/// at its own time -- the roster's own settle and a form's at the bound
+/// consumed in one poll -- in the order that would do harm: the settle
+/// holding a stale answer acts after the other settled the record. It
+/// reads the record again and does nothing (A 2026-11-26 (ii)'s settle,
+/// held to the record it reads). Mutations: no re-read before the list's
+/// act -- the found identity's key path is emptied and its remove sent;
+/// no re-read before the remove's record delete -- the record is
+/// reported discarded twice.
+#[test]
+fn a_record_another_settle_settled_first_is_left_with_no_act() {
+    // Found by one, a stale Absent in the other.
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    device.log.take();
+    device.script(|s| {
+        s.lists.push_back(Reply::Later(Ok(())));
+        s.views.push_back(Vec::new());
+        s.views.push_back(vec![view(&id, "anna")]);
+    });
+    let admins = device.admins();
+    let mut stale = Settle::new(Arc::clone(&admins), vec![id.clone()]);
+    let mut fresh = Settle::new(admins, vec![id.clone()]);
+    let mut local = device.local();
+    assert_eq!(stale.poll(0, &mut local), None, "its list answers later");
+    assert_eq!(
+        fresh.poll(0, &mut local),
+        Some(vec![Settled::Identity {
+            endpoint: id.clone(),
+            alias: Some("anna".to_owned()),
+        }])
+    );
+    assert_eq!(
+        stale.poll(1, &mut local),
+        Some(vec![Settled::Gone(id.clone())]),
+        "the stale Absent is not acted on"
+    );
+    assert!(device.key_file(&id), "the identity's key file stands");
+    assert!(device.records().is_empty());
+    assert!(remove_steps(&device).is_empty(), "no remove");
+    assert_eq!(device.log.count(|s| matches!(s, Step::Retired(_))), 0);
+
+    // Both discard: the remove answered later to one.
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    device.log.take();
+    device.script(|s| {
+        s.removes
+            .push_back(Reply::Later(Ok(EndpointRemoveChange::Removed {
+                revoked_epoch: None,
+            })));
+    });
+    let admins = device.admins();
+    let mut stale = Settle::new(Arc::clone(&admins), vec![id.clone()]);
+    let mut fresh = Settle::new(admins, vec![id.clone()]);
+    let mut local = device.local();
+    assert_eq!(stale.poll(0, &mut local), None, "its remove answers later");
+    assert_eq!(
+        fresh.poll(0, &mut local),
+        Some(vec![Settled::Discarded(id.clone())])
+    );
+    assert_eq!(
+        stale.poll(1, &mut local),
+        Some(vec![Settled::Gone(id.clone())])
+    );
+    assert!(device.records().is_empty());
+    assert_eq!(
+        device.log.count(|s| matches!(s, Step::Forgot { .. })),
+        1,
+        "the record deleted once: {:?}",
+        device.log.steps()
+    );
+}
+
+/// The record unread before an act: the settle keeps it and does
+/// nothing. Mutation: an unread record read as naming the id -- the key
+/// path is emptied.
+#[test]
+fn a_record_unread_before_an_act_is_kept_with_no_act() {
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    device.log.take();
+    device.script(|s| s.lists.push_back(Reply::Later(Ok(()))));
+    let mut settle = Settle::new(device.admins(), vec![id.clone()]);
+    let mut local = device.local();
+    assert_eq!(settle.poll(0, &mut local), None);
+    device.script(|s| s.refuse_reads = true);
+    let mut local = device.local();
+    assert_eq!(
+        settle.poll(1, &mut local),
+        Some(vec![kept(&id, KeptBecause::RecordUnread)])
+    );
+    device.script(|s| s.refuse_reads = false);
+    assert_eq!(device.records(), vec![id.clone()]);
+    assert!(device.key_file(&id));
+    assert!(remove_steps(&device).is_empty());
 }
 
 #[test]

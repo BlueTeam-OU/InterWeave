@@ -288,7 +288,7 @@ struct NewCard {
 fn identities(settled: Vec<Settled>) -> impl Iterator<Item = (EndpointId, Option<String>)> {
     settled.into_iter().filter_map(|s| match s {
         Settled::Identity { endpoint, alias } => Some((endpoint, alias)),
-        Settled::Discarded(_) | Settled::Kept { .. } => None,
+        Settled::Discarded(_) | Settled::Gone(_) | Settled::Kept { .. } => None,
     })
 }
 
