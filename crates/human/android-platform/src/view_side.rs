@@ -155,10 +155,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                     let mut drafts = self
                         .kept
                         .take()
-                        .map(|kept| kept.drafts())
+                        .map(|kept| kept.held_drafts())
                         .unwrap_or_default();
-                    drafts.extend(last.drafts());
-                    self.side.carry_drafts(drafts);
+                    drafts.extend(last.held_drafts());
+                    self.side.carry_held_drafts(drafts);
                 } else if self.running {
                     // Recorded as it is applied, so a stop and the next
                     // start drained in one pump still show it.
@@ -258,7 +258,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             kept.authentication_needed(self.authentication);
             kept.start_busy(self.busy);
             kept.start_refused(self.refused);
-            kept.carry_drafts(self.side.drafts());
+            kept.carry_held_drafts(self.side.held_drafts());
             kept.remade();
             self.side = kept;
             // Set aside before the facts a refused restart learnt: the
@@ -845,10 +845,138 @@ mod tests {
         side.apply(ToView::Running(true)).expect("applied");
         // As the person's edit sets it.
         side.side_mut()
-            .carry_drafts(vec![(key.clone(), "half written".to_owned())]);
+            .carry_held_drafts(vec![(me(), key.clone(), "half written".to_owned())]);
         side.apply(ToView::Running(false)).expect("applied");
         side.apply(ToView::Running(true)).expect("applied");
         assert_eq!(model(&side).composer(&key).draft, "half written");
+    }
+
+    type Presses = std::rc::Rc<std::cell::RefCell<Vec<IdentityIntent>>>;
+    type TwoHeld = (
+        ViewSide<Pressing, Blank>,
+        crate::Hub,
+        u64,
+        Presses,
+        tokio::sync::mpsc::UnboundedReceiver<crate::hub::ToFacade>,
+    );
+
+    /// A view side over two held identities, a hub whose facade runs
+    /// (its generation, to retire), and the identity presses the test
+    /// scripts.
+    fn two_held() -> TwoHeld {
+        let hub = crate::Hub::new();
+        let (commands, rx) = tokio::sync::mpsc::unbounded_channel();
+        let both = Held {
+            held: vec![me(), other()],
+            front: me(),
+        };
+        let generation = hub.started(commands, both.clone());
+        let intents = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let pressed = std::rc::Rc::clone(&intents);
+        let mut side = ViewSide::new(move || {
+            ModelSide::new(
+                Pressing {
+                    events: Vec::new(),
+                    intents: std::rc::Rc::clone(&pressed),
+                },
+                Blank,
+            )
+        });
+        side.apply(ToView::Held(both)).expect("applied");
+        (side, hub, generation, intents, rx)
+    }
+
+    fn choose(id: &EndpointId) -> [IdentityIntent; 2] {
+        [
+            IdentityIntent::OpenSwitcher,
+            IdentityIntent::Choose(interweave_human_ui_model::IdentityKey::new(id.as_str())),
+        ]
+    }
+
+    fn general() -> interweave_human_ui_model::ConversationKey {
+        interweave_human_ui_model::ConversationKey::Channel(
+            interweave_transport_api::ChannelId::parse("general").expect("a channel"),
+        )
+    }
+
+    /// What is written waits across a restart for every identity held,
+    /// each draft in its own identity's model, whichever is in front.
+    /// Mutations run, each failing it: `ModelSide::held_drafts` over the
+    /// front's model alone -- the draft of the identity not in front is
+    /// gone; `ModelSide::carry_held_drafts` writing every draft into the
+    /// front's model, as a carry keyed by conversation only does -- the
+    /// first identity's model reads empty.
+    #[test]
+    fn a_restart_keeps_the_drafts_of_every_held_identity() {
+        let (mut side, hub, _generation, intents, _rx) = two_held();
+        side.apply(ToView::Running(true)).expect("applied");
+        let told = || rows(&[(me(), "mine"), (other(), "work")]);
+        side.apply(ToView::Identities(told())).expect("applied");
+        side.side_mut()
+            .carry_held_drafts(vec![(me(), general(), "of me".to_owned())]);
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken");
+        side.side_mut()
+            .carry_held_drafts(vec![(other(), general(), "of other".to_owned())]);
+
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        side.apply(ToView::Identities(told())).expect("applied");
+        intents.borrow_mut().extend(choose(&me()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken back");
+        let draft = |e: &EndpointId| {
+            side.side()
+                .model_of(e)
+                .expect("held")
+                .composer(&general())
+                .draft
+        };
+        assert_eq!(draft(&me()), "of me");
+        assert_eq!(draft(&other()), "of other");
+    }
+
+    /// A switch taken locally while the kept model is shown under the
+    /// lock, handed back by the hub (no facade runs), leaves the next
+    /// start naming the old front; the drafts still land in the identity
+    /// that wrote them, never in the one named. Mutations run, each
+    /// failing it: `ModelSide::carry_held_drafts` writing every draft
+    /// into the front's model (keyed by conversation only) -- the first
+    /// identity's model reads the other's draft; `ModelSide::held_drafts`
+    /// over the front's model alone -- the first identity's draft is
+    /// gone.
+    #[test]
+    fn a_draft_stays_with_its_identity_across_a_switch_under_the_lock() {
+        let (mut side, hub, generation, intents, rx) = two_held();
+        side.apply(ToView::Running(true)).expect("applied");
+        let told = || rows(&[(me(), "mine"), (other(), "work")]);
+        side.side_mut().carry_held_drafts(vec![
+            (me(), general(), "of me".to_owned()),
+            (other(), general(), "of other".to_owned()),
+        ]);
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert_eq!(side.side().front(), Some(&me()), "the kept model shown");
+
+        // The facade is gone: the hub hands the front's crossing back.
+        drop(rx);
+        hub.retire(generation);
+        side.apply(ToView::Identities(told())).expect("applied");
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
+        assert_eq!(side.side().front(), Some(&other()), "applied locally");
+
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(side.side().front(), Some(&me()), "named as before");
+        let draft = |e: &EndpointId| {
+            side.side()
+                .model_of(e)
+                .expect("held")
+                .composer(&general())
+                .draft
+        };
+        assert_eq!(draft(&me()), "of me");
+        assert_eq!(draft(&other()), "of other");
     }
 
     #[test]
