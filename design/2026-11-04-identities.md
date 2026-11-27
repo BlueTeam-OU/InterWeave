@@ -1875,7 +1875,7 @@ pass before it lands.
     the record. The id is then an identity, named by the alias given
     on the command line, with
     `IdentityCardNotSaved` under its row. Needs
-    D1 and ADR-0061 decision 7 (A 2026-11-26). (s) As (n), with the
+    D1 and ADR-0061 decision 7 (A 2026-11-26, A 2026-11-27). (s) As (n), with the
     settle's remove left ahead of the running device (its publish and
     restore made to fail, answered `Internal`): the record stays. Then
     the failure is no longer made. At the next opening of Your
