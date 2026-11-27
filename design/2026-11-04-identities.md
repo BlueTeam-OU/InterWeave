@@ -637,8 +637,9 @@ add form's design to say, and no state is drawn for the seed itself."
 Ruled for this note (§16 Q12, architect-cto's REPLY 01a21bc6-1ba2): the
 gated control is the one that creates, Create, and "offers no Add" is
 restated "offers no Create" in the plan's note of 2026-11-27, which
-lands with this text; the form may ask the seed itself; and "no state is drawn for
-the seed itself" holds outside the form (the Trust screen shows none).
+lands with this text; the form may ask the seed itself; and "no state
+is drawn for the seed itself" holds outside the form (the Trust screen
+shows none).
 So Add an identity and Add another identity open the form in every run,
 and the form offers Create only after a seed was answered `seeded` or
 `present` in this run. Before that, no key pair is generated, no
@@ -647,11 +648,12 @@ pending-add record is written and no add is sent.
   this run, the client asks the first identity's seed on an
   administrative connection of its own, as a trust connection does
   (ADR-0067 d. 6; `LOCAL-IPC.md`, `admin.trust.seed`, whose "opened
-  for a trust act" is widened to name the add form's connection
-  (A 2026-11-27, which lands with this text; §16 Q12), waiting at
-  most the add's wait (below). Leaving the form while the seed is asked ends nothing that
-  the person sees: an answer that arrives after the form is left only
-  records, for the run, that a seed was answered. While it is asked,
+  for a trust act" is widened to name the add form's connection by
+  `LOCAL-IPC.md`'s amendment of 2026-11-27, which lands with this
+  text; §16 Q12), waiting at most the add's wait (below). Leaving the
+  form while the seed is asked ends nothing that the person sees: an
+  answer that arrives after the form is left only records, for the
+  run, that a seed was answered. While it is asked,
   Create shows but is inert: choosing it does nothing, its accessible
   name is `IdentityAddChecking`, and past 300 ms it shows its progress
   indicator (cards §7.2's threshold). A seed answered there, or on any
@@ -1022,10 +1024,10 @@ Outcomes other than Done, each with nothing half-made shown as made:
   app's end, and it closes after the deletes that the leaving makes
   itself. The app's end does not close a form: a record left when the
   app ends is settled at the next start. The closing is a moment of its
-  own (architect-cto's ruling, REPLY 01a21bbc-0911, and REQUEST 01a21bbc-4278;
-  ADR-0061 decision 7, A 2026-11-27, which lands with this text):
-  with one identity held, the form
-  opens from the card editor, and Back returns there, so Your
+  own (architect-cto's ruling, REPLY 01a21bbc-0911, and REQUEST
+  01a21bbc-4278; ADR-0061 decision 7, A 2026-11-27, which lands with
+  this text): with one identity held, the form opens from the card
+  editor, and Back returns there, so Your
   identities does not open after Back (cards §5.1, "Shown while two or
   more identities are held"), and without that moment the form's record
   would wait for the next start. When the closing opens Your
@@ -1929,8 +1931,9 @@ pass before it lands.
     Name field holds text; Back is pressed while the line shows, then
     Close without saving: no add was sent, and no key file and no
     record remain. In the fourth, the seam delays the answer past the
-    add's wait: the line shows when that wait ends. Needs the plan note's
-    "offers no Create" and `LOCAL-IPC.md`'s widened seed ask (§16 Q12).
+    add's wait: the line shows when that wait ends. Needs "offers no
+    Create" in the plan's note of 2026-11-27 and `LOCAL-IPC.md`'s
+    widened seed ask (§16 Q12).
     (v) An add from the command line, of another key with the alias
     `anna-rossi`, left ahead
     of the running device (the seam of (c)), so that the list lacks it;
@@ -2382,11 +2385,13 @@ Asked of architect-cto with this note's j200 revision (QUESTION
   rust-ui-dev-02 (QUESTION 01a21bbb, T1). Ruled (REPLY 01a21bc6-1ba2):
   (a) the gated control is Create; the form may open and take the
   card's values while no key pair is generated, no record written and
-  no add sent before a seed is answered; the plan note's "offers no
-  Add" is restated "offers no Create" in the plan's note of
-  2026-11-27, which lands with this text. (b) The form's opening may ask the seed on
-  an administrative connection of its own, for the first identity
-  alone; `LOCAL-IPC.md`'s "opened for a trust act" is widened
-  (A 2026-11-27), which also lands with this text; what asks again while the form waits is this note's to
-  design (§6.2: Try again, no timer). No state is drawn for the seed
-  outside the form, and the answered flag stays per process run.
+  no add sent before a seed is answered; the words "offers no Add" of
+  the plan's note of 2026-11-26 (iii) are restated "offers no Create"
+  in the plan's note of 2026-11-27, which lands with this text. (b) The
+  form's opening may ask the seed on an administrative connection of
+  its own, for the first identity alone; `LOCAL-IPC.md`'s "opened for
+  a trust act" is widened by `LOCAL-IPC.md`'s amendment of
+  2026-11-27, which also lands with this text; what asks again while
+  the form waits is this note's to design (§6.2: Try again, no timer).
+  No state is drawn for the seed outside the form, and the answered
+  flag stays per process run.
