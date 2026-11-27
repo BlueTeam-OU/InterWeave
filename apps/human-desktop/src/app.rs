@@ -398,6 +398,7 @@ const fn add_class(told: &AddTold) -> &'static str {
         },
         AddTold::Held(_) => "an identity is held from now on",
         AddTold::NotHeld(_) => "an identity is not held yet, tried again",
+        AddTold::NotHeldUntilRestart(_) => "an identity is not held, not tried again until restart",
     }
 }
 
