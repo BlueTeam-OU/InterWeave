@@ -1119,7 +1119,6 @@ async fn a_peer_only_an_identitys_set_trusts_has_a_peers_list_row() {
 /// ones on two test threads race on tracing's callsite interest cache.
 fn connectivity_log() -> String {
     use std::sync::{Arc, Mutex, OnceLock};
-    use tracing_subscriber::Layer as _;
     use tracing_subscriber::layer::SubscriberExt as _;
 
     struct Sink(Arc<Mutex<Vec<u8>>>);
@@ -1138,12 +1137,19 @@ fn connectivity_log() -> String {
         let sink = Arc::clone(&log);
         let layer = tracing_subscriber::fmt::layer()
             .with_writer(move || Sink(Arc::clone(&sink)))
-            .with_ansi(false)
-            .with_filter(tracing_subscriber::filter::filter_fn(|meta| {
-                meta.target() == "interweave::connectivity"
-            }));
-        tracing::subscriber::set_global_default(tracing_subscriber::registry().with(layer))
-            .expect("the one subscriber");
+            .with_ansi(false);
+        // A GLOBAL filter, never `with_filter`: a per-layer one drops the
+        // event after a bare `enabled` check on the same thread
+        // (`the_capture_keeps_an_event_after_a_bare_check`).
+        let only_connectivity = tracing_subscriber::filter::filter_fn(|meta| {
+            meta.target() == "interweave::connectivity"
+        });
+        tracing::subscriber::set_global_default(
+            tracing_subscriber::registry()
+                .with(only_connectivity)
+                .with(layer),
+        )
+        .expect("the one subscriber");
         log
     });
     String::from_utf8(log.lock().expect("lock").clone()).expect("utf-8")
@@ -1230,6 +1236,55 @@ async fn a_peer_only_an_identitys_set_trusts_has_its_outcome_recorded() {
     operators.shutdown().await.expect("clean shutdown");
     identitys.shutdown().await.expect("clean shutdown");
     subject.shutdown().await.expect("clean shutdown");
+}
+
+/// The capture keeps an event that follows a bare `enabled` check of
+/// another target on the same thread. libp2p-identify's handler makes one
+/// (`tracing::enabled!(Level::DEBUG)` on a protocols change, at connection
+/// set-up) with no event after it, and it reaches the subscriber when its
+/// callsite's interest is `sometimes` -- what a thread losing the
+/// callsite's first-registration race to another is handed, as runtimes
+/// on two workers do at start. A PER-LAYER filter that refuses it sets its
+/// bit in the thread's filter state, the registry still answers `true`
+/// (tracing-subscriber 0.3.23), nothing consumes the bit, and the next
+/// `always` event on that thread -- a connectivity line -- is dropped:
+/// #782's merge queue lost a `peer connected` line so. The capture's
+/// filter is therefore a global one.
+#[test]
+fn the_capture_keeps_an_event_after_a_bare_check() {
+    use tracing::callsite::{Callsite, Identifier};
+    use tracing::subscriber::Interest;
+    struct Foreign;
+    static FOREIGN: Foreign = Foreign;
+    static META: tracing::Metadata<'static> = tracing::Metadata::new(
+        "foreign",
+        "libp2p_identify::handler",
+        tracing::Level::DEBUG,
+        None,
+        None,
+        None,
+        tracing::field::FieldSet::new(&[], Identifier(&FOREIGN)),
+        tracing::metadata::Kind::EVENT,
+    );
+    impl Callsite for Foreign {
+        fn set_interest(&self, _: Interest) {}
+        fn metadata(&self) -> &tracing::Metadata<'_> {
+            &META
+        }
+    }
+    let _ = connectivity_log();
+    tracing::debug!(target: "interweave::connectivity", mark = "before-the-check", "probe");
+    tracing::dispatcher::get_default(|dispatch| dispatch.enabled(&META));
+    tracing::debug!(target: "interweave::connectivity", mark = "after-the-check", "probe");
+    let log = connectivity_log();
+    assert!(
+        log.contains("mark=\"before-the-check\""),
+        "the control: {log}"
+    );
+    assert!(
+        log.contains("mark=\"after-the-check\""),
+        "kept after the check: {log}"
+    );
 }
 
 /// `profile` with a second configured endpoint, `agent`, beside `human`.

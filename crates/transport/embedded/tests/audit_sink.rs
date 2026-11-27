@@ -28,7 +28,6 @@ use interweave_profile_config::sections::LogLevel;
 use interweave_profile_config::{ProfilePaths, TrustBoundary};
 use interweave_profile_identity::ProfileIdentity;
 use interweave_transport_embedded::{EmbeddedHost, EmbeddedLaunch, log_admits};
-use tracing_subscriber::Layer as _;
 use tracing_subscriber::layer::SubscriberExt as _;
 
 /// One event the sink received: its target, level, message and
@@ -80,12 +79,21 @@ fn a_trust_change_reaches_a_sink_stricter_than_info() {
     // The profile level the sink is built for: WARN, stricter than INFO.
     const STRICT: LogLevel = LogLevel::Warn;
     let seen = Arc::new(Mutex::new(Vec::new()));
-    let sink =
-        Capture(Arc::clone(&seen)).with_filter(tracing_subscriber::filter::filter_fn(|meta| {
-            log_admits(meta.target(), *meta.level(), STRICT)
-        }));
-    tracing::subscriber::set_global_default(tracing_subscriber::registry().with(sink))
-        .expect("the only subscriber in this binary");
+    // A GLOBAL filter, as the Android shell's own layer is, never
+    // `with_filter`: a per-layer one drops the next event on a thread
+    // after a bare `enabled` check there -- libp2p-identify's handler makes
+    // one -- and the audit record is logged from a worker thread
+    // (tracing-subscriber 0.3.23; `bare_check_probe` below pins it).
+    let admits = tracing_subscriber::filter::filter_fn(|meta| {
+        log_admits(meta.target(), *meta.level(), STRICT)
+    });
+    tracing::subscriber::set_global_default(
+        tracing_subscriber::registry()
+            .with(admits)
+            .with(Capture(Arc::clone(&seen))),
+    )
+    .expect("the only subscriber in this binary");
+    bare_check_probe(&seen);
 
     let root = tempfile::Builder::new()
         .permissions(std::fs::Permissions::from_mode(0o700))
@@ -161,4 +169,50 @@ fn a_trust_change_reaches_a_sink_stricter_than_info() {
     );
     drop(port);
     host.stop(Duration::from_secs(1)).expect("stops");
+}
+
+/// The sink keeps a first-party event that follows a bare `enabled` check
+/// of a refused target on the same thread: what libp2p-identify's handler
+/// makes (`tracing::enabled!(Level::DEBUG)`, no event after it) when its
+/// callsite's interest is `sometimes`, as a thread losing the callsite's
+/// first-registration race is handed. A per-layer filter leaves its
+/// refusal's bit set in the thread's filter state, and the event after is
+/// dropped.
+fn bare_check_probe(seen: &Mutex<Vec<Seen>>) {
+    use tracing::callsite::{Callsite, Identifier};
+    use tracing::subscriber::Interest;
+    struct Foreign;
+    static FOREIGN: Foreign = Foreign;
+    static META: tracing::Metadata<'static> = tracing::Metadata::new(
+        "foreign",
+        "libp2p_identify::handler",
+        tracing::Level::DEBUG,
+        None,
+        None,
+        None,
+        tracing::field::FieldSet::new(&[], Identifier(&FOREIGN)),
+        tracing::metadata::Kind::EVENT,
+    );
+    impl Callsite for Foreign {
+        fn set_interest(&self, _: Interest) {}
+        fn metadata(&self) -> &tracing::Metadata<'_> {
+            &META
+        }
+    }
+    let probes = |seen: &Mutex<Vec<Seen>>| {
+        seen.lock()
+            .expect("unpoisoned")
+            .iter()
+            .filter(|e| e.target == "interweave::probe")
+            .map(|e| e.message.clone())
+            .collect::<Vec<_>>()
+    };
+    tracing::warn!(target: "interweave::probe", "before the check");
+    tracing::dispatcher::get_default(|dispatch| dispatch.enabled(&META));
+    tracing::warn!(target: "interweave::probe", "after the check");
+    assert_eq!(
+        probes(seen),
+        ["before the check", "after the check"],
+        "the control first, then the event after the check"
+    );
 }
