@@ -483,9 +483,9 @@ ui_texts! {
     OwnPeerId => "This profile's PeerId, select to copy",
     /// The heading of the trusted peers' list.
     TrustedPeers => "Trusted peers",
-    /// Beside an address row on Peers that was added in these settings
-    /// (add-a-peer, design/2026-11-04-identities.md §5.2); the trust
-    /// list shows no such mark.
+    /// Beside an address on Peers that was added on this device
+    /// (design/2026-10-22-add-a-peer.md §5.2); never on a trust row
+    /// (design/2026-11-04-identities.md §5.1).
     TrustAddedHere => "Added here",
     /// Shown in place of the list while it is read.
     TrustReading => "Reading the list of trusted peers",
