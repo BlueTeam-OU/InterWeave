@@ -93,8 +93,9 @@ pub(super) fn handle_command(
             // leaves that table, so binding four in sequence under a
             // pending bound of two used to succeed and leave four sockets
             // open. Pending and active are counted together because both
-            // hold an OS listener.
-            if listens.len().saturating_add(active.len()) >= max_active_listeners {
+            // hold an OS listener -- each ONCE: a held wildcard listen
+            // is in both tables (`dialing::bound_or_binding`).
+            if super::dialing::bound_or_binding(listens, active) >= max_active_listeners {
                 let _ = reply.send(Err(SubstrateError::Transport(format!(
                     "at most {max_active_listeners} listeners may be bound at once"
                 ))));
@@ -104,9 +105,11 @@ pub(super) fn handle_command(
                 // Held until `NewListenAddr` names the assigned address.
                 // Answering now could only mean answering with a
                 // placeholder, and `listen` documents its result as the
-                // bound address.
+                // bound address. A wildcard listen is held longer, until
+                // its listener has reported every interface
+                // (`dialing::answer_settled_listens`).
                 Ok(id) => {
-                    listens.insert(id, reply);
+                    listens.insert(id, super::dialing::PendingListen::new(&address, reply));
                 }
                 Err(e) => {
                     // The OS is asked only when a socket call failed:
@@ -1504,10 +1507,21 @@ pub(super) fn translate(
             address,
         } => {
             // Answer the waiting `listen` with the address the OS
-            // assigned. A listener may report several; the first answers
-            // and the rest are ordinary events.
-            if let Some(reply) = listens.remove(&listener_id)
-                && reply.send(Ok(address.clone())).is_err()
+            // assigned. A listener on a specific IP reports one and is
+            // answered here. A WILDCARD listener reports one per
+            // interface, its loopback one first: answered at its first,
+            // a caller learning a cached LAN peer as `listen` returned
+            // met ADR-0052 rule 3's refusal for want of the private
+            // listener the next event would have reported (j237). So it
+            // keeps an address and is answered with it once the Swarm
+            // has nothing ready (`dialing::answer_settled_listens`): its
+            // first, or the earliest still bound if that one expired.
+            if let Some(pending) = listens.get_mut(&listener_id)
+                && pending.wildcard
+            {
+                pending.first.get_or_insert_with(|| address.clone());
+            } else if let Some(pending) = listens.remove(&listener_id)
+                && pending.reply.send(Ok(address.clone())).is_err()
             {
                 // The caller is gone and this listener now belongs to
                 // nobody. Close it rather than leave it bound.
@@ -1527,14 +1541,26 @@ pub(super) fn translate(
         Libp2pSwarmEvent::ExpiredListenAddr {
             listener_id,
             address,
-        } => forget_address(active, listener_id, &address).then(|| {
-            SwarmEvent::ListeningStopped {
+        } => {
+            let forgotten = forget_address(active, listener_id, &address);
+            // A HELD WILDCARD LISTEN IS ANSWERED WITH AN ADDRESS STILL
+            // BOUND: its first one gone, it takes the next its listener
+            // holds, or waits for one as before it bound
+            // (`a_held_listen_whose_first_address_expired_is_answered_with_one_still_bound`).
+            if let Some(pending) = listens.get_mut(&listener_id)
+                && pending.first.as_ref() == Some(&address)
+            {
+                pending.first = active
+                    .get(listener_id)
+                    .and_then(|addresses| addresses.first().cloned());
+            }
+            forgotten.then(|| SwarmEvent::ListeningStopped {
                 addresses: vec![address],
                 // Expiry is orderly: the address went away, nothing
                 // failed.
                 reason: None,
-            }
-        }),
+            })
+        }
         // A listener that dies before binding must not leave `listen`
         // waiting for an address that will never arrive.
         //
@@ -1549,13 +1575,28 @@ pub(super) fn translate(
             addresses,
             reason,
         } => {
-            if let Some(reply) = listens.remove(&listener_id) {
-                let _ = reply.send(Err(SubstrateError::Transport(
-                    "the listener closed before binding".to_owned(),
+            if let Some(pending) = listens.remove(&listener_id) {
+                // Bound by the listener's entry, not by `first`, which
+                // every address expiring clears on a listener still bound
+                // (`a_held_listener_that_closes_with_every_address_expired_is_withdrawn`).
+                let bound = active.contains_key(listener_id);
+                let _ = pending.reply.send(Err(SubstrateError::Transport(
+                    if bound {
+                        "the listener closed before it was answered"
+                    } else {
+                        "the listener closed before binding"
+                    }
+                    .to_owned(),
                 )));
                 // It never bound, so there is no `Listening` to withdraw
                 // and the caller has already been told directly.
-                return None;
+                if !bound {
+                    return None;
+                }
+                // A HELD WILDCARD LISTEN had bound and its addresses were
+                // reported `Listening`, so the withdrawal is reported
+                // below as any bound listener's is
+                // (`a_held_wildcard_listener_that_closes_is_answered_and_withdrawn`).
             }
             // ONLY A LISTENER THE CONSUMER WAS TOLD ABOUT IS TOLD
             // STOPPED. A close for a listener not in the table is one the
@@ -1570,8 +1611,36 @@ pub(super) fn translate(
             })
         }
         Libp2pSwarmEvent::ListenerError { listener_id, error } => {
-            if let Some(reply) = listens.remove(&listener_id) {
-                let _ = reply.send(Err(listen_refusal(&error, None)));
+            if let Some(pending) = listens.remove(&listener_id) {
+                // A HELD WILDCARD LISTEN is bound and serving: libp2p's
+                // listener error is not fatal, and its interface watcher
+                // failing is no failed bind, so it is answered with its
+                // first address. On a quiet Swarm -- at start, with nothing
+                // connected -- that is the idle answer: libp2p-tcp 0.45
+                // pauses a listener 100 ms after its error
+                // (`sleep_on_error`), so no later address of it arrives
+                // first. On a Swarm kept busy past the pause, a later
+                // address could have, and the answer comes before it.
+                // (`a_listener_error_answers_a_held_wildcard_listen_with_its_address`).
+                // Its caller gone, it belongs to nobody, and the sweep
+                // after this event no longer finds it in `listens`, so it
+                // is closed here as `NewListenAddr` closes one
+                // (`a_listener_error_closes_a_held_listen_whose_caller_has_gone`).
+                // One with no address to answer with -- not bound yet, or
+                // every address expired -- is answered with the error, and
+                // a caller told its listen failed owns nothing: the error
+                // is not fatal, so the listener is closed here or its
+                // later addresses would be reported as `Listening` for a
+                // listen its caller saw refused
+                // (`a_listen_answered_with_a_listener_error_leaves_no_listener_open`).
+                let bound = pending.first.is_some();
+                let answer = match pending.first {
+                    Some(first) => Ok(first),
+                    None => Err(listen_refusal(&error, None)),
+                };
+                if pending.reply.send(answer).is_err() || !bound {
+                    abandoned.push(listener_id);
+                }
             }
             None
         }
@@ -2208,6 +2277,391 @@ mod command_helper_tests {
             !active.values().any(|a| a.contains(&addr(1))),
             "nothing can still resolve the expired address to this listener"
         );
+    }
+
+    /// A pending listen as the Listen command files it, with the
+    /// receiver its caller awaits.
+    fn pending(
+        listen: &str,
+    ) -> (
+        super::super::dialing::PendingListen,
+        tokio::sync::oneshot::Receiver<Result<Multiaddr, super::SubstrateError>>,
+    ) {
+        let (reply, answer) = tokio::sync::oneshot::channel();
+        let address: Multiaddr = listen.parse().expect("valid multiaddr");
+        (
+            super::super::dialing::PendingListen::new(&address, reply),
+            answer,
+        )
+    }
+
+    fn new_listen_addr(
+        id: ListenerId,
+        address: Multiaddr,
+    ) -> libp2p::swarm::SwarmEvent<crate::behaviour::SubstrateBehaviourEvent> {
+        libp2p::swarm::SwarmEvent::NewListenAddr {
+            listener_id: id,
+            address,
+        }
+    }
+
+    fn lan(port: u16) -> Multiaddr {
+        format!("/ip4/192.168.1.2/tcp/{port}")
+            .parse()
+            .expect("valid multiaddr")
+    }
+
+    #[test]
+    fn a_wildcard_listen_is_one_on_an_unspecified_ip() {
+        use super::super::dialing::is_wildcard_listen;
+        let parse = |s: &str| s.parse::<Multiaddr>().expect("valid multiaddr");
+        assert!(is_wildcard_listen(&parse("/ip4/0.0.0.0/tcp/0")));
+        assert!(is_wildcard_listen(&parse("/ip6/::/tcp/0")));
+        assert!(!is_wildcard_listen(&parse("/ip4/127.0.0.1/tcp/0")));
+        assert!(!is_wildcard_listen(&parse("/ip4/192.168.1.2/tcp/0")));
+        assert!(!is_wildcard_listen(&parse("/ip6/::1/tcp/0")));
+        assert!(!is_wildcard_listen(&parse("/dns4/localhost/tcp/0")));
+    }
+
+    /// A wildcard listener's addresses are each recorded and its caller
+    /// is answered with the FIRST only when the held listens are settled;
+    /// the control: a specific-IP listen is answered by its first
+    /// `NewListenAddr`, as it always was.
+    #[test]
+    fn a_wildcard_listen_is_held_until_settled_and_answered_with_its_first_address() {
+        use super::super::dialing::{answer_settled_listens, holds_settling_listen};
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+
+        let wildcard = ListenerId::next();
+        let (held, mut held_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(wildcard, held);
+        assert!(!holds_settling_listen(&listens), "not bound, not settling");
+        for address in [addr(7), lan(7)] {
+            let reported = super::translate(
+                new_listen_addr(wildcard, address.clone()),
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+            assert!(
+                matches!(reported, Some(SwarmEvent::Listening { address: a }) if a == address),
+                "each address is reported as it binds"
+            );
+        }
+        assert!(
+            held_answer.try_recv().is_err(),
+            "the caller waits while the Swarm may hold more"
+        );
+        assert!(holds_settling_listen(&listens));
+        assert_eq!(active.get(wildcard), Some(&vec![addr(7), lan(7)]));
+        assert!(answer_settled_listens(&mut listens).is_empty());
+        assert!(matches!(held_answer.try_recv(), Ok(Ok(a)) if a == addr(7)));
+        assert!(listens.is_empty());
+
+        // THE CONTROL: a specific IP answers at its first address.
+        let specific = ListenerId::next();
+        let (direct, mut direct_answer) = pending("/ip4/127.0.0.1/tcp/0");
+        listens.insert(specific, direct);
+        super::translate(
+            new_listen_addr(specific, addr(8)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        assert!(matches!(direct_answer.try_recv(), Ok(Ok(a)) if a == addr(8)));
+        assert!(!holds_settling_listen(&listens));
+        assert!(abandoned.is_empty());
+    }
+
+    /// Settling names a held listen whose caller left, for the loop to
+    /// close; an unbound wildcard listen is not settled -- it has no
+    /// address to answer with.
+    #[test]
+    fn settling_names_a_held_listen_whose_caller_left_and_skips_an_unbound_one() {
+        use super::super::dialing::answer_settled_listens;
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let left = ListenerId::next();
+        let (held, answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(left, held);
+        super::translate(
+            new_listen_addr(left, addr(9)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        drop(answer);
+        let unbound = ListenerId::next();
+        let (waiting, _answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(unbound, waiting);
+        assert_eq!(answer_settled_listens(&mut listens), vec![left]);
+        assert!(listens.contains_key(&unbound) && !listens.contains_key(&left));
+    }
+
+    #[test]
+    fn a_held_listen_whose_first_address_expired_is_answered_with_one_still_bound() {
+        use super::super::dialing::answer_settled_listens;
+        let expire = |listens: &mut super::PendingListens,
+                      active: &mut ActiveListeners,
+                      abandoned: &mut Vec<ListenerId>,
+                      id: ListenerId,
+                      address: Multiaddr| {
+            super::translate(
+                libp2p::swarm::SwarmEvent::ExpiredListenAddr {
+                    listener_id: id,
+                    address,
+                },
+                listens,
+                active,
+                abandoned,
+            )
+        };
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let id = ListenerId::next();
+        let (held, mut answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(id, held);
+        // Control: a listen holding only the expired address is unbound
+        // again, so nothing settles it.
+        let lone = ListenerId::next();
+        let (alone, mut lone_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(lone, alone);
+        for (listener, address) in [(id, addr(16)), (id, addr(17)), (lone, addr(18))] {
+            super::translate(
+                new_listen_addr(listener, address),
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        expire(&mut listens, &mut active, &mut abandoned, id, addr(16));
+        expire(&mut listens, &mut active, &mut abandoned, lone, addr(18));
+        assert_eq!(
+            super::super::dialing::bound_or_binding(&listens, &active),
+            2,
+            "an unbound-again listen is counted once, by its listener"
+        );
+        assert!(answer_settled_listens(&mut listens).is_empty());
+        assert!(matches!(answer.try_recv(), Ok(Ok(a)) if a == addr(17)));
+        assert!(
+            lone_answer.try_recv().is_err(),
+            "nothing bound to answer with"
+        );
+        assert!(listens.contains_key(&lone));
+    }
+
+    #[test]
+    fn a_held_listener_that_closes_with_every_address_expired_is_withdrawn() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let id = ListenerId::next();
+        let (held, mut answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(id, held);
+        // Control: one closing before it ever bound is answered and
+        // reports nothing, there being no `Listening` to withdraw.
+        let never = ListenerId::next();
+        let (unbound, mut never_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(never, unbound);
+        super::translate(
+            new_listen_addr(id, addr(19)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        super::translate(
+            libp2p::swarm::SwarmEvent::ExpiredListenAddr {
+                listener_id: id,
+                address: addr(19),
+            },
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        assert!(listens[&id].first.is_none(), "nothing left to answer with");
+        let closed = |listener_id| libp2p::swarm::SwarmEvent::ListenerClosed {
+            listener_id,
+            addresses: Vec::new(),
+            reason: Ok(()),
+        };
+        let withdrawn = super::translate(closed(id), &mut listens, &mut active, &mut abandoned);
+        let silent = super::translate(closed(never), &mut listens, &mut active, &mut abandoned);
+        assert!(matches!(
+            withdrawn,
+            Some(SwarmEvent::ListeningStopped { .. })
+        ));
+        assert!(!active.contains_key(id), "its slot is given back");
+        assert!(silent.is_none());
+        assert!(matches!(answer.try_recv(), Ok(Err(_))));
+        assert!(matches!(never_answer.try_recv(), Ok(Err(_))));
+        assert!(listens.is_empty());
+    }
+
+    #[test]
+    fn a_held_wildcard_listen_counts_once_against_the_listener_bound() {
+        use super::super::dialing::bound_or_binding;
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let id = ListenerId::next();
+        let (held, _answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(id, held);
+        assert_eq!(bound_or_binding(&listens, &active), 1, "binding");
+        super::translate(
+            new_listen_addr(id, addr(10)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        assert_eq!(listens.len() + active.len(), 2, "in both tables");
+        assert_eq!(bound_or_binding(&listens, &active), 1, "one socket");
+    }
+
+    #[test]
+    fn a_held_wildcard_listener_that_closes_is_answered_and_withdrawn() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let id = ListenerId::next();
+        let (held, mut answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(id, held);
+        super::translate(
+            new_listen_addr(id, addr(11)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        let closed = super::translate(
+            libp2p::swarm::SwarmEvent::ListenerClosed {
+                listener_id: id,
+                addresses: vec![addr(11)],
+                reason: Ok(()),
+            },
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        assert!(
+            matches!(answer.try_recv(), Ok(Err(_))),
+            "the caller is told"
+        );
+        assert!(
+            matches!(closed, Some(SwarmEvent::ListeningStopped { .. })),
+            "and the `Listening` it reported is withdrawn: {closed:?}"
+        );
+        assert!(listens.is_empty() && active.len() == 0);
+    }
+
+    /// The control beside it: a listener error answers an unbound listen
+    /// with the error, as it always did.
+    #[test]
+    fn a_listener_error_answers_a_held_wildcard_listen_with_its_address() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let held_id = ListenerId::next();
+        let (held, mut held_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(held_id, held);
+        super::translate(
+            new_listen_addr(held_id, addr(12)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        let unbound_id = ListenerId::next();
+        let (unbound, mut unbound_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(unbound_id, unbound);
+        for id in [held_id, unbound_id] {
+            super::translate(
+                libp2p::swarm::SwarmEvent::ListenerError {
+                    listener_id: id,
+                    error: std::io::Error::other("the interface watcher failed"),
+                },
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        assert!(matches!(held_answer.try_recv(), Ok(Ok(a)) if a == addr(12)));
+        assert!(matches!(unbound_answer.try_recv(), Ok(Err(_))));
+        assert!(listens.is_empty());
+    }
+
+    #[test]
+    fn a_listener_error_closes_a_held_listen_whose_caller_has_gone() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let gone_id = ListenerId::next();
+        let (gone, gone_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(gone_id, gone);
+        // Control: a held listen whose caller still waits is answered,
+        // not closed.
+        let kept_id = ListenerId::next();
+        let (kept, mut kept_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(kept_id, kept);
+        for id in [gone_id, kept_id] {
+            super::translate(
+                new_listen_addr(id, addr(13)),
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        drop(gone_answer);
+        for id in [gone_id, kept_id] {
+            super::translate(
+                libp2p::swarm::SwarmEvent::ListenerError {
+                    listener_id: id,
+                    error: std::io::Error::other("accept failed"),
+                },
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        assert_eq!(abandoned, vec![gone_id]);
+        assert!(matches!(kept_answer.try_recv(), Ok(Ok(a)) if a == addr(13)));
+        assert!(listens.is_empty());
+    }
+
+    #[test]
+    fn a_listen_answered_with_a_listener_error_leaves_no_listener_open() {
+        let mut listens: super::PendingListens = std::collections::HashMap::new();
+        let mut active = ActiveListeners::new();
+        let mut abandoned = Vec::new();
+        let unbound_id = ListenerId::next();
+        let (unbound, mut unbound_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(unbound_id, unbound);
+        // Control: a held listen with an address, its caller waiting, is
+        // answered with it and kept open.
+        let held_id = ListenerId::next();
+        let (held, mut held_answer) = pending("/ip4/0.0.0.0/tcp/0");
+        listens.insert(held_id, held);
+        super::translate(
+            new_listen_addr(held_id, addr(14)),
+            &mut listens,
+            &mut active,
+            &mut abandoned,
+        );
+        for id in [unbound_id, held_id] {
+            super::translate(
+                libp2p::swarm::SwarmEvent::ListenerError {
+                    listener_id: id,
+                    error: std::io::Error::other("the interface watcher failed"),
+                },
+                &mut listens,
+                &mut active,
+                &mut abandoned,
+            );
+        }
+        assert!(matches!(unbound_answer.try_recv(), Ok(Err(_))));
+        assert!(matches!(held_answer.try_recv(), Ok(Ok(a)) if a == addr(14)));
+        assert_eq!(abandoned, vec![unbound_id]);
     }
 
     #[test]

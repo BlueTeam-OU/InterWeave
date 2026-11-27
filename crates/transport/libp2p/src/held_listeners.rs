@@ -36,11 +36,15 @@
 //! yes -- an offered private-range listener IP this node did not offer
 //! at the last observation ([`HeldListeners::widenings`]). A refusal
 //! under rule 3 is the one learn-site verdict that depends on what this
-//! node listens on, so an address refused before a wildcard listener
-//! reported its LAN interface may be admitted after it; a caller that
-//! remembers what it offered (composition's discovery memo) offers again
-//! when the count moves, or keeps the refusal for its whole relearn
-//! interval.
+//! node listens on, so an address refused before this node held a
+//! private listener -- a Wi-Fi joining, the platform's view lifting a
+//! classification -- may be admitted after it; a caller that remembers
+//! what it offered (composition's discovery memo) offers again when the
+//! count moves, or keeps the refusal for its whole relearn interval.
+//! A wildcard listener reporting its LAN interface after its loopback
+//! one was such a case at start until `SwarmRuntime::listen` waited for
+//! the listener's interfaces before answering (j237); one its watcher
+//! has not seen by then still is.
 
 use std::collections::BTreeSet;
 use std::net::IpAddr;

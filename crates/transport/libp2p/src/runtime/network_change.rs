@@ -397,7 +397,8 @@ impl NetworkSet {
     /// [`Self::not_offered`]; and count a WIDENING of rule 3's boundary
     /// when this node now offers a private-range listener IP it did not
     /// at the last observation -- a listener reporting its LAN address
-    /// after its loopback one, an IP joining the known set, the view
+    /// after its loopback one (for a wildcard listen, before `listen`
+    /// answers since j237), an IP joining the known set, the view
     /// lifting a rule 10 classification. Read from `direct_listeners`,
     /// the addresses rule 3 itself counts, so a circuit listener on a
     /// relay-reported IP neither widens nor masks a later direct
@@ -528,6 +529,21 @@ mod tests {
         list.iter().map(|a| a.parse().expect("a literal")).collect()
     }
 
+    #[test]
+    fn a_private_listener_observed_first_widens_the_boundary() {
+        let held = crate::held_listeners::HeldListeners::new();
+        let widenings = held.widenings();
+        let mut set = NetworkSet::publishing_to(held);
+        let _ = set.observe_listeners(addrs(&["/ip4/192.168.1.5/tcp/4001"]).iter());
+        assert_eq!(widenings.count(), 1, "a first observation widens");
+        // Control: loopback first widens nothing.
+        let held = crate::held_listeners::HeldListeners::new();
+        let loopback = held.widenings();
+        let mut set = NetworkSet::publishing_to(held);
+        let _ = set.observe_listeners(addrs(&["/ip4/127.0.0.1/tcp/4001"]).iter());
+        assert_eq!(loopback.count(), 0, "loopback is no private listener");
+    }
+
     fn ip(s: &str) -> IpAddr {
         s.parse().expect("an ip")
     }
@@ -628,7 +644,8 @@ mod tests {
     /// turns from refused to admitted is a counted move, every time.
     /// The first step is a wildcard listener's loopback report arriving
     /// before its LAN one -- a cache's private route offered then was
-    /// refused, and is admitted after the second (j133).
+    /// refused, and is admitted after the second (j133; at start, before
+    /// `listen` came to answer a wildcard listen after both, j237).
     #[test]
     fn every_way_rule_3s_boundary_widens_is_counted_and_nothing_else() {
         use interweave_transport_runtime::reachability::is_discovered_address;

@@ -102,11 +102,41 @@ impl SwarmRuntime {
     /// With port 0 the assigned port is only knowable from this answer,
     /// so it waits for the listener to report it.
     ///
+    /// On an UNSPECIFIED IP (`0.0.0.0`, `::`) the listener reports one
+    /// address per interface, and the answer -- the first it reported,
+    /// or the earliest still bound if that one expired -- waits until
+    /// the Swarm has nothing more ready, so every interface its watcher
+    /// already holds is bound and recorded when this returns, and every
+    /// private-range one among them this node offers (ADR-0052 rule 10
+    /// withholds the rest) is in rule 3's boundary, which
+    /// [`Self::listener_widenings`] counted widening for any it did not
+    /// already hold. As this was found (j237) it answered at the first,
+    /// the loopback address, and a private candidate learned at once
+    /// raced the LAN address's report
+    /// (`a_wildcard_listen_answers_once_its_lan_address_is_observed`).
+    /// An interface the watcher has not seen yet is not waited for.
+    /// The wait itself has no time bound: libp2p-swarm 0.48's
+    /// `poll_next_event` polls the listeners after the behaviour and the
+    /// connection pool, and returns to the behaviour after each ready
+    /// item, so the answer waits until both have nothing ready, which a
+    /// node at start, with nothing connected, reaches at once. A caller
+    /// that wants a bound times out its own call, and the listener its
+    /// dropped answer leaves is closed: the settling answer names it
+    /// (`settling_names_a_held_listen_whose_caller_left_and_skips_an_unbound_one`)
+    /// and the task closes what it names, a step no test drives with a
+    /// dropped answer.
+    ///
     /// # Errors
     /// Returns [`SubstrateError::Stopped`] if the task is gone,
     /// [`SubstrateError::ListenDenied`] if the platform refused this
     /// process the socket, or [`SubstrateError::Transport`] if the
-    /// listener could not bind for any other reason.
+    /// listener could not bind for any other reason. A wildcard listen
+    /// is also answered with an error after its listener bound: with
+    /// [`SubstrateError::Transport`] if the listener closed before the
+    /// answer (`stop_listening` on an address already reported), and
+    /// with the listener's own error -- `Transport`, or `ListenDenied`
+    /// when its cause is a refused permission -- if it fails while
+    /// holding no address.
     pub async fn listen(&self, address: Multiaddr) -> Result<Multiaddr, SubstrateError> {
         let (reply, answer) = oneshot::channel();
         self.commands

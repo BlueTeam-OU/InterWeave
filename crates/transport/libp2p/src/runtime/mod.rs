@@ -1999,6 +1999,17 @@ impl SwarmRuntime {
                     outstanding_queries,
                     transactions,
                 );
+                // A HELD WILDCARD LISTEN IS ANSWERED AT ONCE WHEN THE
+                // SWARM MAY NOT BE POLLED, rather than wait for an idle
+                // Swarm the branch below will not poll: its caller --
+                // `ComposedRuntime::start` -- may be what would drain
+                // the outbox (`dialing::answer_settled_listens`).
+                if !room {
+                    for id in dialing::answer_settled_listens(&mut listens) {
+                        let _ = swarm.remove_listener(id);
+                    }
+                }
+                let settling = dialing::holds_settling_listen(&listens);
 
                 // THE EARLIEST RETRY STILL AHEAD, for the scheduler to
                 // wake at rather than at the tick after it: ADR-0011 A
@@ -2854,7 +2865,17 @@ impl SwarmRuntime {
                             None => std::future::pending::<()>().await,
                         }
                     } => {}
-                    event = swarm.select_next_some(), if room => {
+                    polled = swarm.next_or_idle(settling), if room => {
+                        // THE SWARM HAD NOTHING READY while a wildcard
+                        // listen was held: every address its listener
+                        // reported has been observed above, so its caller
+                        // is answered now (`dialing::answer_settled_listens`).
+                        let Some(event) = polled else {
+                            for id in dialing::answer_settled_listens(&mut listens) {
+                                let _ = swarm.remove_listener(id);
+                            }
+                            continue;
+                        };
                         // SETTLE THE ADMISSION FIRST. Every dial holds a
                         // pending slot until its outcome arrives, so an
                         // outcome that did not release one is a slot
@@ -3530,7 +3551,7 @@ impl SwarmRuntime {
                         abandoned.extend(
                             listens
                                 .iter()
-                                .filter(|(_, reply)| reply.is_closed())
+                                .filter(|(_, pending)| pending.reply.is_closed())
                                 .map(|(id, _)| *id),
                         );
                         for id in abandoned {
