@@ -243,6 +243,11 @@ fn run(
         None
     };
     let mut out = String::new();
+    // The admin verbs take no lease and write no store row, so an id a
+    // pending-add record names is not refused to them (they run before the
+    // store opens, which they cannot do while the desktop holds its lock).
+    // One limit stays: `identities default` on such an id makes the
+    // settle's remove answer `default`.
     let change = match verb {
         cli::Verb::IdentitiesList => Some(Ok(admin::Identities::List)),
         cli::Verb::SetEnabled(selector, on) => Some(
@@ -314,6 +319,9 @@ fn run(
         Ok(store) => (lock, store),
         Err(failure) => return failure.into(),
     };
+    if let Err(failure) = startup::refuse_pending_add(&profile, &store) {
+        return failure.into();
+    }
     let name = profile.paths.profile().to_owned();
     let paths = profile.paths.clone();
     let result = runtime.block_on(async {

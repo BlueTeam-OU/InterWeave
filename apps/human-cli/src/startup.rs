@@ -207,6 +207,37 @@ pub(crate) fn open_store(profile: &Profile) -> Result<HumanStore, Failure> {
     Ok(store.speaking_as(speaking))
 }
 
+/// Refuse a run that speaks as an id a pending-add record names, before
+/// any socket opens (ADR-0061 decision 7: the client "opens no data session
+/// and holds no lease for an id a record names and so admits nothing to its
+/// store under it"). `--endpoint` resolves any entry the profile offers,
+/// and a record's id is one the daemon already holds, so without this a
+/// data verb would lease it and write rows under it. Exit 1, as any other
+/// refused identity.
+///
+/// # Errors
+/// [`Failure::Store`] when the records cannot be read, else
+/// [`Failure::Refused`] naming the identity by its endpoint id.
+pub(crate) fn refuse_pending_add(profile: &Profile, store: &HumanStore) -> Result<(), Failure> {
+    let Some(speaking) = profile.endpoints.first() else {
+        return Ok(());
+    };
+    let records = store.pending_adds().map_err(|e| {
+        Failure::Store(format!(
+            "the message store's pending adds could not be read: {}",
+            output::one_line(&e.to_string())
+        ))
+    })?;
+    if records.contains(speaking) {
+        return Err(Failure::Refused(format!(
+            "identity {} is still being added and this client opens no session as it: \
+             the desktop client settles it first",
+            speaking.as_str()
+        )));
+    }
+    Ok(())
+}
+
 /// [`open_store`] under `cipher`, as `identity`, with the class it was
 /// refused by.
 ///

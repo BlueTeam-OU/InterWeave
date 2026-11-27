@@ -174,3 +174,146 @@ fn a_message_on_stdin_past_its_bound_is_refused_before_anything_opens() {
         );
     }
 }
+
+/// A profile `p` under private roots in `xdg`, two human entries: `human`
+/// and `spare`, by key. The daemon's data socket is returned listening, and
+/// counts what connects to it.
+fn profile_with_a_listening_socket(
+    xdg: &std::path::Path,
+) -> (
+    interweave_profile_config::ProfilePaths,
+    std::sync::Arc<std::sync::atomic::AtomicUsize>,
+) {
+    use interweave_profile_config::{ProfilePaths, XdgRoots};
+    use std::os::unix::fs::{DirBuilderExt as _, PermissionsExt as _};
+    for sub in ["config", "data", "state", "cache", "run"] {
+        std::fs::DirBuilder::new()
+            .mode(0o700)
+            .create(xdg.join(sub))
+            .expect("an xdg dir");
+    }
+    let roots = XdgRoots {
+        config_home: xdg.join("config"),
+        data_home: xdg.join("data"),
+        state_home: xdg.join("state"),
+        cache_home: xdg.join("cache"),
+        runtime_dir: Some(xdg.join("run")),
+    };
+    let paths = ProfilePaths::resolve("p", &roots).expect("paths");
+    let file = paths.config_file();
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(file.parent().expect("a parent"))
+        .expect("the config dir");
+    let entry = |alias: &str| {
+        format!(
+            "    - {{ key: {}.key, alias: {alias}, enabled: true, advertise: false, \
+             allowed_client_kinds: [human-client], inbound: inherit_profile_trust, \
+             outbound: inherit_profile_trust }}\n",
+            endpoint_id(alias).as_str()
+        )
+    };
+    let text = format!(
+        "schema_version: 2
+runtime: {{ deployment: daemon-ipc }}
+profile: {{ name: p }}
+transport:
+  backend: libp2p
+  listen: {{ addresses: [\"/ip4/127.0.0.1/tcp/0\"] }}
+identity: {{ algorithm: ed25519 }}
+trust: {{ policy: static-allowlist, allowed_peers: [] }}
+endpoints:
+  registration_policy: configured-only
+  default_direct_endpoint: human
+  entries:
+{}{}ipc: {{ enabled: true, socket_layout: split-data-admin }}
+channels: {{ desired: [] }}
+",
+        entry("human"),
+        entry("spare")
+    );
+    std::fs::write(&file, text).expect("config");
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o644)).expect("a mode");
+
+    let socket = paths.data_socket().expect("socket");
+    std::fs::DirBuilder::new()
+        .recursive(true)
+        .mode(0o700)
+        .create(socket.parent().expect("a parent"))
+        .expect("the run dir");
+    let listener = std::os::unix::net::UnixListener::bind(socket).expect("bind");
+    let connections = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = connections.clone();
+    // Closes each connection at once: the client gets no hello answer and
+    // ends, which is all the control needs.
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            drop(stream);
+        }
+    });
+    (paths, connections)
+}
+
+/// A data verb run as an id a pending-add record names is refused with
+/// exit 1 before it connects to the data socket (ADR-0061 decision 7); the
+/// same run as the same id with no record connects (the control).
+/// Mutation: `refuse_pending_add` not called.
+#[test]
+fn a_run_naming_an_id_a_pending_add_record_names_is_refused_before_any_socket() {
+    use interweave_human_store::key_custody::FilesystemCustody;
+    use interweave_human_store::{HumanStore, StoreOptions};
+    use std::sync::atomic::Ordering::SeqCst;
+
+    for (record, refused) in [(true, true), (false, false)] {
+        let xdg = tempfile::tempdir().expect("tempdir");
+        std::fs::set_permissions(
+            xdg.path(),
+            std::os::unix::fs::PermissionsExt::from_mode(0o700),
+        )
+        .expect("private");
+        let (paths, connections) = profile_with_a_listening_socket(xdg.path());
+        if record {
+            let mut store = HumanStore::open_profile(
+                &paths,
+                &FilesystemCustody,
+                &endpoint_id("human"),
+                StoreOptions::default(),
+            )
+            .expect("the store opens");
+            store
+                .add_pending_add(&endpoint_id("spare"))
+                .expect("the record");
+        }
+        let out = human(
+            &[
+                "--profile",
+                "p",
+                "send",
+                &format!(
+                    "12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN/{}",
+                    endpoint_id("human").as_str()
+                ),
+                "hello",
+                "--endpoint",
+                "spare",
+            ],
+            xdg.path(),
+        );
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        // The listener counts on its own thread: the run has ended, so what
+        // it accepted is settled once it has had a moment to see the close.
+        std::thread::sleep(std::time::Duration::from_millis(200));
+        assert_eq!(connections.load(SeqCst) == 0, refused, "{record}: {stderr}");
+        assert_eq!(
+            stderr.contains("is still being added"),
+            refused,
+            "{record}: {stderr}"
+        );
+        if refused {
+            assert_eq!(out.status.code(), Some(1), "{stderr}");
+            assert!(stderr.contains(endpoint_id("spare").as_str()), "{stderr}");
+        }
+    }
+}
