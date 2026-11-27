@@ -107,8 +107,10 @@ impl SwarmRuntime {
     /// or the earliest still bound if that one expired -- waits until
     /// the Swarm has nothing more ready, so every interface its watcher
     /// already holds is bound and recorded when this returns, and every
-    /// private-range one among them is in ADR-0052 rule 3's boundary and
-    /// counted by [`Self::listener_widenings`]. As this was found (j237) it answered at the first,
+    /// private-range one among them this node offers (ADR-0052 rule 10
+    /// withholds the rest) is in rule 3's boundary, which
+    /// [`Self::listener_widenings`] counted widening for any it did not
+    /// already hold. As this was found (j237) it answered at the first,
     /// the loopback address, and a private candidate learned at once
     /// raced the LAN address's report
     /// (`a_wildcard_listen_answers_once_its_lan_address_is_observed`).
