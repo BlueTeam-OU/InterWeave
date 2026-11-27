@@ -762,8 +762,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   that moment. An earlier add that is still running and lands later is
   not missed: Back from here leaves the form as "The form is left"
   says. After an add that ended unknown, leaving the form keeps the
-  key and the record, and the settle that runs when Your identities
-  opens then finds that the id is an identity, or discards it.
+  key and the record, and the settle that runs when the form closes
+  then finds that the id is an identity, or discards it.
 - **Refused, with nothing created**: the add answered
   `InvalidArgument`, or `refused` for a reason other than `exists`,
   `bound` or `key_missing`; or Create stopped before the add, because
@@ -976,11 +976,21 @@ Outcomes other than Done, each with nothing half-made shown as made:
     while it shows `IdentityAddNotFinished`, and also when it is left
     while it shows, after a Create chosen on `IdentityAddNotFinished`,
     either `IdentityAddKeyGone` or `IdentityAddUnknown`.
-- **A pending-add record is settled** at the client's next start,
-  whenever Your identities opens (so also right after Back, which
-  opens Your identities), and when a Create's record is refused at
-  the bound (step 2; ADR-0061 decision 7, A 2026-11-26 (iii)). The settle handles every record except the
-  record of a form that is open now. Each list or remove that a settle
+- **A pending-add record is settled** at four moments: at the client's
+  next start; whenever Your identities opens; whenever an add form
+  closes; and when a Create's record is refused at the bound (step 2;
+  ADR-0061 decision 7, A 2026-11-26 (iii)). A form closes by any way of
+  leaving it (the item before), after the deletes that the leaving
+  makes itself; the app's end is no closing, and a record that it
+  leaves is settled at the next start. The closing is a moment of its
+  own (architect-cto's ruling, REPLY 01a21bbc-0911, and REQUEST 01a21bbc-4278;
+  ADR-0061 decision 7, A 2026-11-27): with one identity held, the form
+  opens from the card editor, and Back returns there, so no Your
+  identities opens after it (cards §5.1, "Shown while two or more
+  identities are held"), and without that moment the form's record
+  would wait for the next start. When the closing opens Your
+  identities, the two moments are met by one settle. The settle
+  handles every record except the record of a form that is open now. Each list or remove that a settle
   sends waits, on the client's side, at most the add's wait (above) for
   its answer: a list with no answer in that time is a list that
   failed, and a remove with none is a remove that got no answer. For
@@ -1007,7 +1017,7 @@ Outcomes other than Done, each with nothing half-made shown as made:
     platform key cannot be emptied, no remove is sent and the record
     is kept. On any other answer of the remove, or if it gets no
     answer, the record is kept.
-    A kept record is settled again at the next of the three moments
+    A kept record is settled again at the next of the four moments
     at which a record is settled.
     This branch also applies to an id for which an add answered
     `added`, when something outside the client (the command line, for
@@ -1021,11 +1031,15 @@ Outcomes other than Done, each with nothing half-made shown as made:
     up). What `IdentityAddNotFinished` says stops being true
     when the endpoint is removed, by an act
     outside the client that the client is not told of.
-  Nothing is shown for a settle of its own. At the start and when Your
-  identities opens, the person is not on a form; at the bound, the
-  open form shows Create's progress indicator until the second write
-  of its record (step 1). An identity found here appears in Your
-  identities as any identity does.
+  Nothing is shown for a settle of its own. At the start, when Your
+  identities opens and when a form closes, the person is not on a form;
+  at the bound, the open form shows Create's progress indicator until
+  the second write of its record (step 1). An identity found here
+  appears in Your identities as any identity does. With one identity
+  held before, a settle that finds one is a second identity added
+  (cards §5.7.3, "When the identities change"): the switch and the
+  "as" lines appear on the screen that is shown, the card editor
+  included, nothing is switched, and focus stays where it was.
   One case of discard leaves something that the person can see
   (ADR-0061 decision 7, A 2026-11-26 (ii)). When an earlier remove of
   the id was left ahead of the running device (answered `Internal`,
@@ -1815,7 +1829,20 @@ pass before it lands.
     the seam of acceptance 13's left-ahead run and ADR-0061 decision 7
     (A 2026-11-26 (ii)).
 
-    Add's form, four more runs (rust-ui-dev-02's QUESTION 01a21bbb):
+    Add's form, five more runs (rust-ui-dev-02's QUESTION 01a21bbb; run
+    (t) architect-cto's REQUEST 01a21bbc):
+    (t) One identity held, the form opened from the card editor's Add
+    another identity; as (c) up to `IdentityAddUnknown`, then Back and
+    Close without saving: the card editor shows again, no Your
+    identities opens, and with no restart the closing's settle has run:
+    the key file and, on Android, the platform key are gone, the remove
+    answered `removed`, and the record is gone. In a variant, as (r) up
+    to `IdentityAddUnknown`, from the card editor with one identity
+    held, then Back and Close without saving: the closing's settle finds
+    the id listed with its key file at its key path and deletes the
+    record; the switch and the "as" lines then appear on the card
+    editor, nothing is switched, and focus stays where Back put it.
+    Needs ADR-0061 decision 7 as amended A 2026-11-27.
     (u) A run in which no seed was answered (a seam makes
     `admin.trust.seed` fail): the form opens from Your identities and
     from the card editor alike; `IdentityAddWaitsSeed` shows in Create's
