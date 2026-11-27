@@ -20,10 +20,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitStatus, Output, Stdio};
 use std::time::{Duration, Instant};
 
-use interweave_local_client_api::{AdminBinding as _, AdminCapability, AdminPort as _};
+use interweave_local_client_api::{AdminCapability, AdminPort as _};
 use interweave_transport_api::TransportIdentity;
 
 use crate::common::{Home, PATIENCE, daemon_binary, package_binary, transportctl_binary};
+use crate::harness::AdminOpen as _;
 
 /// `human-desktop`, as the package ships it.
 pub(crate) fn client_binary() -> PathBuf {
@@ -174,10 +175,7 @@ pub(crate) fn start_daemon_of(bin: &Path, home: &Home) -> Running {
 /// The profile's identity, as its daemon's status reads it.
 pub(crate) async fn status_peer(home: &Home) -> TransportIdentity {
     let binding = home.binding();
-    let port = binding
-        .admin([AdminCapability::Status].into())
-        .await
-        .expect("an admin port");
+    let port = binding.admin_port(&[AdminCapability::Status]).await;
     port.status().await.expect("status").peer
 }
 

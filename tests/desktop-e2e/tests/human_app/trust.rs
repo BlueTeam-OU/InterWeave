@@ -20,14 +20,15 @@
 
 use interweave_human_ui_model::{UiText, fill, placeholder_en};
 use interweave_local_client_api::{
-    AdminBinding as _, AdminCapability, AdminPort as _, EndpointSetKind, TrustDirection,
+    AdminCapability, AdminPort as _, EndpointSetKind, TrustDirection,
 };
 
 use crate::a11y::{Bus, Element};
 use crate::common::human;
 use crate::daemon_link::{Tap, asked};
 use crate::display;
-use crate::harness::{self as app, identity_set, until_lease};
+use crate::harness::AdminOpen as _;
+use crate::harness::{self as app, identity_set, trust_admin, until_lease};
 use crate::ring;
 use crate::world::two_daemons;
 
@@ -38,11 +39,7 @@ fn text(key: UiText) -> &'static str {
 /// The operator's list as the daemon holds it, sorted: what an identity's
 /// trust act must leave as it is.
 async fn operators(home: &crate::common::Home) -> Vec<String> {
-    let port = home
-        .binding()
-        .admin([AdminCapability::Trust].into())
-        .await
-        .expect("an admin port");
+    let port = home.binding().admin_port(&[AdminCapability::Trust]).await;
     let mut peers: Vec<String> = port
         .trust()
         .await
@@ -187,8 +184,9 @@ async fn a_trust_removal_shows_the_exact_peer_id_and_reaches_the_daemon_only_ove
         let binding = world.a.binding();
         let b = world.b_peer.clone();
         async move {
+            let admin = trust_admin(&binding).await;
             for direction in TrustDirection::ALL {
-                let view = identity_set(&binding, &human(), direction).await;
+                let view = identity_set(&admin, &human(), direction).await;
                 assert_eq!(view.set, EndpointSetKind::Own, "{when}: {view:?}");
                 assert!(
                     !view.allowed.iter().any(|row| row.peer == b),
