@@ -49,6 +49,13 @@ pub trait Facade {
     fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
         None
     }
+    /// The identities held since this was last asked, each with its
+    /// windowed start: one made while the facade runs, held with no
+    /// restart. None from a facade that holds no more than it was built
+    /// with.
+    fn take_held_more(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+        Vec::new()
+    }
 }
 
 impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
@@ -89,6 +96,9 @@ impl<B: SessionBinding, A: AdminBinding> Facade for Roster<B, A> {
     }
     fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
         Roster::held_if_changed(self)
+    }
+    fn take_held_more(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+        Roster::take_held_more(self)
     }
 }
 

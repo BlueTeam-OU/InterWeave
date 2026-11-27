@@ -36,6 +36,19 @@
 //!   trust connection it opens, the first's alone, one record of whether
 //!   one was answered shared by them all ([`Roster::first_seeded`];
 //!   `every_identitys_trust_connection_seeds_the_first_alone`);
+//! - an identity a pending-add record names is not held, so no session
+//!   leases it and no row is written under it
+//!   (`an_id_a_pending_add_record_names_is_not_held_and_opens_no_session`);
+//!   it becomes one at its record's delete and not before (ADR-0061
+//!   decision 7);
+//! - an identity made while the roster runs is held at once, with no
+//!   restart, through the [`AddFactory`] a root gives it: its client is
+//!   built as a held one is, so its unadvertised assertion runs before its
+//!   lease, and it is told with the others
+//!   (`an_identity_made_while_the_roster_runs_is_asserted_leased_and_told`);
+//!   a roster given no factory holds no more, and the bound holds at
+//!   runtime too (`a_roster_given_no_factory_holds_no_more`,
+//!   `the_bound_holds_at_runtime_too`);
 //! - what each identity's row says is told at start and when it changes
 //!   (`the_held_identities_are_told_at_start_and_on_change_alone`), in
 //!   identities §5.2's states
@@ -63,18 +76,22 @@
 //! `an_assertion_that_blocks_takes_no_lease_until_it_answers`).
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::sync::Arc;
 
 use interweave_human_client_api::{ClientEvent, SessionProblem, SessionState};
+use interweave_human_store::identity_key::KeyCipher;
 use interweave_human_store::{HumanStore, StoreError};
 use interweave_human_transport_client::{
     AssertingBinding, ClientConfig, FirstSeed, NodePeer, SessionBinding, TransportClient,
 };
 use interweave_human_ui_model::{HeldIdentity, IDENTITY_CAP, IdentityKey, IdentityState};
 use interweave_local_client_api::AdminBinding;
+use interweave_profile_config::paths::ProfilePaths;
 use interweave_transport_api::{ChannelId, EndpointId};
 
 use crate::facade::FacadeSide;
-use crate::protocol::{Command, Update};
+use crate::profile::KeySource;
+use crate::protocol::{Command, Start, Update};
 
 /// What a roster is built from: what `ClientConfig` carries on `main`,
 /// with the identities besides the first and the profile's default.
@@ -117,6 +134,44 @@ impl From<StoreError> for RosterError {
     fn from(e: StoreError) -> Self {
         Self::Store(e)
     }
+}
+
+/// What gives a new identity's client its bindings.
+pub type Bindings<B, A> = Box<dyn FnMut(&EndpointId) -> (B, A) + Send>;
+
+/// What a roster needs to hold an identity made while it runs, given by
+/// the root that composes it ([`Roster::adding`]): what `Roster::new`'s
+/// closure gives each identity, the platform's key custody and where the
+/// profile keeps its keys.
+pub struct AddFactory<B, A> {
+    /// A new identity's bindings, as `Roster::new`'s closure gives each
+    /// held identity its own.
+    pub bindings: Bindings<B, A>,
+    /// The administrative binding an add form's and a settle's calls
+    /// each open a connection of their own on.
+    pub admin: Arc<A>,
+    /// The profile whose `endpoint-keys/` holds each identity's key file.
+    pub paths: ProfilePaths,
+    /// The platform's key custody: the desktop's filesystem, Android's
+    /// Keystore. An identity held later opens its key under it.
+    pub cipher: Arc<dyn KeyCipher + Send + Sync>,
+}
+
+/// Why [`Roster::hold_added`] held nothing.
+#[derive(Debug)]
+pub enum HoldRefused {
+    /// The roster was given no [`AddFactory`]: it holds what it was built
+    /// with and no more.
+    NoFactory,
+    /// The identity is held already.
+    Held,
+    /// A pending-add record names it: it is no identity yet.
+    Pending,
+    /// As many identities are held as a client holds ([`IDENTITY_CAP`]).
+    OverBound,
+    /// The store could not be read: the pending-add record, or the
+    /// pending rows a new client reads at construction.
+    Store(StoreError),
 }
 
 /// What each identity answered, by identity, in the order they ran.
@@ -165,6 +220,21 @@ pub struct Roster<B: SessionBinding, A: AdminBinding> {
     stale: bool,
     /// The first identity's seed, a clone given to every held client.
     seed: FirstSeed,
+    /// The node's `PeerId` cell, a clone given to every held client.
+    node_peer: NodePeer,
+    /// What every client is built with, kept for an identity held later.
+    client_kind: String,
+    /// The endpoints a client may lease: those given, and each identity
+    /// held later.
+    endpoints: Vec<EndpointId>,
+    max_payload_bytes: usize,
+    wall: Arc<dyn Fn() -> u64 + Send + Sync>,
+    /// What holds an identity made while the roster runs; with none, the
+    /// roster holds what it was built with and no more.
+    factory: Option<AddFactory<B, A>>,
+    /// The identities held since the root last took them
+    /// ([`Self::take_held_more`]).
+    held_more: Vec<EndpointId>,
 }
 
 /// What an identity's row says it can do now (identities §5.2;
@@ -196,7 +266,10 @@ pub(crate) const fn identity_state(
 
 impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     /// The roster over `store`, whose identity is the first identity, and
-    /// the identities `config` names besides it. `bindings` gives each
+    /// the identities `config` names besides it but those a pending-add
+    /// record names: such an id is no identity yet, so it is not held, no
+    /// session leases it and nothing is written under it (ADR-0061
+    /// decision 7). `bindings` gives each
     /// identity's client its bindings; `wall` is the wall clock in Unix
     /// milliseconds, `now` the caller's monotonic clock. Opens nothing: the
     /// first [`Self::turn`] does, in the open order.
@@ -217,9 +290,12 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         W: Fn() -> u64 + Clone + Send + Sync + 'static,
     {
         let first = store.identity().clone();
+        // Read before anything is built: a record that cannot be read
+        // refuses the start rather than holding an id it may name.
+        let pending = store.pending_adds()?;
         let mut others: Vec<EndpointId> = Vec::new();
         for endpoint in config.others {
-            if endpoint != first && !others.contains(&endpoint) {
+            if endpoint != first && !others.contains(&endpoint) && !pending.contains(&endpoint) {
                 others.push(endpoint);
             }
         }
@@ -293,6 +369,13 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
             told: None,
             stale: true,
             seed,
+            node_peer,
+            client_kind: config.client_kind,
+            endpoints: config.endpoints,
+            max_payload_bytes: config.max_payload_bytes,
+            wall: Arc::new(wall),
+            factory: None,
+            held_more: Vec::new(),
         };
         // An unreadable row is read as no row, so a start is not refused
         // over it (`the_front_at_start_is_the_last_held_else_the_default_else_the_first`);
@@ -307,6 +390,110 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         };
         roster.front = roster.resolve(last);
         Ok(roster)
+    }
+
+    /// The roster, able to hold an identity made while it runs
+    /// ([`Self::hold_added`]) with what `factory` supplies.
+    #[must_use]
+    pub fn adding(mut self, factory: AddFactory<B, A>) -> Self {
+        self.factory = Some(factory);
+        self
+    }
+
+    /// Hold `endpoint`, made while the roster runs -- by an add form's
+    /// Create, or found by a settle -- at once and with no restart, named
+    /// by `alias` until its card is read. Its client is built as a held
+    /// identity's is ([`TransportClient::new`], `without_status`, the
+    /// first's seed, the node's `PeerId` cell, no channel), so its
+    /// unadvertised assertion runs before its lease; its key is opened
+    /// under the factory's custody, and one that cannot be is leased as
+    /// any other with no key. It is held last, and the root takes it with
+    /// [`Self::take_held_more`]. The identity in front does not change.
+    ///
+    /// # Errors
+    /// [`HoldRefused`]: no factory, held already, named by a pending-add
+    /// record, the bound reached, or the store unread. Nothing is held.
+    pub fn hold_added(
+        &mut self,
+        endpoint: EndpointId,
+        alias: Option<String>,
+    ) -> Result<(), HoldRefused>
+    where
+        A: AssertingBinding,
+    {
+        if self.holds(&endpoint) {
+            return Err(HoldRefused::Held);
+        }
+        if self
+            .store
+            .pending_adds()
+            .map_err(HoldRefused::Store)?
+            .contains(&endpoint)
+        {
+            return Err(HoldRefused::Pending);
+        }
+        if self.held.len() + 1 > IDENTITY_CAP {
+            return Err(HoldRefused::OverBound);
+        }
+        let Some(factory) = self.factory.as_mut() else {
+            return Err(HoldRefused::NoFactory);
+        };
+        let mut endpoints = self.endpoints.clone();
+        if !endpoints.contains(&endpoint) {
+            endpoints.push(endpoint.clone());
+        }
+        let (binding, admin) = (factory.bindings)(&endpoint);
+        let wall = Arc::clone(&self.wall);
+        let client = TransportClient::new(
+            binding,
+            admin,
+            self.store.handle_speaking_as(endpoint.clone()),
+            ClientConfig {
+                client_kind: self.client_kind.clone(),
+                endpoints: endpoints.clone(),
+                channels: Vec::new(),
+                max_payload_bytes: self.max_payload_bytes,
+            },
+            Box::new(move || wall()),
+            0,
+        )
+        .map_err(HoldRefused::Store)?
+        .seeding(self.seed.clone())
+        .sharing_node_peer(self.node_peer.clone())
+        .without_status();
+        let wall = Arc::clone(&self.wall);
+        let mut side = FacadeSide::new(client, move || wall());
+        side.set_key_source(KeySource::new(
+            factory.paths.clone(),
+            endpoint.clone(),
+            Box::new(Arc::clone(&factory.cipher)),
+        ));
+        self.endpoints = endpoints;
+        if let Some(alias) = alias {
+            self.aliases.insert(endpoint.clone(), alias);
+        }
+        self.held.push(Held {
+            endpoint: endpoint.clone(),
+            side,
+        });
+        self.held_more.push(endpoint);
+        self.stale = true;
+        Ok(())
+    }
+
+    /// The identities held since this was last asked
+    /// ([`Self::hold_added`]), in the order held, each with its windowed
+    /// start ([`FacadeSide::start`]): what the root names to its model
+    /// side ([`crate::ModelSide::hold_more`]) and applies there.
+    pub fn take_held_more(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+        let added = std::mem::take(&mut self.held_more);
+        added
+            .into_iter()
+            .filter_map(|endpoint| {
+                let start = self.side_mut(&endpoint)?.start();
+                Some((endpoint, start))
+            })
+            .collect()
     }
 
     /// Why the last-front row could not be read at start, when it could

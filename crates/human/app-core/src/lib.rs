@@ -45,7 +45,9 @@ pub use profile::{
     identity_key_under, leasable_endpoints, resolve_identity,
 };
 pub use protocol::{Command, Crossing, Failure, Start, Update, WindowCommand};
-pub use roster::{Roster, RosterConfig, RosterError, Routed, SwitchOutcome};
+pub use roster::{
+    AddFactory, Bindings, HoldRefused, Roster, RosterConfig, RosterError, Routed, SwitchOutcome,
+};
 
 // ui-model does not depend on profile-config, so this is the one place
 // that can hold the two bounds equal: the model refuses a held list longer

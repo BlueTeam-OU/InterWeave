@@ -205,6 +205,48 @@ async fn a_read_behind_lands_in_its_model_and_a_switch_back_asks_no_second() {
     );
 }
 
+/// An identity held after the model side was named -- one made while the
+/// client runs -- is given a model of its own behind the front: an
+/// update for it lands there and draws nothing, the front's model is
+/// untouched, and it can be switched to. Before the model side is named,
+/// and for the identity in front, nothing is made. Mutation: `hold_more`
+/// making no model -- the update for it is not applied.
+#[tokio::test]
+async fn an_identity_held_later_gets_a_model_of_its_own() {
+    let from = peer();
+    let key = ConversationKey::Direct {
+        peer: from.clone(),
+        endpoint: Some(human()),
+    };
+    let (a, _b) = FakeNetwork::pair(node(), node());
+    let mut side = facade(&a, texts(&from, 3));
+    let mut model = ModelSide::new(
+        Drawn {
+            key,
+            shown: Vec::new(),
+        },
+        NoOpener,
+    );
+    assert!(!model.hold_more(&[second()]), "never named: nothing held");
+    assert!(model.model_of(&second()).is_none());
+    assert!(model.hold(&[human()], &human()));
+    assert!(model.apply_as(
+        &human(),
+        Update::Started(Box::new(side.start().expect("started")))
+    ));
+    let started = Update::Started(Box::new(side.start().expect("started")));
+    assert!(!model.apply_as(&second(), started.clone()), "not held yet");
+
+    assert!(model.hold_more(&[second(), human()]));
+    assert_eq!(model.front(), Some(&human()), "the front stays");
+    let renders = model.surface().shown.len();
+    assert!(model.apply_as(&second(), started), "held now");
+    assert_eq!(model.surface().shown.len(), renders, "nothing drawn");
+    assert!(model.model_of(&second()).is_some());
+    assert_eq!(switch(&mut model, &second()), [Crossing::Front(second())]);
+    assert_eq!(model.front(), Some(&second()));
+}
+
 /// A trust act made with the first identity in front is that identity's
 /// (ADR-0067 decision 6): its set gains the peer, while the second
 /// identity's and the operator's list do not; so the peer's direct to the

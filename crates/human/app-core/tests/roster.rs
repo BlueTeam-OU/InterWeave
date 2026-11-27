@@ -18,8 +18,8 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
 
 use interweave_human_app_core::{
-    Command, Crossing, FacadeSide, KeySource, Roster, RosterConfig, RosterError, SwitchOutcome,
-    Update,
+    AddFactory, Command, Crossing, FacadeSide, HoldRefused, KeySource, Roster, RosterConfig,
+    RosterError, SwitchOutcome, Update,
 };
 use interweave_human_client_api::{ClientEvent, Connectivity, SessionState};
 use interweave_human_store::identity_key::{self, FilesystemCustody};
@@ -1267,4 +1267,190 @@ async fn a_try_again_reopens_its_identity_alone_and_is_told_starting() {
             after_try_again: false
         }
     );
+}
+
+/// What holds an identity made while a roster runs, over the spy.
+fn factory(spy: &Spy, paths: &interweave_profile_config::ProfilePaths) -> AddFactory<Spy, Spy> {
+    let bindings = spy.clone();
+    AddFactory {
+        bindings: Box::new(move |_| (bindings.clone(), bindings.clone())),
+        admin: Arc::new(spy.clone()),
+        paths: paths.clone(),
+        cipher: Arc::new(FilesystemCustody),
+    }
+}
+
+/// An id a pending-add record names is no identity yet (ADR-0061
+/// decision 7): a roster built with it among the others does not hold
+/// it and opens no session for it, however many turns run, while the
+/// identity beside it is held and opens; and it is not held later
+/// either while the record names it. Mutations: the filter in
+/// `Roster::new` removed -- the spy sees its open; `hold_added`'s record
+/// check removed -- it is held.
+#[tokio::test]
+async fn an_id_a_pending_add_record_names_is_not_held_and_opens_no_session() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second(), third()]), node(&[human()]));
+    let spy = Spy::new(a);
+    let mut store = memory();
+    store.add_pending_add(&second()).expect("a record");
+    let (_dir, paths) = key_paths();
+    let mut roster =
+        build(&spy, store, config(vec![second(), third()], None)).adding(factory(&spy, &paths));
+    let held: Vec<EndpointId> = roster.held().cloned().collect();
+    assert_eq!(held, [human(), third()]);
+    let mut now = 0;
+    for _ in 0..4 {
+        roster.turn(now).await;
+        now += 60_000;
+    }
+    assert_eq!(spy.opens(), [human(), third()], "{:?}", spy.asked());
+    assert!(matches!(
+        roster.hold_added(second(), None),
+        Err(HoldRefused::Pending)
+    ));
+    roster.turn(now).await;
+    assert!(!spy.opens().contains(&second()), "{:?}", spy.asked());
+    assert!(roster.side(&second()).is_none());
+    let told = roster.held_if_changed().expect("told");
+    assert!(told.iter().all(|h| h.key.as_str() != second().as_str()));
+}
+
+/// An identity made while the roster runs is held at once, with no
+/// restart: once held it is asserted unadvertised on an `admin.endpoints`
+/// connection of its own and then leased, joins no channel, reaches
+/// ready, is told with its alias beside the others, and is handed to the
+/// root once with its windowed start; the identity in front stays.
+/// Mutations: `hold_added` building the client `for_command_line` -- no
+/// assertion before the open; its endpoint left out of the client's
+/// endpoints -- never opened; `held_more` not pushed -- no start handed
+/// over; `stale` not set -- the held list is not told.
+#[tokio::test]
+async fn an_identity_made_while_the_roster_runs_is_asserted_leased_and_told() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let node_a = a.clone();
+    let spy = Spy::new(a);
+    let (_dir, paths) = key_paths();
+    let mut roster = Roster::new(
+        RosterConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human()],
+            channels: vec![room()],
+            max_payload_bytes: 49_152,
+            others: Vec::new(),
+            default: None,
+            aliases: BTreeMap::new(),
+        },
+        memory(),
+        |_| (spy.clone(), spy.clone()),
+        wall,
+        0,
+    )
+    .expect("a roster")
+    .adding(factory(&spy, &paths));
+    for now in 0..3 {
+        roster.turn(now).await;
+    }
+    let _ = roster.held_if_changed();
+    assert!(roster.take_held_more().is_empty(), "none held later yet");
+    let before = spy.asked().len();
+
+    roster
+        .hold_added(second(), Some("work".to_owned()))
+        .expect("held");
+    assert_eq!(roster.front(), &human(), "the front does not change");
+    let more = roster.take_held_more();
+    assert_eq!(more.len(), 1);
+    assert_eq!(more[0].0, second());
+    assert!(more[0].1.is_ok(), "its windowed start");
+    assert!(roster.take_held_more().is_empty(), "handed over once");
+    let held = roster.held_if_changed().expect("told");
+    assert_eq!(told(&held, &second()).alias, "work");
+    assert!(!told(&held, &second()).is_first);
+
+    for now in 3..6 {
+        roster.turn(now).await;
+    }
+    let asked = spy.asked()[before..].to_vec();
+    let assert_at = asked
+        .iter()
+        .position(|a| matches!(a, Asked::Admin(c) if c.contains(&AdminCapability::Endpoints)))
+        .expect("asserted");
+    let open_at = asked
+        .iter()
+        .position(|a| a == &Asked::Open(second()))
+        .expect("leased");
+    assert!(assert_at < open_at, "asserted before its lease: {asked:?}");
+    assert!(
+        node_a.advertise_sets().contains(&(second(), false)),
+        "{:?}",
+        node_a.advertise_sets()
+    );
+    assert!(
+        !asked
+            .iter()
+            .any(|a| matches!(a, Asked::Join(e, _) if e == &second()))
+    );
+    assert!(matches!(
+        session(&roster, &second()),
+        SessionState::Ready { .. }
+    ));
+    assert_eq!(roster.front(), &human());
+    let held = roster.held_if_changed().expect("its session changed");
+    assert_eq!(told(&held, &second()).state, IdentityState::Ready);
+}
+
+/// A roster given no factory holds what it was built with and no more,
+/// and one with a factory holds no identity twice. Mutation: the
+/// `holds` check removed -- the second is held twice.
+#[tokio::test]
+async fn a_roster_given_no_factory_holds_no_more() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a);
+    let mut roster = build(&spy, memory(), config(Vec::new(), None));
+    assert!(matches!(
+        roster.hold_added(second(), None),
+        Err(HoldRefused::NoFactory)
+    ));
+    assert_eq!(roster.held().len(), 1);
+    assert!(roster.take_held_more().is_empty());
+    roster.turn(0).await;
+    assert_eq!(spy.opens(), [human()]);
+
+    let (_dir, paths) = key_paths();
+    let mut roster =
+        build(&spy, memory(), config(vec![second()], None)).adding(factory(&spy, &paths));
+    assert!(matches!(
+        roster.hold_added(second(), None),
+        Err(HoldRefused::Held)
+    ));
+    assert!(matches!(
+        roster.hold_added(human(), None),
+        Err(HoldRefused::Held)
+    ));
+    assert_eq!(roster.held().len(), 2);
+}
+
+/// The bound holds at runtime as at construction: a roster holding one
+/// less than `IDENTITY_CAP` holds one more, and one at the bound holds
+/// none. Mutation: the runtime check off by one (`> IDENTITY_CAP + 1`)
+/// -- one past the bound is held.
+#[test]
+fn the_bound_holds_at_runtime_too() {
+    let (a, _b) = FakeNetwork::pair(node(&[human()]), node(&[human()]));
+    let spy = Spy::new(a);
+    let (_dir, paths) = key_paths();
+    let others =
+        |n: usize| -> Vec<EndpointId> { (0..n).map(|i| endpoint_id(&format!("id-{i}"))).collect() };
+    let mut below =
+        build(&spy, memory(), config(others(IDENTITY_CAP - 2), None)).adding(factory(&spy, &paths));
+    below
+        .hold_added(endpoint_id("one-more"), None)
+        .expect("the last place");
+    assert_eq!(below.held().len(), IDENTITY_CAP);
+    assert!(matches!(
+        below.hold_added(endpoint_id("past"), None),
+        Err(HoldRefused::OverBound)
+    ));
+    assert_eq!(below.held().len(), IDENTITY_CAP);
+    assert_eq!(below.take_held_more().len(), 1);
 }
