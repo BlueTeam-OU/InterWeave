@@ -27,7 +27,10 @@
 //! model side applies an update naming an identity it does not hold to
 //! none (`an_update_reaches_the_model_of_the_identity_it_names`).
 
-use interweave_human_app_core::{Command, Crossing, Failure, ModelSide, Opener, Surface, Update};
+use interweave_human_app_core::{
+    AddAct, AddTold, CardSaved, Command, Crossing, Failure, ModelSide, Opener, Surface, Update,
+};
+use interweave_human_transport_client::AddOutcome;
 use interweave_human_ui_model::{ConnectPhase, HeldIdentity, HeldProblem, StartBusy};
 use interweave_transport_api::EndpointId;
 
@@ -37,6 +40,39 @@ use crate::hub::{Held, StoreAnswer, StoreGeneration, ToView, UnlockSaid};
 /// unshown until the view attaches again. A class, never content.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ListingFailed;
+
+/// How many add classes wait for [`ViewSide::take_add_classes`] at most;
+/// past it the oldest goes (`add_classes_wait_to_a_bound`).
+const ADD_CLASS_CAP: usize = 32;
+
+/// What came of an add act or a settle, as the platform log names it: its
+/// class, never the identity, its alias or anything its card says. The
+/// match has no wildcard, so an [`AddTold`] given a variant does not
+/// build until it is classed here, and no class is a format of the
+/// variant's fields (`add_classes_name_no_id_alias_or_card`).
+#[must_use]
+pub const fn add_class(told: &AddTold) -> &'static str {
+    match told {
+        AddTold::Offered => "create offered",
+        AddTold::WaitsSeed => "create waits for the first identity's seed",
+        AddTold::NoSeed => "the first identity's seed was not answered",
+        AddTold::OutOfBounds => "the card is outside a card's bounds",
+        AddTold::NotStarted => "create did not start",
+        AddTold::Ended { outcome, card } => match (outcome, card) {
+            (AddOutcome::Created { .. }, Some(CardSaved::Saved)) => "created, card saved",
+            (AddOutcome::Created { .. }, Some(CardSaved::NotSaved)) => "created, card not saved",
+            (AddOutcome::Created { .. }, None) => "created",
+            (AddOutcome::NotFinished, _) => "created, not finished",
+            (AddOutcome::Failed, _) => "refused, nothing created",
+            (AddOutcome::Unknown, _) => "outcome unknown",
+            (AddOutcome::Limit, _) => "refused at the limit",
+            (AddOutcome::KeyGone, _) => "the form's key is gone",
+        },
+        AddTold::Held(_) => "an identity is held from now on",
+        AddTold::NotHeld(_) => "an identity is not held yet, tried again",
+        AddTold::NotHeldUntilRestart(_) => "an identity is not held, not tried again until restart",
+    }
+}
 
 /// The model side a view attached to the hub drives.
 pub struct ViewSide<S: Surface, O: Opener> {
@@ -78,6 +114,10 @@ pub struct ViewSide<S: Surface, O: Opener> {
     /// `Refused`'s, for a start that compared with C4's `PeerId`
     /// ([`ToView::StartRefused`]), kept as `busy` is.
     refused: Option<StartBusy>,
+    /// What the add form's acts and the settles came to, as classes for
+    /// the platform log, until the root takes them
+    /// ([`Self::take_add_classes`]): no screen shows them yet.
+    add_classes: Vec<&'static str>,
 }
 
 impl<S: Surface, O: Opener> ViewSide<S, O> {
@@ -100,6 +140,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             kept: None,
             busy: None,
             refused: None,
+            add_classes: Vec::new(),
         }
     }
 
@@ -186,6 +227,25 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 self.side.hold(&held.held, &held.front);
                 self.held = Some(held);
             }
+            // Before the updates and the held list that name them: the
+            // facade sends them in that order. The held list the model
+            // side is made with again names them too.
+            ToView::HeldMore(more) => {
+                if let Some(held) = self.held.as_mut() {
+                    for identity in &more {
+                        if !held.held.contains(identity) {
+                            held.held.push(identity.clone());
+                        }
+                    }
+                }
+                self.side.hold_more(&more);
+            }
+            ToView::Add(told) => {
+                if self.add_classes.len() == ADD_CLASS_CAP {
+                    self.add_classes.remove(0);
+                }
+                self.add_classes.push(add_class(&told));
+            }
             ToView::Identities(identities) => {
                 if let Err(problem) = self.side.held_changed(&identities) {
                     self.held_refused = Some(problem);
@@ -247,6 +307,21 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             }
         }
         Ok(())
+    }
+
+    /// The classes of what the add form's acts and the settles came to
+    /// since the last call, in order, for the platform log.
+    pub fn take_add_classes(&mut self) -> Vec<&'static str> {
+        std::mem::take(&mut self.add_classes)
+    }
+
+    /// Hand what the person did with the add form or the list of
+    /// identities to the facade through `send` -- the hub's
+    /// [`add`](crate::Hub::add) -- in the order it was sent among the
+    /// commands and switches. False once nothing runs to take it
+    /// (`an_add_act_reaches_the_facade_in_the_order_sent_and_none_once_nothing_runs`).
+    pub fn add(&mut self, act: AddAct, send: impl FnOnce(AddAct) -> Result<(), AddAct>) -> bool {
+        send(act).is_ok()
     }
 
     /// The model the last stop set aside, shown again: the restart is
@@ -567,6 +642,102 @@ mod tests {
         side.apply(ToView::Update(me(), Box::new(Update::Received(arrival()))))
             .expect("applied");
         assert_eq!(model(&side).conversations().len(), 1, "applied");
+    }
+
+    /// An identity held while the service runs is given a model of its
+    /// own by `HeldMore`, before its first update, which then applies to
+    /// it and to no other; and a model made again is named with it too.
+    /// Mutations: `HeldMore` not reaching `ModelSide::hold_more` -- the
+    /// update is dropped and the first assert fails; `held` not grown --
+    /// the model made again lacks it and the last assert fails.
+    #[test]
+    fn an_identity_held_later_gets_a_model_before_its_first_update() {
+        let mut side = view_side();
+        side.apply(ToView::Running(true)).expect("applied");
+        assert!(side.side().model_of(&other()).is_none(), "not held yet");
+        side.apply(ToView::HeldMore(vec![other()]))
+            .expect("applied");
+        side.apply(ToView::Update(
+            other(),
+            Box::new(Update::Received(arrival())),
+        ))
+        .expect("applied");
+        let made = side.side().model_of(&other()).expect("a model of its own");
+        assert_eq!(made.conversations().len(), 1, "its update applied to it");
+        assert!(model(&side).conversations().is_empty(), "and to no other");
+        assert_eq!(side.side().front(), Some(&me()), "the front unchanged");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert!(
+            side.side().model_of(&other()).is_some(),
+            "a model made again names it"
+        );
+    }
+
+    /// What an add came to reaches the log as a class, in order, naming
+    /// no identity, alias or card; and what waits is bounded. Mutation:
+    /// no bound -- the length assert fails.
+    #[test]
+    fn add_classes_name_no_id_alias_or_card() {
+        use interweave_human_app_core::CardSaved;
+        use interweave_human_transport_client::AddOutcome;
+        let made = other();
+        let told = [
+            AddTold::Offered,
+            AddTold::Ended {
+                outcome: AddOutcome::Created {
+                    endpoint: made.clone(),
+                    alias: Some("zelinda".to_owned()),
+                },
+                card: Some(CardSaved::Saved),
+            },
+            AddTold::Held(made.clone()),
+            AddTold::NotHeld(made.clone()),
+            AddTold::NotHeldUntilRestart(made.clone()),
+        ];
+        let mut side = view_side();
+        for told in told.clone() {
+            side.apply(ToView::Add(told)).expect("applied");
+        }
+        let classes = side.take_add_classes();
+        assert_eq!(
+            classes,
+            [
+                "create offered",
+                "created, card saved",
+                "an identity is held from now on",
+                "an identity is not held yet, tried again",
+                "an identity is not held, not tried again until restart",
+            ]
+        );
+        for class in &classes {
+            assert!(!class.contains(made.as_str()), "{class}");
+            assert!(!class.contains("zelinda"), "{class}");
+        }
+        assert!(side.take_add_classes().is_empty(), "taken once");
+        for _ in 0..ADD_CLASS_CAP + 5 {
+            side.apply(ToView::Add(AddTold::NotStarted))
+                .expect("applied");
+        }
+        assert_eq!(side.take_add_classes().len(), ADD_CLASS_CAP, "bounded");
+    }
+
+    /// The add act goes to the hub as it was given, in order with the
+    /// commands, and the view side says false once no facade runs.
+    /// Mutation: `add` answering true whatever `send` answers -- the last
+    /// assert fails.
+    #[test]
+    fn an_add_act_goes_to_the_hub_and_is_refused_once_nothing_runs() {
+        let hub = crate::Hub::new();
+        let (commands, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let generation = hub.started(commands, held());
+        let mut side = view_side();
+        assert!(side.add(AddAct::Opened, |act| hub.add(act)));
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(crate::ToFacade::Add(AddAct::Opened))
+        );
+        hub.retire(generation);
+        assert!(!side.add(AddAct::Left, |act| hub.add(act)), "nothing runs");
     }
 
     /// Every model made again at a change of the running state is named
