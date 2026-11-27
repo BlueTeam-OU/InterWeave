@@ -671,3 +671,48 @@ Propagation: decision 7, both sentences; this note; the log row; the
 digest entry's pending-add bullet; `STATE.md` §Logical tables, the
 pending-add record. Neither the record nor the form is built
 (`STATE.md` §Logical tables), so no build did otherwise.
+
+### Amendment 2026-11-27 — An add answered `exists` is not a known refusal, and an add form's closing settles the records
+
+Two corrections to decision 7, both found by rust-ui-dev while planning
+the build of the add form against `main`, before any of it was written.
+
+**`exists`.** Decision 7 said that nothing was created "is known only
+from `refused` or `InvalidArgument`", and that a form left after a known
+refusal deletes its key file. `exists` is one of the add's refusals, and
+it is the one that says the opposite: the id is an authored entry's, or
+an added one's with another alias or other kinds (`LOCAL-IPC.md`
+§Method catalogue, `admin.endpoints.add`). Read as it stood, the text had
+a form delete the key of an endpoint an entry holds. The design of the
+form (`design/2026-11-04-identities.md` §6.2) already read `exists` the
+other way, and the decision now says so: the client reads the endpoint
+list; the id listed while its key file is there is the identity, the
+record deleted as for any id a list holds; anything else, a list that
+failed included, is an add that ended unknown, and the key and the
+record are kept for the settlement. This holds for a form's first add
+too. Every other reason of `refused` is checked with nothing written and
+names no entry holding the id, so those and `InvalidArgument` stay the
+known refusals, under the condition the decision already had: no earlier
+add of that key ended unknown.
+
+**The closing.** Decision 7 named three settlements: the client's start,
+the list of identities opening, and a write refused at the bound. The
+design ran the second "right after Back, which opens Your identities".
+A person who holds one identity is shown no list
+(`design/2026-10-21-contact-cards.md` §5.1), and their first form opens
+from the card editor, so after Back nothing opened and the record waited
+for the next start. The closing of an add form is now a settlement of
+its own, whether or not the list opens: by whichever way the person
+leaves the form, after the leaving's own deletions. The end of the
+client's process is no closing; its records wait for the start, as
+before. It is the same settlement as the other three and skips the
+record of a form still open.
+
+**Alternative named and not taken:** show the list to a person with one
+identity after a form is left. That changes what a person with one
+identity sees in order to give a record its moment.
+
+Propagation: decision 7, three sentences; this note; the log row; the
+digest entry's pending-add bullet; `STATE.md` §Logical tables, the
+pending-add record. As this note was written no client built the form
+or the record, so no build did otherwise.
