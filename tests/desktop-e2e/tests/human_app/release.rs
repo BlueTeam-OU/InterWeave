@@ -61,7 +61,7 @@ use crate::a11y::Bus;
 use crate::common::{Home, PATIENCE, example, human, stranger};
 use crate::display;
 use crate::harness::{
-    self as app, identity_set, lease_of, until_lease, until_lease_of, until_seeded,
+    self as app, identity_set, lease_of, trust_admin, until_lease, until_lease_of, until_seeded,
 };
 use crate::package::{self, Running};
 use crate::world::{app_store, envelope, wall_ms};
@@ -577,9 +577,9 @@ async fn identity_peers(
     endpoint: &EndpointId,
 ) -> (interweave_local_client_api::EndpointSetKind, Vec<String>) {
     use interweave_local_client_api::TrustDirection;
-    let binding = home.binding();
-    let inbound = identity_set(&binding, endpoint, TrustDirection::Inbound).await;
-    let outbound = identity_set(&binding, endpoint, TrustDirection::Outbound).await;
+    let admin = trust_admin(&home.binding()).await;
+    let inbound = identity_set(&admin, endpoint, TrustDirection::Inbound).await;
+    let outbound = identity_set(&admin, endpoint, TrustDirection::Outbound).await;
     let mut peers: Vec<String> = inbound
         .allowed
         .iter()

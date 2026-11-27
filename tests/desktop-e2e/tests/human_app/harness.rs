@@ -259,37 +259,62 @@ pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     until_lease_of(binding, &human(), held, app).await;
 }
 
-/// One direction of `endpoint`'s trust set as the daemon reports it, on
-/// an admin connection of this test's own (`admin.trust.list` with the
-/// endpoint): the identity's set, never the operator's list.
-pub(crate) async fn identity_set(
-    binding: &IpcBinding,
-    endpoint: &EndpointId,
-    direction: interweave_local_client_api::TrustDirection,
-) -> interweave_local_client_api::EndpointTrustView {
+/// An admin connection of this test's own holding `Trust`, for reading
+/// identities' sets with [`identity_set`]. A case opens one per wait or
+/// per read site and asks every read on it, as [`until_lease`] says.
+pub(crate) async fn trust_admin(binding: &IpcBinding) -> impl AdminPort + use<> {
     binding
         .admin([AdminCapability::Trust].into())
         .await
         .expect("an admin port")
-        .endpoint_trust(endpoint.clone(), direction)
+}
+
+/// One direction of `endpoint`'s trust set as the daemon reports it, on
+/// `admin` (`admin.trust.list` with the endpoint): the identity's set,
+/// never the operator's list.
+pub(crate) async fn identity_set(
+    admin: &impl AdminPort,
+    endpoint: &EndpointId,
+    direction: interweave_local_client_api::TrustDirection,
+) -> interweave_local_client_api::EndpointTrustView {
+    identity_set_on(admin, endpoint, direction)
         .await
         .expect("the identity's set")
+}
+
+async fn identity_set_on(
+    admin: &impl AdminPort,
+    endpoint: &EndpointId,
+    direction: interweave_local_client_api::TrustDirection,
+) -> Result<interweave_local_client_api::EndpointTrustView, TransportError> {
+    admin.endpoint_trust(endpoint.clone(), direction).await
 }
 
 /// Wait until `endpoint` holds its own set: the client's seed of the
 /// first identity answered. A window's first trust read follows its
 /// session's start, so a case that compares what the run wrote waits
-/// for it before it stops the window.
+/// for it before it stops the window. One admin port answers every
+/// turn, as [`until_lease`] says.
 pub(crate) async fn until_seeded(binding: &IpcBinding, endpoint: &EndpointId, app: &App) {
     let deadline = tokio::time::Instant::now() + PATIENCE;
-    while identity_set(
-        binding,
-        endpoint,
-        interweave_local_client_api::TrustDirection::Inbound,
-    )
-    .await
-    .set != interweave_local_client_api::EndpointSetKind::Own
-    {
+    let mut admin = None;
+    loop {
+        let port = match admin.take() {
+            Some(port) => port,
+            None => trust_admin(binding).await,
+        };
+        match identity_set_on(
+            &port,
+            endpoint,
+            interweave_local_client_api::TrustDirection::Inbound,
+        )
+        .await
+        {
+            Ok(view) if view.set == interweave_local_client_api::EndpointSetKind::Own => return,
+            Ok(_) => admin = Some(port),
+            Err(TransportError::BackendUnavailable | TransportError::ShuttingDown) => {}
+            Err(e) => panic!("the identity's set: {e:?}\n{}", app.log()),
+        }
         assert!(
             tokio::time::Instant::now() < deadline,
             "the first identity was never seeded: {}",
