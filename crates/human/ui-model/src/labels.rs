@@ -470,19 +470,22 @@ ui_texts! {
     /// The trust settings' heading.
     TrustHeading => "Trust",
     /// Under the heading: what the list decides, and that a change made
-    /// here lasts until it is changed again (ADR-0028 A 2026-10-07: the
-    /// daemon keeps it in its state). The person's state: about to add or
-    /// remove a peer; read once, so it may run to two sentences.
-    TrustExplanation => "Only the peers listed here can exchange messages with this profile. A change made here stays until you change it again.",
+    /// here lasts until it is changed again (ADR-0028 A 2026-11-22: the
+    /// daemon keeps the identity's set in its endpoint overlay). From the
+    /// Stage 22 release no "Only" and no claim about this profile: the
+    /// list is the identity's own, and another set may still admit a peer
+    /// it lacks (design/2026-11-04-identities.md §5.1, §16 Q9). The
+    /// person's state: about to add or remove a peer; read once, so it may
+    /// run to two sentences.
+    TrustExplanation => "The peers listed here can exchange messages with you. A change made here stays until you change it again.",
     /// The label of this profile's own `PeerId`, shown in full and
     /// selectable to copy.
     OwnPeerId => "This profile's PeerId, select to copy",
     /// The heading of the trusted peers' list.
     TrustedPeers => "Trusted peers",
-    /// Beside a listed peer that the profile's configuration lists: why it
-    /// is there.
-    TrustFromConfiguration => "From this profile's configuration",
-    /// Beside a listed peer that was added in these settings.
+    /// Beside an address on Peers that was added on this device
+    /// (design/2026-10-22-add-a-peer.md §5.2); never on a trust row
+    /// (design/2026-11-04-identities.md §5.1).
     TrustAddedHere => "Added here",
     /// Shown in place of the list while it is read.
     TrustReading => "Reading the list of trusted peers",
@@ -498,9 +501,11 @@ ui_texts! {
     /// whole: the person must be able to check every character.
     ConfirmAllow => "Trust {peer} for this profile? It will be able to exchange messages with this profile until you remove trust from it.",
     /// The confirmation of a removal. `{peer}` is the exact `PeerId`,
-    /// whole. The warning is human-client-ui.md section 8's: connections
-    /// close at once.
-    ConfirmRevoke => "Remove trust from {peer}? Its connections to this profile will close now, and it cannot exchange messages with this profile until it is trusted again.",
+    /// whole. From the Stage 22 release it states the route's refusal
+    /// alone: a peer another set still holds keeps its connection, so no
+    /// claim that connections close, nor about channels
+    /// (design/2026-11-04-identities.md §5.1, §16 Q9, Q10).
+    ConfirmRevoke => "Do you want to stop trusting {peer}? Messages that this peer sends to you are then refused, until you trust it again.",
     /// Carry out the change on show.
     ConfirmChange => "Confirm",
     /// Drop the change on show.

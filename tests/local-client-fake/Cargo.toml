@@ -26,3 +26,9 @@ interweave-local-client-api = { path = "../../crates/api/local-client-api" }
 # fake refuses exactly what the real bindings refuse by that name.
 interweave-profile-config = { path = "../../crates/config/profile-config" }
 interweave-transport-api = { path = "../../crates/api/transport-api" }
+
+[dev-dependencies]
+# Real derived endpoint ids for the unit tests' configuration.
+interweave-test-support = { path = "../support" }
+# Distinct peer ids by the thousand, to reach the admission bound.
+bs58 = { workspace = true }

@@ -331,13 +331,12 @@ export struct MessageRow {
     has-menu: bool,
 }
 
-// A trusted peer: its full PeerId, exact, where it comes from (the
-// profile's configuration, or added here), and a handle the press names it
-// by.
+// A trusted peer: its full PeerId, exact, and a handle the press names it
+// by. No origin: every row of an identity's set is its own
+// (design/2026-11-04-identities.md section 16 Q5).
 export struct TrustRow {
     handle: int,
     peer: string,
-    origin: string,
 }
 
 // One line of the Trust page's identity section on the unlock policy
@@ -6757,9 +6756,8 @@ export component AppWindow inherits Window {
                     spacing: 8px;
                     // The exact PeerId: whole, never shortened, so a person can
                     // check every character (human-client-ui.md section 8).
-                    // Where the row comes from goes UNDER the PeerId, never
-                    // beside it: the full PeerId already takes the width, and a
-                    // narrow window must still reach every row's control.
+                    // The full PeerId takes the width, and a narrow window
+                    // must still reach every row's control.
                     VerticalLayout {
                         horizontal-stretch: 1;
                         // The PeerId's focus ring clears the line under it.
@@ -6788,15 +6786,6 @@ export component AppWindow inherits Window {
                                 height: peer-box.height + 10px;
                                 shown: peer-input.has-focus;
                             }
-                        }
-                        Text {
-                            text: row.origin;
-                            color: Palette.on-surface-variant;
-                            // Wrapped: unwrapped, its whole width was the
-                            // column's minimum, which pushed Remove trust past
-                            // the window's edge in a wider font (CI's DejaVu).
-                            wrap: word-wrap;
-                            min-height: self.preferred-height;
                         }
                     }
                     // A text button in the error colour, at a 48 target, on

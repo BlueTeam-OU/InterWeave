@@ -701,6 +701,121 @@ async fn crossings_run_as_the_identity_they_name_whatever_is_in_front() {
     assert_eq!(roster.front(), &second());
 }
 
+/// Every held identity's trust connection asks the FIRST identity's seed
+/// before its read or write -- the second's, made with the second in
+/// front, included -- and never the second's: an added identity is given
+/// its own set at its add. The second's acts name the second.
+/// `first_seeded` is false until a seed is answered, then true.
+/// Mutation: `Roster::new` seeding each client with its own endpoint --
+/// the second is seeded.
+#[tokio::test]
+async fn every_identitys_trust_connection_seeds_the_first_alone() {
+    use interweave_local_client_api::TrustSeed;
+    use interweave_local_client_fake::FakeTrustCall;
+    let (a, b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a.clone());
+    let mut roster = build(&spy, memory(), config(vec![second()], None));
+    roster.turn(0).await;
+    assert!(matches!(
+        roster.set_front(&second()),
+        SwitchOutcome::Switched { .. }
+    ));
+    assert!(!roster.first_seeded(), "nothing asked yet");
+    roster
+        .execute(&second(), Command::ReadTrust, 1)
+        .await
+        .expect("held");
+    assert!(roster.first_seeded());
+    roster
+        .execute(
+            &second(),
+            Command::SetTrust(interweave_human_ui_model::TrustChange {
+                peer: b.peer().clone(),
+                allowed: false,
+            }),
+            2,
+        )
+        .await
+        .expect("held");
+    roster
+        .execute(&human(), Command::ReadTrust, 3)
+        .await
+        .expect("held");
+    assert_eq!(
+        a.seeds(),
+        vec![
+            (human(), TrustSeed::Seeded),
+            (human(), TrustSeed::Present),
+            (human(), TrustSeed::Present)
+        ]
+    );
+    let log = a.trust_log();
+    let ports: BTreeSet<u64> = log.iter().map(|(port, _)| *port).collect();
+    assert_eq!(ports.len(), 3, "{log:?}");
+    for port in ports {
+        let first = log.iter().find(|(on, _)| *on == port).map(|(_, c)| c);
+        assert_eq!(first, Some(&FakeTrustCall::Seed(human())), "{log:?}");
+    }
+    let named: Vec<EndpointId> =
+        log.iter()
+            .filter_map(|(_, call)| match call {
+                FakeTrustCall::EndpointRead(endpoint, _)
+                | FakeTrustCall::EndpointSet(endpoint, ..) => Some(endpoint.clone()),
+                _ => None,
+            })
+            .collect();
+    assert_eq!(
+        named,
+        [
+            second(),
+            second(),
+            second(),
+            second(),
+            second(),
+            human(),
+            human()
+        ],
+        "the second's read (2), set and read-back (3), then the first's read (2)"
+    );
+    assert_eq!(a.operator_trust_calls(), 0);
+}
+
+/// An added identity whose session open was refused still reads a trust
+/// list naming the node's peer as `local_peer` -- the first identity's
+/// session learned it, and every held client shares the cell -- so the
+/// trust page can tell the node's own `PeerId` from a peer
+/// (`EntryProblem::OwnIdentity` compares against `local_peer`). The
+/// refusal here is `EndpointInUse`; any refusal leaves the client with no
+/// session of its own, and `NotHidden` is told apart by the assertion
+/// binding, not by the trust path under test.
+/// Mutation: `Roster::new` not giving the added client the shared cell
+/// -- the list names no local peer.
+#[tokio::test]
+async fn a_refused_identity_reads_the_node_peer_from_its_sibling() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second()]), node(&[human()]));
+    let spy = Spy::new(a.clone());
+    spy.refuse_in_use(&second(), true);
+    let mut roster = build(&spy, memory(), config(vec![second()], None));
+    roster.turn(0).await;
+    assert!(matches!(
+        session(&roster, &second()),
+        SessionState::Refused { .. }
+    ));
+    let routed = roster
+        .execute(&second(), Command::ReadTrust, 1)
+        .await
+        .expect("held");
+    let list = routed
+        .iter()
+        .flat_map(|(_, updates)| updates)
+        .find_map(|update| match update {
+            Update::TrustRead(Ok(list)) => Some(list.clone()),
+            _ => None,
+        })
+        .expect("the trust list was read");
+    assert_eq!(list.local_peer.as_ref(), Some(a.peer()));
+}
+
 /// A roster holds at most `IDENTITY_CAP` identities, the first among
 /// them. Mutation: the bound check off by one (`> IDENTITY_CAP + 1`) --
 /// one more is built.
@@ -1037,6 +1152,46 @@ async fn the_held_identities_are_told_at_start_and_on_change_alone() {
         None,
         "a command that changed nothing"
     );
+}
+
+/// An added identity with an alias and no chosen name is held under its
+/// alias after its own card page was read: the page read makes the store
+/// write a card named by the identity's `EndpointId`, and that placeholder
+/// is no name (identities §6.1). A card with a chosen name still wins over
+/// the alias. Mutation: `chosen_card_name` returning every card's name --
+/// the added identity is named by its `EndpointId`.
+#[tokio::test]
+async fn an_added_identity_is_named_by_its_alias_after_its_card_page_was_read() {
+    let (a, _b) = FakeNetwork::pair(node(&[human(), second(), third()]), node(&[human()]));
+    let spy = Spy::new(a);
+    let mut store = memory();
+    card(&mut store, &third(), 10);
+    let mut config = config(vec![second(), third()], None);
+    config.aliases.insert(second(), "work".to_owned());
+    config.aliases.insert(third(), "home".to_owned());
+    let mut roster = build(&spy, store, config);
+    let (_dir, paths) = key_paths();
+    for e in [human(), second(), third()] {
+        roster
+            .side_mut(&e)
+            .expect("held")
+            .set_key_source(KeySource::new(
+                paths.clone(),
+                e.clone(),
+                Box::new(FilesystemCustody),
+            ));
+    }
+    for e in [second(), third()] {
+        let start = roster.side_mut(&e).expect("held").start().expect("start");
+        assert!(start.identity.is_some(), "the premise: the page was read");
+    }
+    roster.execute(&human(), Command::Reopen, 1).await;
+    let held = roster.held_if_changed().expect("told");
+    let work = told(&held, &second());
+    assert_eq!(work.name(), "work", "the alias, not the EndpointId");
+    assert_ne!(work.name(), second().as_str());
+    let home = told(&held, &third());
+    assert_eq!(home.name(), "x", "a chosen name wins over the alias");
 }
 
 /// Try again re-opens the identity it names and no other: refused, it

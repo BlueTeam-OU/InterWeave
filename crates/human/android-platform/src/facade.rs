@@ -345,6 +345,14 @@ impl FacadeLoop {
                                 .collect();
                             publish(states);
                         }
+                        // The held identities' rows, when the facade says
+                        // they changed since it last told them: before the
+                        // first wait, and then after each round of commands
+                        // and its turn, either of which may change them
+                        // (`the_view_is_told_the_identities_at_start_and_on_change_alone`).
+                        if let Some(identities) = facade.held_identities() {
+                            hub.identities(generation, identities);
+                        }
                         // A close is taken first when both are ready: what
                         // was accepted before it is carried out by the
                         // close's own drain below, never dropped.
@@ -382,10 +390,9 @@ impl FacadeLoop {
                         if closing_now {
                             break;
                         }
-                        if hub.turns_held() {
-                            continue;
+                        if !hub.turns_held() {
+                            publish(facade.turn(now()).await);
                         }
-                        publish(facade.turn(now()).await);
                     }
                     facade.close().await;
                 });
@@ -457,6 +464,7 @@ mod closing_tests {
     use crate::hub::{Held, Hub, ToFacade};
     use interweave_human_app_core::{Command, Facade, Routed, Start, SwitchOutcome, Update};
     use interweave_human_store::StoreError;
+    use interweave_human_ui_model::HeldIdentity;
     use interweave_transport_api::EndpointId;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
@@ -489,6 +497,12 @@ mod closing_tests {
         unwritable: bool,
         ran: Vec<(EndpointId, Command)>,
         fronted: Vec<EndpointId>,
+        /// The rows to tell at the next ask, as the roster's
+        /// `held_if_changed` answers: set at build and by a command that
+        /// changed them, taken by the ask.
+        rows: Option<Vec<HeldIdentity>>,
+        /// What a command changes the rows to.
+        after_command: Option<Vec<HeldIdentity>>,
     }
 
     impl Recorder {
@@ -500,6 +514,8 @@ mod closing_tests {
                 unwritable: false,
                 ran: Vec::new(),
                 fronted: Vec::new(),
+                rows: None,
+                after_command: None,
             }
         }
     }
@@ -524,6 +540,9 @@ mod closing_tests {
             _now: u64,
         ) -> impl Future<Output = Option<Routed>> {
             let answer = self.held.contains(identity).then(|| {
+                if let Some(rows) = self.after_command.take() {
+                    self.rows = Some(rows);
+                }
                 self.ran.push((identity.clone(), command.clone()));
                 vec![(identity.clone(), vec![Update::Done(command)])]
             });
@@ -548,6 +567,9 @@ mod closing_tests {
         }
         fn front_unread(&self) -> bool {
             self.unread
+        }
+        fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
+            self.rows.take()
         }
     }
 
@@ -607,6 +629,87 @@ mod closing_tests {
             assert_eq!(notes, expected, "said at spawn (unread: {unread})");
             let _ = facade.close(std::time::Duration::from_secs(5));
         }
+    }
+
+    /// Rows for the identities `names`, the first first.
+    fn rows(names: &[&str]) -> Vec<HeldIdentity> {
+        names
+            .iter()
+            .enumerate()
+            .map(|(i, name)| HeldIdentity {
+                key: interweave_human_ui_model::IdentityKey::new(*name),
+                card_name: None,
+                alias: (*name).to_owned(),
+                state: interweave_human_ui_model::IdentityState::Ready,
+                is_first: i == 0,
+                is_default: false,
+                unread: 0,
+                not_sent: false,
+            })
+            .collect()
+    }
+
+    /// The facade tells the view the held identities' rows at its start
+    /// and after a command that changed them, and on no turn that changed
+    /// nothing: only what `held_identities` answers is told. Mutations:
+    /// the loop's ask dropped -- no rows are told; every turn telling a
+    /// list whether or not the facade answered one -- more than two lists
+    /// are told.
+    #[test]
+    fn the_view_is_told_the_identities_at_start_and_on_change_alone() {
+        // A worker of its own drives the poll's timer, as the Service's
+        // executors do: the turns that change nothing then run.
+        let executor = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_time()
+            .build()
+            .expect("a runtime");
+        let hub = Arc::new(Hub::new());
+        let mut link = hub.attach(Arc::new(|| {}));
+        let facade = FacadeLoop::spawn(
+            executor.handle().clone(),
+            move || {
+                let mut recorder = Recorder::new(vec![me(), other()], me());
+                recorder.rows = Some(rows(&["a", "b"]));
+                recorder.after_command = Some(rows(&["a", "b", "c"]));
+                Ok(recorder)
+            },
+            &hub,
+            |_| {},
+        )
+        .expect("spawned");
+        let told = |link: &mut crate::hub::ViewLink, told: &mut Vec<Vec<HeldIdentity>>| {
+            for message in link.take() {
+                if let crate::hub::ToView::Identities(rows) = message {
+                    told.push(rows);
+                }
+            }
+        };
+        let mut seen = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while seen.is_empty() {
+            assert!(std::time::Instant::now() < deadline, "told at start");
+            told(&mut link, &mut seen);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(seen, [rows(&["a", "b"])], "at start");
+        // Several polls' turns, none changing anything.
+        std::thread::sleep(super::POLL * 4);
+        told(&mut link, &mut seen);
+        assert_eq!(seen.len(), 1, "no turn that changed nothing tells");
+        assert_eq!(hub.command(None, Command::Reopen), Ok(()));
+        while seen.len() < 2 {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "told after the change"
+            );
+            told(&mut link, &mut seen);
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        std::thread::sleep(super::POLL * 3);
+        told(&mut link, &mut seen);
+        assert_eq!(seen, [rows(&["a", "b"]), rows(&["a", "b", "c"])]);
+        let _ = facade.close(std::time::Duration::from_secs(5));
     }
 
     fn run<T>(future: impl std::future::Future<Output = T>) -> T {

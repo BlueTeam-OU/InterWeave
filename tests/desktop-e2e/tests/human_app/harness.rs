@@ -259,6 +259,46 @@ pub(crate) async fn until_lease(binding: &IpcBinding, held: bool, app: &App) {
     until_lease_of(binding, &human(), held, app).await;
 }
 
+/// One direction of `endpoint`'s trust set as the daemon reports it, on
+/// an admin connection of this test's own (`admin.trust.list` with the
+/// endpoint): the identity's set, never the operator's list.
+pub(crate) async fn identity_set(
+    binding: &IpcBinding,
+    endpoint: &EndpointId,
+    direction: interweave_local_client_api::TrustDirection,
+) -> interweave_local_client_api::EndpointTrustView {
+    binding
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("an admin port")
+        .endpoint_trust(endpoint.clone(), direction)
+        .await
+        .expect("the identity's set")
+}
+
+/// Wait until `endpoint` holds its own set: the client's seed of the
+/// first identity answered. A window's first trust read follows its
+/// session's start, so a case that compares what the run wrote waits
+/// for it before it stops the window.
+pub(crate) async fn until_seeded(binding: &IpcBinding, endpoint: &EndpointId, app: &App) {
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    while identity_set(
+        binding,
+        endpoint,
+        interweave_local_client_api::TrustDirection::Inbound,
+    )
+    .await
+    .set != interweave_local_client_api::EndpointSetKind::Own
+    {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the first identity was never seeded: {}",
+            app.log()
+        );
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
+}
+
 /// [`until_lease`] on `endpoint`'s lease.
 pub(crate) async fn until_lease_of(
     binding: &IpcBinding,

@@ -355,7 +355,7 @@ if drun; then
         && grep -qx "$(printf '%s\n' "$MITBODY" | head -1 | sed 's|^// ||')" "$N" \
         && pass "a full notice in the root module's header ships as the header" \
         || fail "the header notice is missing" "$(cat "$N")"
-    grep -F 'Used by ' "$N" | grep -F 'deep 1.0.0 (header of src/inner/mod.rs)' | grep -qF 'hdr 1.0.0 (header of src/lib.rs)' \
+    grep -qF 'hdr 1.0.0 (header of src/lib.rs)' <<<"$(grep -F 'Used by ' "$N" | grep -F 'deep 1.0.0 (header of src/inner/mod.rs)')" \
         && pass "a header found in another source file is the same notice, named by its file" \
         || fail "the header of a nested source file was not found" "$(grep -n 'Used by' "$N")"
     grep -qF -- '- `hdrtext` 1.0.0: MIT OR Apache-2.0 (derived: header+text) — text T' "$N" \
@@ -386,7 +386,7 @@ if drun; then
         && pass "every distinct header of the compiled files ships, the root module's first; tests/ is not read" \
         || fail "a crate's several headers did not ship as decision 2.ii says" "$(grep -n 'core\|Holder\|Test Writer' "$N")"
     grep -qF 'Used by zbsd 1.0.0 (header of src/z.rs).' "$N" \
-        && grep -F 'Used by ' "$N" | grep -qF 'zbsd 1.0.0 (standard BSD-3-Clause text)' \
+        && grep -qF 'zbsd 1.0.0 (standard BSD-3-Clause text)' <<<"$(grep -F 'Used by ' "$N")" \
         && ! grep -qF '<year> <owner>' "$N" \
         && pass "a second holder's header naming BSD ships with the BSD text, no placeholder line" \
         || fail "the BSD-style header did not bring its text" "$(grep -n 'zbsd' "$N")"
@@ -398,7 +398,7 @@ if drun; then
         && pass "an OR is satisfied by the term whose whole text a header carries, first or not" \
         || fail "an Apache-first crate with a whole MIT header was not a header case" "$(grep -n apfirst "$N")"
     grep -qF 'Used by apx 1.0.0 (header of src/other.rs).' "$N" \
-        && grep -F 'Used by ' "$N" | grep -qF 'apx 1.0.0 (standard Apache-2.0 text)' \
+        && grep -qF 'apx 1.0.0 (standard Apache-2.0 text)' <<<"$(grep -F 'Used by ' "$N")" \
         && pass "a second holder's header naming the crate's other term brings that term's text" \
         || fail "the second holder's Apache text did not ship" "$(grep -n apx "$N")"
     grep -qF -- '- `trunc` 1.0.0: MIT (derived: header+text)' "$N" \
@@ -406,8 +406,8 @@ if drun; then
         && grep -qx 'SPDX-FileCopyrightText: 2024 Jane Doe' "$N" \
         && pass "a truncated MIT notice and a REUSE header each ship with the MIT text" \
         || fail "a truncated or REUSE header was not shipped with its text" "$(grep -n 'trunc\|reusehdr\|Jane' "$N")"
-    grep -F 'Used by ' "$N" | grep -qF 'cased 1.0.0 (standard Apache-2.0 text)' \
-        && grep -F 'Used by ' "$N" | grep -qF 'cased 1.0.0 (standard CC0-1.0 text)' \
+    grep -qF 'cased 1.0.0 (standard Apache-2.0 text)' <<<"$(grep -F 'Used by ' "$N")" \
+        && grep -qF 'cased 1.0.0 (standard CC0-1.0 text)' <<<"$(grep -F 'Used by ' "$N")" \
         && pass "a licence named in another spelling or case brings its text" \
         || fail "a differently written licence name did not bring its text" "$(grep -n cased "$N")"
     grep -qF -- '- `apwhole` 1.0.0: Apache-2.0 OR MIT (derived: header)' "$N" \

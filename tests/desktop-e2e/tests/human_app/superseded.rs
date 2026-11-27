@@ -73,7 +73,7 @@ use std::time::{Duration, Instant};
 use interweave_human_app_core::{Command, FacadeSide, ModelSide, Opener, Surface, Update};
 use interweave_human_store::{HumanStore, StoreOptions};
 use interweave_human_transport_client::{
-    AddressOrigin, ClientConfig, TransportClient, TrustProblem,
+    AddressOrigin, ClientConfig, FirstSeed, TransportClient, TrustProblem,
 };
 use interweave_human_ui_model::{
     AddNote, AddResult, BlockHeld, BlockProblem, BlockState, BlockView, Peers, PeersFocus,
@@ -82,8 +82,8 @@ use interweave_human_ui_model::{
 use interweave_ipc_client::IpcBinding;
 use interweave_local_client_api::{
     AddressChange, AddressesChange, AdminBinding, AdminCapability, AdminPort, AdminStatus,
-    BootstrapAddress, EndpointAdminView, Generation, LocalAdminPort, OwnAddresses, PeerGateView,
-    TrustAdminView, TrustChange,
+    BootstrapAddress, EndpointAdminView, EndpointTrustView, Generation, LocalAdminPort,
+    OwnAddresses, PeerGateView, TrustAdminView, TrustChange, TrustDirection, TrustSeed,
 };
 use interweave_transport_api::{EndpointId, MAX_PAYLOAD_BYTES, TransportError, TransportIdentity};
 use tokio::sync::oneshot;
@@ -293,6 +293,39 @@ impl<P: AdminPort + Sync> AdminPort for HeldPort<P> {
         heard(self.port.set_trust(peer, allowed).await, lost)
     }
 
+    async fn endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        direction: TrustDirection,
+    ) -> Result<EndpointTrustView, TransportError> {
+        if self.hold.read_fails() {
+            return Err(TransportError::BackendUnavailable);
+        }
+        self.port.endpoint_trust(endpoint, direction).await
+    }
+
+    async fn set_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+        peer: TransportIdentity,
+        allowed: bool,
+    ) -> Result<TrustChange, TransportError> {
+        let lost = self.hold.wait("admin.trust.set").await;
+        heard(
+            self.port.set_endpoint_trust(endpoint, peer, allowed).await,
+            lost,
+        )
+    }
+
+    /// Never held: the seed comes before the change on its connection,
+    /// and orders no write (`LOCAL-IPC.md`).
+    fn seed_endpoint_trust(
+        &self,
+        endpoint: EndpointId,
+    ) -> impl Future<Output = Result<TrustSeed, TransportError>> + Send {
+        self.port.seed_endpoint_trust(endpoint)
+    }
+
     fn shutdown(&self, grace: Duration) -> impl Future<Output = Result<(), TransportError>> + Send {
         self.port.shutdown(grace)
     }
@@ -411,7 +444,10 @@ impl App {
             Box::new(wall_ms),
             0,
         )
-        .expect("an empty store's pending rows");
+        .expect("an empty store's pending rows")
+        // As the window composes it: the first identity seeded on each
+        // trust connection.
+        .seeding(FirstSeed::new(human()));
         let mut facade = FacadeSide::new(client, wall_ms);
         let person = Scripted::default();
         let mut model = ModelSide::new(person.clone(), Nothing);
@@ -850,7 +886,11 @@ async fn a_step_two_trust_held_while_transportctl_revokes_reads_trust_step_super
 
     let commands = app
         .held_while(PeersInput::Trust(peer.clone()), || {
-            transportctl_ok(&world.a, &["trust", "revoke", peer.as_str()], "");
+            transportctl_ok(
+                &world.a,
+                &["trust", "revoke", "--endpoint", "human", peer.as_str()],
+                "",
+            );
         })
         .await;
 
@@ -881,7 +921,7 @@ async fn a_step_two_trust_held_while_transportctl_revokes_reads_trust_step_super
         1,
         "the trust set read once: {commands:?}"
     );
-    let trusted = transportctl_ok(&world.a, &["trust", "list"], "");
+    let trusted = transportctl_ok(&world.a, &["trust", "list", "--endpoint", "human"], "");
     assert!(
         !trusted.contains(peer.as_str()),
         "the peer is not in transportctl's trust list"
@@ -901,7 +941,11 @@ async fn a_step_two_trust_held_while_transportctl_allows_reads_trust_step_done()
 
     let commands = app
         .held_while(PeersInput::Trust(peer.clone()), || {
-            transportctl_ok(&world.a, &["trust", "allow", peer.as_str()], "");
+            transportctl_ok(
+                &world.a,
+                &["trust", "allow", "--endpoint", "human", peer.as_str()],
+                "",
+            );
         })
         .await;
     assert!(
@@ -1046,7 +1090,11 @@ async fn a_superseded_trust_whose_read_back_fails_reads_superseded_unread() {
 
     let commands = app
         .held_with(PeersInput::Trust(peer.clone()), READ_FAILS, || {
-            transportctl_ok(&world.a, &["trust", "revoke", peer.as_str()], "");
+            transportctl_ok(
+                &world.a,
+                &["trust", "revoke", "--endpoint", "human", peer.as_str()],
+                "",
+            );
         })
         .await;
     assert!(
@@ -1165,7 +1213,11 @@ async fn superseded_unread(world: &World, app: &mut App, peer: &TransportIdentit
     app.act(PeersInput::Add).await;
     let _ = app
         .held_with(PeersInput::Trust(peer.clone()), READ_FAILS, || {
-            transportctl_ok(&world.a, &["trust", "revoke", peer.as_str()], "");
+            transportctl_ok(
+                &world.a,
+                &["trust", "revoke", "--endpoint", "human", peer.as_str()],
+                "",
+            );
         })
         .await;
     assert_eq!(
@@ -1222,7 +1274,11 @@ async fn a_superseded_unread_trust_decided_by_a_later_read(allowed: bool) {
     assert_eq!(asked.0, Some(PeersFocus::BlockProblem(peer.clone())));
 
     if allowed {
-        transportctl_ok(&world.a, &["trust", "allow", peer.as_str()], "");
+        transportctl_ok(
+            &world.a,
+            &["trust", "allow", "--endpoint", "human", peer.as_str()],
+            "",
+        );
     }
     let from = app.commands.len();
     app.person

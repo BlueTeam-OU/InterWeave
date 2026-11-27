@@ -189,16 +189,20 @@ pub(crate) const fn classify_assertion(error: TransportError) -> OpenFailure {
 }
 
 /// Classify a trust read's or change's failure (`human-client-ui.md` §8).
-/// `InvalidArgument` is the port's refusal of this profile's own identity
-/// or of a new peer past the allowlist's ceiling (`LOCAL-CLIENT.md` §7
-/// item 11), a refusal the person can act on. A daemon that does not speak
-/// the version trust needs -- one negotiating IPC below 2.3, whose trust
-/// read `ipc-client` refuses `ProtocolUnsupported`, or one with no common
-/// major (`VersionIncompatible`) -- is `Incompatible`: the person is told
-/// the cause, which no retry mends. `ProtocolViolation` is not: a framing
+/// `InvalidArgument` is the port's refusal of this profile's own identity,
+/// of a new peer past the allowlist's ceiling (`LOCAL-CLIENT.md` §7 item
+/// 11), or of a write past the identities' sets' row bound
+/// (`LOCAL-IPC.md`, the endpoint dimension), a refusal the person can act
+/// on. A daemon that does not speak the version trust needs -- one that
+/// does not serve the endpoint dimension (below IPC 3.0), answered
+/// `ProtocolUnsupported`, or one with no common major
+/// (`VersionIncompatible`) -- is `Incompatible`: the person is told the
+/// cause, which no retry mends. `ProtocolViolation` is not: a framing
 /// error or a reused request id raises it within one release too
 /// (`LOCAL-IPC.md` §Close), so it would name a version gap that may not be
-/// there.
+/// there. `EndpointUnknown` -- an identity no entry of the daemon holds --
+/// is `Internal`, as is `ipc-client`'s refusal of a page without its
+/// `set` (`an_unknown_endpoint_or_a_page_without_its_set_is_internal`).
 pub(crate) const fn classify_trust(error: TransportError) -> TrustProblem {
     match error {
         TransportError::BackendUnavailable

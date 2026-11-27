@@ -170,7 +170,7 @@ for f in "${ADR_FILES[@]}"; do
     case "$first" in
         *ADR-[0-9]*) report "$f: title re-states its own number — the number is the filename" ;;
     esac
-    head -6 "$path" | grep -q '^\*\*Status:\*\*' \
+    grep -q '^\*\*Status:\*\*' <<<"$(head -6 "$path")" \
         || report "$f: no '**Status:**' line in the opening lines"
 
     last_pos=0

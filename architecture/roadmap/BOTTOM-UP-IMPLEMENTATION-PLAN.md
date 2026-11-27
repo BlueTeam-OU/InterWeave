@@ -8626,6 +8626,108 @@ no loss of what the others hold. Whether the limit rises, or a session
 comes to carry several leases, is a decision for the first report of a
 person who meets it, on the embedded runtime as on the daemon.
 
+**2026-11-26 (iii), the first identity's seed is asked at each trust
+connection, and the Add gate is each client's own.** Ruled for
+rust-ui-dev-02 (their QUESTION 01a218c8-1a2e; architect-cto's REPLY
+01a218c9-d4f6), read at their branch head 87b40c19a, which builds
+trust per identity as a change of its own before the add form, as the
+third bullet of the note of 2026-11-25 allows ("before Add or with
+it").
+
+- **When the seed is asked.** On every administrative connection a
+  human client opens for a trust act, before that connection's first
+  read or write, whichever held identity the act is made as, and for
+  the authored first identity alone. It is not tied to the app's
+  start: the seed is an administrative call, and at a desktop start
+  the daemon may be down or the administrative socket absent, so a
+  seed asked there and nowhere else is one a run can miss with nothing
+  to ask it again. `admin.trust.seed` is safe to repeat and answers
+  `present` with nothing written once the set is there (`LOCAL-IPC.md`,
+  "The endpoint dimension"), so the copy is still made once and
+  "a later run seeds nothing" (`human-client-ui.md` §13) holds as
+  written. Where ADR-0067 decision 6, ADR-0028 and `ENDPOINTS.md` say
+  "at the client's first run", that is the run in which a seed is
+  first answered; `LOCAL-IPC.md` and §13 say from this note when it is
+  asked. An added identity is given its own empty set at its add and
+  is never seeded.
+- **A failed seed draws no state.** A seed that is refused or not
+  answered is dropped by the client, which shows nothing for it: the
+  read or write that follows on the same connection names the
+  identity's endpoint and says what failed, if anything did. A write
+  before any seed was answered is allowed, since the daemon's first
+  write for an endpoint with no set copies what the endpoint admitted
+  before it applies the change (`LOCAL-IPC.md`, "The first write
+  creates the set from what the endpoint admitted"), so the person
+  loses no counterparty by it. Whether a seed was answered, `seeded`
+  or `present`, is kept for the process run and in memory alone; a
+  new run asks again.
+- **The gate on Add is per client.** The third bullet of the note of
+  2026-11-25 reads "every trust act of that client": the control that
+  creates a second identity becomes reachable in a client when that
+  client's every trust act carries the endpoint of the identity in
+  front, and, in the run, once a seed was answered `seeded` or
+  `present`. The desktop's Add does not wait for Android's, nor the
+  command line's for either. A run in which no seed was answered
+  offers no Create (2026-11-27, below; as first written, "offers no
+  Add"); what the person reads there is the add form's design to
+  say, and no state is drawn for the seed itself.
+- **What the branch holds at that head, and what it does not.** No
+  call without an endpoint remains on a human client's trust path, on
+  the desktop and from the command line, which share the facade that
+  `no_trust_call_reads_or_writes_the_operators_list` pins. The seed sits in the shared crates, so the
+  phone's trust acts move with them; the test that pins it on the
+  embedded host is rust-ui-dev-01's supply, asked by rust-ui-dev-02,
+  and Android's half of §13's seed criterion is not met before it.
+  No control reads the gate yet: it is the add form's change that
+  does. Not ruled: an added entry written by hand with no set in the
+  overlay. The first write's copy applies to it as to any endpoint;
+  no client seeds it.
+
+**2026-11-27, the add form: four rulings before it is built, and what
+is owed with it.** Ruled for rust-ui-dev-02 (their QUESTION
+01a21bb9-de87; architect-cto's REPLY 01a21bbc-0911) and for
+ux-designer-01 (their QUESTION 01a21bc5-586d; REPLY 01a21bc6-1ba2),
+read at `main` 2c0e5d9b4, where no program under `crates/human` or
+`apps` called the administrative add or remove.
+
+- **The gated control is Create.** The note of 2026-11-26 (iii) gates
+  "the control that creates a second identity". The form that creates
+  one may open in a run where no seed was answered; it offers no
+  Create there, and before a seed is answered in the run it generates
+  no key pair, writes no pending-add record and sends no add. The
+  form may ask the seed itself, on an administrative connection of its
+  own, at its opening and when the person asks again
+  (`LOCAL-IPC.md`, `admin.trust.seed`, A 2026-11-27); no timer is set
+  and none is forbidden.
+- **`exists`, and the closing.** ADR-0061 decision 7, A 2026-11-27: an
+  add answered `exists` is read back from the endpoint list and is no
+  known refusal; an add form's closing settles the pending-add
+  records, whether or not the list of identities opens.
+- **The command-line client and an id a record names.** A data verb
+  refuses an id a pending-add record names before it opens any
+  socket: decision 7 has the client open no data session and hold no
+  lease for such an id. The identity verbs, which take no lease and
+  write no store row, are unchanged. A limit carried by name:
+  `identities default` naming such an id makes the discard's remove
+  answer `default`, and the record is kept and settled again until
+  the person moves the default.
+- **Owed before this stage closes and before any release from a tree
+  where a client offers Create: Remove, in each client that offers
+  it.** The form lands before Remove is built, in two changes of
+  rust-ui-dev-02's: the record and its engine, which a person
+  reaches nothing of, then the screens. From the second, an identity
+  a person made is one no shipped program removes. `main` is no
+  release, and the Stage 22 release is not tagged without Remove.
+  The second change builds, with the form, the page of an identity
+  that is not in front (`design/2026-11-04-identities.md` §6.2,
+  step 4: a new identity's row always opens a page), without its
+  Remove. Carried by name past the second change: the command-line
+  client's create verb, and Android's Add.
+- **Not built as this note is written:** the form, the record, the
+  refusal of a named id and `human-client-ui.md` §13's criteria for
+  the unknown outcome and the record, which rust-ui-dev-02 proposes
+  with the first change.
+
 ### Record
 
 The closing record lands here when the owner closes the stage.

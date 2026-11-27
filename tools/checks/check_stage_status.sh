@@ -177,7 +177,7 @@ fi
 # is the one that went wrong last time: the value was updated and the
 # comment three lines above it was not.
 before="$(grep -B8 '^status = "' "$MANIFEST" || true)"
-if printf '%s' "$before" | grep -Eqi "stage [0-9]+ of the canonical plan"; then
+if grep -Eqi "stage [0-9]+ of the canonical plan" <<<"$before"; then
   named="$(printf '%s' "$before" | grep -Eoi "stage [0-9]+ of the canonical plan" | head -1)"
   report "Cargo.toml: the comment above 'status' says \"$named\" while the field says $STATUS"
 fi

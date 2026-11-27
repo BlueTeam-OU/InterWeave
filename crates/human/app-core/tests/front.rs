@@ -204,3 +204,117 @@ async fn a_read_behind_lands_in_its_model_and_a_switch_back_asks_no_second() {
         "shown at the first render in front"
     );
 }
+
+/// A trust act made with the first identity in front is that identity's
+/// (ADR-0067 decision 6): its set gains the peer, while the second
+/// identity's and the operator's list do not; so the peer's direct to the
+/// first is delivered and its direct to the second refused. Mutation:
+/// the facade side's `SetTrust` calling the endpoint-less `set_trust`
+/// -- the peer lands in the operator's list, which the second inherits.
+#[tokio::test]
+async fn trusting_in_front_of_a_lists_the_peer_under_a_alone() {
+    use interweave_human_app_core::{Roster, RosterConfig};
+    use interweave_local_client_api::{
+        AdminBinding as _, AdminCapability, AdminPort as _, DataCapability,
+        DataSessionBinding as _, DataSessionPort as _, SessionRequest, TrustChange as Change,
+    };
+    use interweave_transport_api::{DirectDestination, MessageId, Payload, TransportError};
+    let (a, b) = FakeNetwork::pair(
+        FakeConfig {
+            endpoints: vec![
+                FakeEndpoint::open(human(), false),
+                FakeEndpoint::open(second(), false),
+            ],
+            ..node()
+        },
+        node(),
+    );
+    // The peer starts untrusted: the operator's list let go of it.
+    let operator = a
+        .admin([AdminCapability::Trust].into())
+        .await
+        .expect("a port");
+    assert_eq!(
+        operator.set_trust(b.peer().clone(), false).await,
+        Ok(Change::Set)
+    );
+    let store = HumanStore::open_in_memory(&human(), StoreOptions::default()).expect("store");
+    let mut roster = Roster::new(
+        RosterConfig {
+            client_kind: "human-client".to_owned(),
+            endpoints: vec![human(), second()],
+            channels: Vec::new(),
+            max_payload_bytes: 49_152,
+            others: vec![second()],
+            default: None,
+            aliases: std::collections::BTreeMap::new(),
+        },
+        store,
+        |_| (a.clone(), a.clone()),
+        || WALL,
+        0,
+    )
+    .expect("a roster");
+    roster.turn(0).await;
+    assert_eq!(roster.front(), &human());
+    let routed = roster
+        .execute(
+            &human(),
+            Command::SetTrust(interweave_human_ui_model::TrustChange {
+                peer: b.peer().clone(),
+                allowed: true,
+            }),
+            1,
+        )
+        .await
+        .expect("held");
+    let answer = routed[0].1.iter().find_map(|update| match update {
+        Update::TrustSet { answer, .. } => Some(answer.clone()),
+        _ => None,
+    });
+    assert!(
+        matches!(&answer, Some(Ok(list)) if list.allows(b.peer())),
+        "{answer:?}"
+    );
+    let routed = roster
+        .execute(&second(), Command::ReadTrust, 2)
+        .await
+        .expect("held");
+    let read = routed[0].1.iter().find_map(|update| match update {
+        Update::TrustRead(read) => Some(read.clone()),
+        _ => None,
+    });
+    assert!(
+        matches!(&read, Some(Ok(list)) if !list.allows(b.peer())),
+        "the second identity's set does not gain it: {read:?}"
+    );
+    assert!(a.operator_list().is_empty(), "nor the operator's list");
+
+    let from = b
+        .open(
+            SessionRequest::new(
+                "raw",
+                Some(human()),
+                [DataCapability::Commands, DataCapability::Events],
+            )
+            .expect("bounds"),
+        )
+        .await
+        .expect("leases");
+    let send = |to: EndpointId, n: u8| {
+        from.send_direct(
+            DirectDestination {
+                peer: a.peer().clone(),
+                endpoint: Some(to),
+            },
+            MessageId::from_bytes([n; 16]),
+            Payload::at_ceiling(None, b"x".to_vec()).expect("bounds"),
+        )
+    };
+    assert_eq!(send(human(), 1).await, Ok(human()), "to the first");
+    assert_eq!(
+        send(second(), 2).await,
+        Err(TransportError::RemoteEndpointUnavailable),
+        "to the second"
+    );
+}

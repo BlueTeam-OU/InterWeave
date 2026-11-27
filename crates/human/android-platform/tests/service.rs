@@ -1890,8 +1890,8 @@ fn a_start_without_network_finishes_m3_beside_one_sealed_key() {
     );
 }
 
-/// The Service holds a roster of the first identity alone (plan section
-/// 30, the note of 2026-11-25), which behaves as `main`'s lone facade
+/// With no endpoint overlay the Service holds a roster of the first
+/// identity alone (plan section 30 step 3), which behaves as `main`'s lone facade
 /// did: a command naming no identity runs as the one in front and is
 /// answered under it; one naming an identity not held is not run, and
 /// answers nothing; a switch to the identity in front changes nothing,
@@ -1977,4 +1977,222 @@ fn the_first_identity_alone_runs_as_the_front_and_a_switch_to_it_writes_nothing(
     )
     .expect("the store");
     assert_eq!(store.last_front().expect("read"), None, "no row written");
+}
+
+/// The trust tests' view of the profile on disk, from the embedded
+/// host's side: the operator's list and the endpoint overlay, which the
+/// client never reads except through the daemon's answers.
+struct TrustFiles {
+    paths: ProfilePaths,
+}
+
+type PeerSet = std::collections::BTreeSet<interweave_transport_api::TransportIdentity>;
+
+impl TrustFiles {
+    fn new(app: &App) -> Self {
+        let paths =
+            ProfilePaths::resolve_embedded(PROFILE, TrustBoundary::new(&app.dir).expect("b"))
+                .expect("paths");
+        Self { paths }
+    }
+
+    fn operator_path(&self) -> PathBuf {
+        interweave_profile_config::trust_overlay::TrustOverlay::path_for(&self.paths)
+    }
+
+    fn endpoint_path(&self) -> PathBuf {
+        interweave_profile_config::endpoint_overlay::EndpointOverlay::path_for(&self.paths)
+    }
+
+    /// Put `peers` on the operator's list, before a start.
+    fn operator_allows(&self, peers: &[&interweave_transport_api::TransportIdentity]) {
+        let mut overlay = interweave_profile_config::trust_overlay::TrustOverlay::default();
+        for peer in peers {
+            overlay = overlay.set(&PeerSet::new(), peer, true).expect("a change");
+        }
+        overlay
+            .write_within(&self.operator_path(), self.paths.boundary())
+            .expect("the operator's list written");
+    }
+
+    fn operator_bytes(&self) -> Option<Vec<u8>> {
+        std::fs::read(self.operator_path()).ok()
+    }
+
+    /// The endpoint's own sets, inbound then outbound, as the overlay
+    /// carries them: `None` while it carries none for the endpoint.
+    fn own_sets(
+        &self,
+        endpoint: &interweave_transport_api::EndpointId,
+    ) -> Option<(PeerSet, PeerSet)> {
+        let config = ProfileConfig::load(&self.paths).expect("the profile loads");
+        let (overlay, _) =
+            interweave_profile_config::endpoint_overlay::EndpointOverlay::read_within(
+                &self.endpoint_path(),
+                &config.endpoints,
+                self.paths.boundary(),
+            )
+            .expect("the endpoint overlay reads");
+        overlay
+            .own_sets(endpoint)
+            .map(|(i, o)| (i.peers().clone(), o.peers().clone()))
+    }
+
+    fn endpoint_bytes(&self) -> Option<Vec<u8>> {
+        std::fs::read(self.endpoint_path()).ok()
+    }
+
+    fn endpoint_modified(&self) -> std::time::SystemTime {
+        std::fs::metadata(self.endpoint_path())
+            .and_then(|m| m.modified())
+            .expect("mtime")
+    }
+}
+
+fn some_peer() -> interweave_transport_api::TransportIdentity {
+    interweave_profile_identity::ProfileIdentity::generate()
+        .transport_identity()
+        .expect("a peer id")
+}
+
+/// Ask the facade for the first identity's trust and wait for its answer.
+fn read_trust(service: &ServiceHost, link: &mut ViewLink, held: &mut Vec<ToView>) {
+    until(link, held, "the listing", is_listing);
+    service
+        .hub()
+        .command(None, Command::ReadTrust)
+        .expect("accepted");
+    let mut answer = None;
+    until(link, held, "the trust read", |m| match m {
+        ToView::Update(_, u) => match &**u {
+            Update::TrustRead(read) => {
+                answer = Some(read.clone());
+                true
+            }
+            _ => false,
+        },
+        _ => false,
+    });
+    assert!(matches!(answer, Some(Ok(_))), "the read: {answer:?}");
+}
+
+/// ADR-0067 decision 6 on the phone: the Service's first trust read finds
+/// the first identity's own set, seeded from the operator's list by the
+/// seed that ran before it, observed from the profile's files and not
+/// from the client's claim. Mutation: transport-client's `open` never
+/// asking the seed (`seed.filter(|_| false)`) leaves no set after the
+/// read and fails the `own_sets` expect.
+#[test]
+fn the_first_start_gives_the_first_identity_its_own_trust_set_before_its_first_read() {
+    let app = app();
+    let first = common::provision_first_identity(&app.dir, PROFILE);
+    let files = TrustFiles::new(&app);
+    let operator = some_peer();
+    files.operator_allows(&[&operator]);
+    assert_eq!(files.own_sets(&first), None, "none before the start");
+
+    let service = ServiceHost::new();
+    service.start(launch(&app)).expect("started");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    read_trust(&service, &mut link, &mut held);
+    let _ = service.stop(GRACE);
+
+    let (inbound, outbound) = files
+        .own_sets(&first)
+        .expect("the first identity's own set");
+    assert_eq!(inbound, [operator.clone()].into(), "inbound seeded");
+    assert_eq!(outbound, [operator].into(), "outbound seeded");
+}
+
+/// A later start's seed answers present and writes nothing: the endpoint
+/// overlay is the same bytes and the same file after a second start and
+/// trust read, though the operator's list has changed since the seed
+/// copied it. Mutations: profile-config's `seed_sets` answering `Created`
+/// where it answers `AlreadyPresent` rewrites the overlay (the same
+/// bytes, written atomically) and fails the mtime assert; no seed at all
+/// leaves no overlay for the first start and fails its expect.
+#[test]
+fn a_later_start_seeds_nothing_and_writes_no_trust() {
+    let app = app();
+    let first = common::provision_first_identity(&app.dir, PROFILE);
+    let files = TrustFiles::new(&app);
+    let before = some_peer();
+    files.operator_allows(&[&before]);
+
+    let service = ServiceHost::new();
+    service.start(launch(&app)).expect("started");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    read_trust(&service, &mut link, &mut held);
+    let _ = service.stop(GRACE);
+    let seeded = files.endpoint_bytes().expect("the overlay the seed wrote");
+    let modified = files.endpoint_modified();
+
+    files.operator_allows(&[&before, &some_peer()]);
+    service.start(launch(&app)).expect("started again");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    read_trust(&service, &mut link, &mut held);
+    let _ = service.stop(GRACE);
+
+    assert_eq!(files.endpoint_bytes(), Some(seeded), "nothing written");
+    assert_eq!(files.endpoint_modified(), modified, "not rewritten");
+    let (inbound, _) = files.own_sets(&first).expect("still its own");
+    assert_eq!(
+        inbound,
+        [before].into(),
+        "the operator's later peer is not in it"
+    );
+}
+
+/// A trust write from the phone names the first identity's endpoint: its
+/// own set takes the peer and the operator's list stays what it was, to
+/// the byte. Mutation: `set_identity_trust` writing the endpoint-less
+/// method (the operator's list) leaves the own set without the peer and
+/// changes the operator's bytes, failing both asserts.
+#[test]
+fn a_trust_write_from_the_phone_changes_the_first_identitys_set_alone() {
+    use interweave_human_ui_model::TrustChange;
+
+    let app = app();
+    let first = common::provision_first_identity(&app.dir, PROFILE);
+    let files = TrustFiles::new(&app);
+    let operator = some_peer();
+    files.operator_allows(&[&operator]);
+    let operator_before = files.operator_bytes();
+
+    let service = ServiceHost::new();
+    service.start(launch(&app)).expect("started");
+    let mut link = attach(&service);
+    let mut held = Vec::new();
+    read_trust(&service, &mut link, &mut held);
+
+    let added = some_peer();
+    service
+        .hub()
+        .command(
+            None,
+            Command::SetTrust(TrustChange {
+                peer: added.clone(),
+                allowed: true,
+            }),
+        )
+        .expect("accepted");
+    until(
+        &mut link,
+        &mut held,
+        "the trust write's answer",
+        |m| matches!(m, ToView::Update(_, u) if matches!(**u, Update::TrustSet { answer: Ok(_), .. })),
+    );
+    let _ = service.stop(GRACE);
+
+    let (inbound, outbound) = files.own_sets(&first).expect("its own set");
+    let both: PeerSet = [operator, added].into();
+    assert_eq!((inbound, outbound), (both.clone(), both), "both members");
+    assert_eq!(
+        files.operator_bytes(),
+        operator_before,
+        "the operator's list"
+    );
 }
