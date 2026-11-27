@@ -800,9 +800,12 @@ pub enum Settled {
     /// Discarded: its key path and platform key emptied, its remove
     /// answered `removed` or `EndpointUnknown`, and its record deleted.
     Discarded(EndpointId),
-    /// The record no longer named the id when this settle came to act on
-    /// it: another settle over the same records -- the roster's, or a
-    /// form's at the bound -- settled it first, and this one did nothing
+    /// The record no longer named the id when this settle came to its
+    /// next act: another settle over the same records -- the roster's, or
+    /// a form's at the bound -- settled it first. Before its first act
+    /// this one did nothing; a discard already under way may have emptied
+    /// the key path, retired the platform key and sent its remove before
+    /// the record went, and only its record delete is then left undone
     /// (`a_record_another_settle_settled_first_is_left_with_no_act`).
     Gone(EndpointId),
     /// Kept, to be settled again at the next moment.
@@ -850,8 +853,9 @@ enum Settling {
 ///
 /// Two settles can hold the same record at once -- the caller's and a
 /// form's at the bound -- each with a list answered at its own time. So
-/// each reads the record again before it acts on one, and leaves an id
-/// the record no longer names with no act ([`Settled::Gone`]): a stale
+/// each reads the record again before each act on one, and stops at an
+/// id the record no longer names ([`Settled::Gone`]); a discard already
+/// under way has by then done its earlier acts. A stale
 /// Absent would otherwise empty the key path of an identity the other
 /// settle has just found
 /// (`a_record_another_settle_settled_first_is_left_with_no_act`). Every

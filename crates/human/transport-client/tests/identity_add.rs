@@ -1403,7 +1403,9 @@ fn the_settle_skips_the_open_forms_record_and_no_other() {
 /// consumed in one poll -- in the order that would do harm: the settle
 /// holding a stale answer acts after the other settled the record. It
 /// reads the record again and does nothing (A 2026-11-26 (ii)'s settle,
-/// held to the record it reads). Mutations: no re-read before the list's
+/// held to the record it reads); in the second case, where its own
+/// earlier acts (key path, platform key, remove) are already done, it
+/// only leaves the record delete to the other. Mutations: no re-read before the list's
 /// act -- the found identity's key path is emptied and its remove sent;
 /// no re-read before the remove's record delete -- the record is
 /// reported discarded twice.
