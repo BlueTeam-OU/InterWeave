@@ -27,8 +27,8 @@
 //! model side applies an update naming an identity it does not hold to
 //! none (`an_update_reaches_the_model_of_the_identity_it_names`).
 
-use interweave_human_app_core::{Crossing, ModelSide, Opener, Surface};
-use interweave_human_ui_model::{ConnectPhase, StartBusy};
+use interweave_human_app_core::{Command, Crossing, Failure, ModelSide, Opener, Surface, Update};
+use interweave_human_ui_model::{ConnectPhase, HeldIdentity, HeldProblem, StartBusy};
 use interweave_transport_api::EndpointId;
 
 use crate::hub::{Held, StoreAnswer, StoreGeneration, ToView, UnlockSaid};
@@ -45,6 +45,12 @@ pub struct ViewSide<S: Surface, O: Opener> {
     /// The identities held, as the hub last said them; `None` until it
     /// has.
     held: Option<Held>,
+    /// The held identities' rows, as the hub last said them; `None` until
+    /// it has. Told to every model made, as `held` names it.
+    identities: Option<Vec<HeldIdentity>>,
+    /// Why the last list told was refused by the model, until the root
+    /// takes it ([`Self::take_held_refused`]).
+    held_refused: Option<HeldProblem>,
     /// Network access as the hub last said it.
     network: bool,
     /// Whether the person must authenticate first, as the hub last said.
@@ -82,6 +88,8 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             side: fresh(),
             fresh: Box::new(fresh),
             held: None,
+            identities: None,
+            held_refused: None,
             network: true,
             authentication: false,
             store: None,
@@ -103,13 +111,26 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
         self.store
     }
 
-    /// A model made again, named with the identities held.
+    /// A model made again, named with the identities held and told their
+    /// rows as the hub last said them, none once the service stopped
+    /// (`a_model_made_again_is_told_the_identities_again`).
     fn made(&mut self) -> ModelSide<S, O> {
         let mut side = (self.fresh)();
         if let Some(held) = &self.held {
             side.hold(&held.held, &held.front);
         }
+        if let Some(identities) = &self.identities
+            && let Err(problem) = side.held_changed(identities)
+        {
+            self.held_refused = Some(problem);
+        }
         side
+    }
+
+    /// Why the last held list told was refused by the model, if it was,
+    /// once: a class for the platform log.
+    pub const fn take_held_refused(&mut self) -> Option<HeldProblem> {
+        self.held_refused.take()
     }
 
     /// Apply one message from the hub.
@@ -120,6 +141,12 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     pub fn apply(&mut self, message: ToView) -> Result<(), ListingFailed> {
         match message {
             ToView::Running(running) => {
+                if !running {
+                    // As the hub drops its rows at a stop, and tells a view
+                    // attached after one none: the model made now is not
+                    // told rows no facade holds.
+                    self.identities = None;
+                }
                 let made = self.made();
                 let last = std::mem::replace(&mut self.side, made);
                 if running {
@@ -128,10 +155,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                     let mut drafts = self
                         .kept
                         .take()
-                        .map(|kept| kept.drafts())
+                        .map(|kept| kept.held_drafts())
                         .unwrap_or_default();
-                    drafts.extend(last.drafts());
-                    self.side.carry_drafts(drafts);
+                    drafts.extend(last.held_drafts());
+                    self.side.carry_held_drafts(drafts);
                 } else if self.running {
                     // Recorded as it is applied, so a stop and the next
                     // start drained in one pump still show it.
@@ -158,6 +185,12 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 // before, and a model already named keeps its names.
                 self.side.hold(&held.held, &held.front);
                 self.held = Some(held);
+            }
+            ToView::Identities(identities) => {
+                if let Err(problem) = self.side.held_changed(&identities) {
+                    self.held_refused = Some(problem);
+                }
+                self.identities = Some(identities);
             }
             ToView::Start(start) => self.start = Some(start),
             ToView::NetworkAccess(allowed) => {
@@ -225,7 +258,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
             kept.authentication_needed(self.authentication);
             kept.start_busy(self.busy);
             kept.start_refused(self.refused);
-            kept.carry_drafts(self.side.drafts());
+            kept.carry_held_drafts(self.side.held_drafts());
             kept.remade();
             self.side = kept;
             // Set aside before the facts a refused restart learnt: the
@@ -309,11 +342,101 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
     /// Bring `to` in front, as the desktop's window does: the model side
     /// drains the old front's acts and hands them to `send` as that
     /// identity's, then the switch (`ModelSide::switch`), for the root to
-    /// cross to the facade ([`crate::Hub::cross`]). False, and nothing
-    /// sent, when `to` is in front or not held -- with one identity held,
-    /// always (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`).
-    pub fn switch(&mut self, to: &EndpointId, send: impl FnMut(Crossing)) -> bool {
-        self.side.switch(to, send)
+    /// cross to the facade ([`crate::Hub::cross`]), each crossing carried
+    /// as [`Self::take_identity_acts`] carries them: a switch handed back
+    /// names no model made later with `to`, and a command handed back is
+    /// failed to its identity's model. False, and nothing sent, when `to`
+    /// is in front or not held -- with one identity held, always
+    /// (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`).
+    pub fn switch(
+        &mut self,
+        to: &EndpointId,
+        cross: impl FnMut(Crossing) -> Result<(), Crossing>,
+    ) -> bool {
+        let mut switched = false;
+        self.carry(cross, |side, send| switched = side.switch(to, send));
+        switched
+    }
+
+    /// The identity in front is `to`: a model made again is named with it
+    /// ([`Self::made`]) and not with the one the start named
+    /// (`a_model_made_after_a_switch_is_named_with_the_new_front`).
+    fn fronted(&mut self, to: &EndpointId) {
+        if let Some(held) = self.held.as_mut() {
+            held.front = to.clone();
+        }
+    }
+
+    /// What the person did to the identities, before the model's turn,
+    /// as the desktop's window takes them (`ModelSide::take_identity_acts`):
+    /// each crossing handed to `cross` -- the hub's
+    /// [`cross`](crate::Hub::cross) -- in its order, a switch's drained
+    /// commands of the old front before its [`Crossing::Front`]. Once
+    /// `cross` hands one back, no facade takes them: nothing more is
+    /// crossed, and each command handed back or not crossed is failed
+    /// explicitly to the model of the identity it names, so none waits in
+    /// flight for an answer no facade will give (owner's finding P2-2).
+    /// True when one was handed back
+    /// (`a_switch_intent_reaches_the_facade_after_the_old_fronts_commands`).
+    pub fn take_identity_acts(
+        &mut self,
+        cross: impl FnMut(Crossing) -> Result<(), Crossing>,
+    ) -> bool {
+        self.carry(cross, |side, send| side.take_identity_acts(send))
+    }
+
+    /// Run `act` on the model side, each crossing it sends handed to
+    /// `cross` until one is handed back; the front is recorded only from
+    /// an accepted [`Crossing::Front`]
+    /// (`a_switch_crosses_to_the_hub_and_with_one_held_none_can`,
+    /// `a_model_made_after_a_switch_is_named_with_the_new_front`), and every
+    /// command handed back or not crossed is failed to its identity's
+    /// model. True when one was handed back.
+    fn carry(
+        &mut self,
+        mut cross: impl FnMut(Crossing) -> Result<(), Crossing>,
+        act: impl FnOnce(&mut ModelSide<S, O>, &mut dyn FnMut(Crossing)),
+    ) -> bool {
+        let mut stopped = false;
+        let mut failed: Vec<(EndpointId, Command)> = Vec::new();
+        let mut fronted = None;
+        act(&mut self.side, &mut |crossing| {
+            let front = match &crossing {
+                Crossing::Front(to) => Some(to.clone()),
+                Crossing::Command { .. } => None,
+            };
+            let back = if stopped {
+                Err(crossing)
+            } else {
+                cross(crossing)
+            };
+            match back {
+                Ok(()) => {
+                    if front.is_some() {
+                        fronted = front;
+                    }
+                }
+                Err(crossing) => {
+                    stopped = true;
+                    if let Crossing::Command { identity, command } = crossing {
+                        failed.push((identity, command));
+                    }
+                }
+            }
+        });
+        if let Some(to) = fronted {
+            self.fronted(&to);
+        }
+        for (identity, command) in failed {
+            let _ = self.side.apply_as(
+                &identity,
+                Update::Failed {
+                    command,
+                    why: Failure::ServiceStopped,
+                },
+            );
+        }
+        stopped
     }
 
     /// The model side, for the root's turn.
@@ -334,7 +457,7 @@ mod tests {
     use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
     use interweave_human_client_api::{ClientEvent, Origin, Received, SessionState};
     use interweave_human_core::RowId;
-    use interweave_human_ui_model::{SessionNotice, StartBusy, UiModel, ViewEvent};
+    use interweave_human_ui_model::{IdentityIntent, SessionNotice, StartBusy, UiModel, ViewEvent};
     use interweave_profile_identity::ProfileIdentity;
 
     use super::*;
@@ -463,8 +586,7 @@ mod tests {
 
     /// The switch crosses to the hub as the desktop's does, the switch
     /// naming the new front; with one identity held it cannot happen and
-    /// sends nothing. Two models are held here with no start said: the
-    /// front-only facts are not told. Mutation: `switch` not handing
+    /// sends nothing. Mutation: `switch` not handing
     /// the model side's crossings on fails the `ToFacade::Front(other())`
     /// assert.
     #[test]
@@ -474,6 +596,7 @@ mod tests {
         let _ = hub.started(commands, held());
         let cross = |crossing| {
             hub.cross(crossing).expect("a facade takes it");
+            Ok(())
         };
 
         let mut one = view_side();
@@ -494,6 +617,29 @@ mod tests {
             "the switch crossed"
         );
         assert_eq!(two.side().front(), Some(&other()));
+        // `switch` names the new front for the model made next too, as
+        // `take_identity_acts` does. Mutation: `switch` not recording it
+        // -- the model made at the stop is named with `me`.
+        two.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(two.side().front(), Some(&other()), "named with the new");
+
+        // A switch no facade takes names no model made later with it
+        // (round 2 F7). Mutation: `switch` recording the front whatever
+        // `cross` answers -- the model made at the stop is named `other`.
+        let stopped = crate::Hub::new();
+        let mut three = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        three
+            .apply(ToView::Held(Held {
+                held: vec![me(), other()],
+                front: me(),
+            }))
+            .expect("applied");
+        assert!(
+            three.switch(&other(), |c| stopped.cross(c)),
+            "switched here"
+        );
+        three.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(three.side().front(), Some(&me()), "handed back: as it was");
     }
 
     #[test]
@@ -699,10 +845,138 @@ mod tests {
         side.apply(ToView::Running(true)).expect("applied");
         // As the person's edit sets it.
         side.side_mut()
-            .carry_drafts(vec![(key.clone(), "half written".to_owned())]);
+            .carry_held_drafts(vec![(me(), key.clone(), "half written".to_owned())]);
         side.apply(ToView::Running(false)).expect("applied");
         side.apply(ToView::Running(true)).expect("applied");
         assert_eq!(model(&side).composer(&key).draft, "half written");
+    }
+
+    type Presses = std::rc::Rc<std::cell::RefCell<Vec<IdentityIntent>>>;
+    type TwoHeld = (
+        ViewSide<Pressing, Blank>,
+        crate::Hub,
+        u64,
+        Presses,
+        tokio::sync::mpsc::UnboundedReceiver<crate::hub::ToFacade>,
+    );
+
+    /// A view side over two held identities, a hub whose facade runs
+    /// (its generation, to retire), and the identity presses the test
+    /// scripts.
+    fn two_held() -> TwoHeld {
+        let hub = crate::Hub::new();
+        let (commands, rx) = tokio::sync::mpsc::unbounded_channel();
+        let both = Held {
+            held: vec![me(), other()],
+            front: me(),
+        };
+        let generation = hub.started(commands, both.clone());
+        let intents = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let pressed = std::rc::Rc::clone(&intents);
+        let mut side = ViewSide::new(move || {
+            ModelSide::new(
+                Pressing {
+                    events: Vec::new(),
+                    intents: std::rc::Rc::clone(&pressed),
+                },
+                Blank,
+            )
+        });
+        side.apply(ToView::Held(both)).expect("applied");
+        (side, hub, generation, intents, rx)
+    }
+
+    fn choose(id: &EndpointId) -> [IdentityIntent; 2] {
+        [
+            IdentityIntent::OpenSwitcher,
+            IdentityIntent::Choose(interweave_human_ui_model::IdentityKey::new(id.as_str())),
+        ]
+    }
+
+    fn general() -> interweave_human_ui_model::ConversationKey {
+        interweave_human_ui_model::ConversationKey::Channel(
+            interweave_transport_api::ChannelId::parse("general").expect("a channel"),
+        )
+    }
+
+    /// What is written waits across a restart for every identity held,
+    /// each draft in its own identity's model, whichever is in front.
+    /// Mutations run, each failing it: `ModelSide::held_drafts` over the
+    /// front's model alone -- the draft of the identity not in front is
+    /// gone; `ModelSide::carry_held_drafts` writing every draft into the
+    /// front's model, as a carry keyed by conversation only does -- the
+    /// first identity's model reads empty.
+    #[test]
+    fn a_restart_keeps_the_drafts_of_every_held_identity() {
+        let (mut side, hub, _generation, intents, _rx) = two_held();
+        side.apply(ToView::Running(true)).expect("applied");
+        let told = || rows(&[(me(), "mine"), (other(), "work")]);
+        side.apply(ToView::Identities(told())).expect("applied");
+        side.side_mut()
+            .carry_held_drafts(vec![(me(), general(), "of me".to_owned())]);
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken");
+        side.side_mut()
+            .carry_held_drafts(vec![(other(), general(), "of other".to_owned())]);
+
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::Running(true)).expect("applied");
+        side.apply(ToView::Identities(told())).expect("applied");
+        intents.borrow_mut().extend(choose(&me()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken back");
+        let draft = |e: &EndpointId| {
+            side.side()
+                .model_of(e)
+                .expect("held")
+                .composer(&general())
+                .draft
+        };
+        assert_eq!(draft(&me()), "of me");
+        assert_eq!(draft(&other()), "of other");
+    }
+
+    /// A switch taken locally while the kept model is shown under the
+    /// lock, handed back by the hub (no facade runs), leaves the next
+    /// start naming the old front; the drafts still land in the identity
+    /// that wrote them, never in the one named. Mutations run, each
+    /// failing it: `ModelSide::carry_held_drafts` writing every draft
+    /// into the front's model (keyed by conversation only) -- the first
+    /// identity's model reads the other's draft; `ModelSide::held_drafts`
+    /// over the front's model alone -- the first identity's draft is
+    /// gone.
+    #[test]
+    fn a_draft_stays_with_its_identity_across_a_switch_under_the_lock() {
+        let (mut side, hub, generation, intents, rx) = two_held();
+        side.apply(ToView::Running(true)).expect("applied");
+        let told = || rows(&[(me(), "mine"), (other(), "work")]);
+        side.side_mut().carry_held_drafts(vec![
+            (me(), general(), "of me".to_owned()),
+            (other(), general(), "of other".to_owned()),
+        ]);
+        side.apply(ToView::Running(false)).expect("applied");
+        side.apply(ToView::AuthenticationNeeded(true))
+            .expect("applied");
+        assert_eq!(side.side().front(), Some(&me()), "the kept model shown");
+
+        // The facade is gone: the hub hands the front's crossing back.
+        drop(rx);
+        hub.retire(generation);
+        side.apply(ToView::Identities(told())).expect("applied");
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
+        assert_eq!(side.side().front(), Some(&other()), "applied locally");
+
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(side.side().front(), Some(&me()), "named as before");
+        let draft = |e: &EndpointId| {
+            side.side()
+                .model_of(e)
+                .expect("held")
+                .composer(&general())
+                .draft
+        };
+        assert_eq!(draft(&me()), "of me");
+        assert_eq!(draft(&other()), "of other");
     }
 
     #[test]
@@ -1299,5 +1573,239 @@ mod tests {
         hub.start_asked(false);
         assert!(!pump(&mut side, &mut link));
         assert_eq!(notice(&side), Some(SessionNotice::NoDaemon), "a launch");
+    }
+
+    /// Rows for `ids`, the first first, each aliased by `names`.
+    fn rows(ids: &[(EndpointId, &str)]) -> Vec<HeldIdentity> {
+        ids.iter()
+            .enumerate()
+            .map(|(i, (id, name))| HeldIdentity {
+                key: interweave_human_ui_model::IdentityKey::new(id.as_str()),
+                card_name: None,
+                alias: (*name).to_owned(),
+                state: interweave_human_ui_model::IdentityState::Ready,
+                is_first: i == 0,
+                is_default: false,
+                unread: 0,
+                not_sent: false,
+            })
+            .collect()
+    }
+
+    fn held_rows(side: &ViewSide<Blank, Blank>) -> Vec<HeldIdentity> {
+        model(side).identities().held().to_vec()
+    }
+
+    /// The identities' rows the hub tells reach the model shown, and
+    /// every model made again while the service runs is told them again;
+    /// a stop drops them, as the hub drops its rows, so a model made at
+    /// the stop, and at the next start until the facade tells its own, is
+    /// told none; a list the model refuses is kept for the root to log.
+    /// Two identities are held. Mutations: `Identities` not told to the
+    /// model shown -- the first assert; `made` not telling them -- the
+    /// "made again" assert; the rows kept at a stop -- the "stopped"
+    /// assert; the refusal dropped -- `take_held_refused` answers `None`.
+    #[test]
+    fn a_model_made_again_is_told_the_identities_again() {
+        let mut side = ViewSide::new(|| ModelSide::new(Blank, Blank));
+        side.apply(ToView::Held(Held {
+            held: vec![me(), other()],
+            front: me(),
+        }))
+        .expect("applied");
+        let told = rows(&[(me(), "mine"), (other(), "work")]);
+        side.apply(ToView::Identities(told.clone()))
+            .expect("applied");
+        assert_eq!(held_rows(&side), told, "told to the model shown");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(held_rows(&side), told, "made again (running)");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(held_rows(&side), [], "stopped: no facade holds rows");
+        side.apply(ToView::Running(true)).expect("applied");
+        assert_eq!(held_rows(&side), [], "started: the facade tells its own");
+        side.apply(ToView::Identities(told.clone()))
+            .expect("applied");
+        assert_eq!(held_rows(&side), told, "told again");
+        assert_eq!(side.take_held_refused(), None);
+        let twice = rows(&[(me(), "mine"), (me(), "again")]);
+        side.apply(ToView::Identities(twice)).expect("applied");
+        assert_eq!(
+            side.take_held_refused(),
+            Some(HeldProblem::DuplicateKey),
+            "kept for the log"
+        );
+        assert_eq!(side.take_held_refused(), None, "once");
+        assert_eq!(held_rows(&side), told, "the model keeps what it held");
+    }
+
+    /// A view whose events and identity presses a test scripts, each
+    /// taken once.
+    struct Pressing {
+        events: Vec<ViewEvent>,
+        intents: std::rc::Rc<std::cell::RefCell<Vec<IdentityIntent>>>,
+    }
+
+    impl Surface for Pressing {
+        fn render(&mut self, _model: &UiModel) {}
+
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            std::mem::take(&mut self.events)
+        }
+
+        fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+            std::mem::take(&mut *self.intents.borrow_mut())
+        }
+    }
+
+    /// A model made after a switch is named with the identity switched
+    /// to, not the one in front at the start: the facade took the switch,
+    /// so a stop's model, and the next start's, show it. A switch handed
+    /// back -- no facade takes it -- leaves the naming as it was.
+    /// Mutation: `take_identity_acts` not recording the front taken --
+    /// the first assert names `me`.
+    #[test]
+    fn a_model_made_after_a_switch_is_named_with_the_new_front() {
+        let hub = crate::Hub::new();
+        let (commands, rx) = tokio::sync::mpsc::unbounded_channel();
+        let both = Held {
+            held: vec![me(), other()],
+            front: me(),
+        };
+        let generation = hub.started(commands, both.clone());
+        let intents = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let pressed = std::rc::Rc::clone(&intents);
+        let mut side = ViewSide::new(move || {
+            ModelSide::new(
+                Pressing {
+                    events: Vec::new(),
+                    intents: std::rc::Rc::clone(&pressed),
+                },
+                Blank,
+            )
+        });
+        side.apply(ToView::Held(both)).expect("applied");
+        side.apply(ToView::Identities(rows(&[
+            (me(), "mine"),
+            (other(), "work"),
+        ])))
+        .expect("applied");
+        let choose = |id: &EndpointId| {
+            [
+                IdentityIntent::OpenSwitcher,
+                IdentityIntent::Choose(interweave_human_ui_model::IdentityKey::new(id.as_str())),
+            ]
+        };
+        intents.borrow_mut().extend(choose(&other()));
+        assert!(!side.take_identity_acts(|c| hub.cross(c)), "taken");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(side.side().front(), Some(&other()), "named with the new");
+
+        // A facade that stopped holds no rows: the next start tells its own.
+        hub.retire(generation);
+        drop(rx);
+        side.apply(ToView::Identities(rows(&[
+            (me(), "mine"),
+            (other(), "work"),
+        ])))
+        .expect("applied");
+        intents.borrow_mut().extend(choose(&me()));
+        assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
+        side.apply(ToView::Running(false)).expect("applied");
+        assert_eq!(side.side().front(), Some(&other()), "a handed-back switch");
+    }
+
+    /// A choice in the switcher reaches the facade through the hub as the
+    /// switch, after the command the old front's view had not yet asked,
+    /// which crosses naming the old front; once the hub hands a crossing
+    /// back -- no facade runs -- the take says so and crosses nothing
+    /// more. Mutations: `take_identity_acts` not handing the model
+    /// side's crossings to `cross` -- nothing reaches the facade; a
+    /// handed-back crossing not reported -- the take answers false; a
+    /// handed-back command not failed to its model -- no problem said.
+    #[test]
+    fn a_switch_intent_reaches_the_facade_after_the_old_fronts_commands() {
+        let hub = crate::Hub::new();
+        let (commands, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let generation = hub.started(
+            commands,
+            Held {
+                held: vec![me(), other()],
+                front: me(),
+            },
+        );
+        let intents = std::rc::Rc::new(std::cell::RefCell::new(Vec::new()));
+        let pressed = std::rc::Rc::clone(&intents);
+        let mut side = ViewSide::new(move || {
+            ModelSide::new(
+                Pressing {
+                    events: vec![ViewEvent::Intent(interweave_human_ui_model::Intent::Reopen)],
+                    intents: std::rc::Rc::clone(&pressed),
+                },
+                Blank,
+            )
+        });
+        side.apply(ToView::Held(Held {
+            held: vec![me(), other()],
+            front: me(),
+        }))
+        .expect("applied");
+        side.apply(ToView::Identities(rows(&[
+            (me(), "mine"),
+            (other(), "work"),
+        ])))
+        .expect("applied");
+        intents.borrow_mut().push(IdentityIntent::OpenSwitcher);
+        assert!(
+            !side.take_identity_acts(|c| hub.cross(c)),
+            "opening crosses nothing"
+        );
+        assert!(rx.try_recv().is_err(), "nothing crossed yet");
+        intents.borrow_mut().push(IdentityIntent::Choose(
+            interweave_human_ui_model::IdentityKey::new(other().as_str()),
+        ));
+        assert!(
+            !side.take_identity_acts(|c| hub.cross(c)),
+            "a facade took them"
+        );
+        assert_eq!(
+            rx.try_recv().ok(),
+            Some(crate::ToFacade::Command {
+                identity: Some(me()),
+                command: Command::Reopen
+            }),
+            "the old front's command first, naming it"
+        );
+        assert_eq!(rx.try_recv().ok(), Some(crate::ToFacade::Front(other())));
+        assert!(rx.try_recv().is_err());
+        assert_eq!(side.side().front(), Some(&other()));
+
+        hub.retire(generation);
+        intents.borrow_mut().extend([
+            IdentityIntent::OpenSwitcher,
+            IdentityIntent::Choose(interweave_human_ui_model::IdentityKey::new(me().as_str())),
+        ]);
+        assert!(
+            side.take_identity_acts(|c| hub.cross(c)),
+            "handed back: said"
+        );
+        assert!(rx.try_recv().is_err(), "nothing crossed after the stop");
+
+        // A command no facade took is failed to its identity's model, not
+        // left waiting for an answer.
+        let _ = side.side_mut().take_problems();
+        intents.borrow_mut().push(IdentityIntent::TryAgain(
+            interweave_human_ui_model::IdentityKey::new(me().as_str()),
+        ));
+        assert!(side.take_identity_acts(|c| hub.cross(c)), "handed back");
+        assert!(
+            side.side_mut().take_problems().iter().any(|p| matches!(
+                p,
+                interweave_human_app_core::Problem::Command {
+                    command: Command::Reopen,
+                    why: Failure::ServiceStopped
+                }
+            )),
+            "failed explicitly"
+        );
     }
 }

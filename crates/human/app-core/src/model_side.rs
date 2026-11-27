@@ -178,18 +178,24 @@ impl Behind {
 /// it, so a switch never brings in a model that missed a fact told while
 /// it was behind.
 ///
-/// Not here: `start_busy` and `start_refused`, which the model itself
-/// changes ([`UiModel::retry_start_asked`]), and `unlock_facts`, whose
-/// `seen` flag the model changes as the Trust page shows its line; a copy
-/// held here would go stale the moment the model changed its own. They
-/// are the front's alone, so a root that holds more than one identity
-/// must not call them: each asserts that no model is behind
-/// (`a_front_only_fact_with_a_model_behind_is_refused`).
+/// The start's facts are here too: they are the Service's start, which
+/// every held identity starts in or not together. Two of them a model
+/// also changes itself -- Try again turns a start notice to Starting
+/// ([`UiModel::retry_start_asked`]), the Trust page marks the P-up line
+/// seen ([`UiModel::unlock_line_seen`]) -- so each such change is made
+/// here first and told to every model; a copy left behind would undo it
+/// at the next tell
+/// (`a_retry_and_a_seen_line_outlive_the_next_fact_and_a_switch`).
 #[derive(Debug, Clone, Copy)]
 struct RootFacts {
     daemon: Option<bool>,
     network_allowed: bool,
     authentication_needed: bool,
+    start_busy: Option<StartBusy>,
+    start_refused: Option<StartBusy>,
+    unlock: Option<UnlockFacts>,
+    unlock_start: u64,
+    unlock_seen: bool,
 }
 
 impl Default for RootFacts {
@@ -199,6 +205,11 @@ impl Default for RootFacts {
             daemon: None,
             network_allowed: true,
             authentication_needed: false,
+            start_busy: None,
+            start_refused: None,
+            unlock: None,
+            unlock_start: 0,
+            unlock_seen: false,
         }
     }
 }
@@ -211,10 +222,28 @@ impl RootFacts {
             daemon,
             network_allowed,
             authentication_needed,
+            start_busy,
+            start_refused,
+            unlock,
+            unlock_start,
+            unlock_seen,
         } = self;
         model.daemon_seen(daemon);
         model.network_access(network_allowed);
         model.authentication_needed(authentication_needed);
+        model.start_busy(start_busy);
+        model.start_refused(start_refused);
+        model.unlock_facts(unlock, unlock_start, unlock_seen);
+    }
+
+    /// [`UiModel::retry_start_asked`]'s change, made to the facts every
+    /// model is told.
+    fn retry_start_asked(&mut self) {
+        for notice in [&mut self.start_busy, &mut self.start_refused] {
+            if notice.is_some() {
+                *notice = Some(StartBusy::Starting);
+            }
+        }
     }
 }
 
@@ -587,18 +616,38 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.daemon_seen(Some(false));
     }
 
-    /// Every draft holding text ([`UiModel::drafts`]), for the model a new
-    /// runtime's start makes.
+    /// Every draft holding text ([`UiModel::drafts`]) of every identity
+    /// held, in front or behind, each named by its identity, for the side
+    /// a new runtime's start makes. The front's come first. Before the
+    /// held identities are named ([`Self::hold`]) the front has no
+    /// identity to name its drafts by, and there are none to give.
     #[must_use]
-    pub fn drafts(&self) -> Vec<(ConversationKey, String)> {
-        self.model.drafts()
+    pub fn held_drafts(&self) -> Vec<(EndpointId, ConversationKey, String)> {
+        let front = self.identity.iter().map(|e| (e, &self.model));
+        let behind = self.behind.iter().map(|(e, b)| (e, &b.model));
+        front
+            .chain(behind)
+            .flat_map(|(identity, model)| {
+                model
+                    .drafts()
+                    .into_iter()
+                    .map(|(key, draft)| (identity.clone(), key, draft))
+            })
+            .collect()
     }
 
-    /// Carry `drafts` over from the model before this one: what is written
-    /// waits across a restart (unlock note §11, A17).
-    pub fn carry_drafts(&mut self, drafts: Vec<(ConversationKey, String)>) {
-        for (key, draft) in drafts {
-            self.model.draft_changed(key, draft);
+    /// Carry `drafts` over from the side before this one, each into the
+    /// model of the identity it was written as: what is written waits
+    /// across a restart (unlock note §11, A17). A draft of an identity
+    /// this side does not hold is dropped, there being no model to hold
+    /// it; later drafts of one conversation win.
+    pub fn carry_held_drafts(&mut self, drafts: Vec<(EndpointId, ConversationKey, String)>) {
+        for (identity, key, draft) in drafts {
+            if self.identity.as_ref() == Some(&identity) {
+                self.model.draft_changed(key, draft);
+            } else if let Some((_, behind)) = self.behind.iter_mut().find(|(e, _)| *e == identity) {
+                behind.model.draft_changed(key, draft);
+            }
         }
     }
 
@@ -634,11 +683,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// the bound, and whether a start for its notice runs, as the root
     /// learns it from the platform.
     pub fn start_busy(&mut self, busy: Option<StartBusy>) {
-        debug_assert!(
-            self.behind.is_empty(),
-            "a front-only fact told with a model behind (RootFacts)"
-        );
-        self.model.start_busy(busy);
+        self.facts.start_busy = busy;
+        self.tell_all();
     }
 
     /// Whether the last start compared with C4's `PeerId` and was refused
@@ -646,21 +692,17 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// Chats in its place, and whether a start for its notice runs, as the
     /// root learns it from the platform ([`UiModel::start_refused`]).
     pub fn start_refused(&mut self, refused: Option<StartBusy>) {
-        debug_assert!(
-            self.behind.is_empty(),
-            "a front-only fact told with a model behind (RootFacts)"
-        );
-        self.model.start_refused(refused);
+        self.facts.start_refused = refused;
+        self.tell_all();
     }
 
     /// The unlock note's facts as the platform says them, the count of
     /// the start they are from, and whether its P-up line was seen.
     pub fn unlock_facts(&mut self, facts: Option<UnlockFacts>, start: u64, seen: bool) {
-        debug_assert!(
-            self.behind.is_empty(),
-            "a front-only fact told with a model behind (RootFacts)"
-        );
-        self.model.unlock_facts(facts, start, seen);
+        self.facts.unlock = facts;
+        self.facts.unlock_start = start;
+        self.facts.unlock_seen = seen;
+        self.tell_all();
     }
 
     /// What did not happen since the last call, oldest first.
@@ -1067,6 +1109,10 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                         if input == TrustInput::Opened
                             && let Some(start) = self.model.unlock_line_seen()
                         {
+                            // Seen for every identity held: a switch does
+                            // not offer the line again in this start.
+                            self.facts.unlock_seen = true;
+                            self.tell_all();
                             self.opener.unlock_line_seen(start);
                         }
                         if let Some(intent) = self.model.trust_settings_mut().input(input)
@@ -1218,7 +1264,8 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             // Disabled from here until the platform says the start
             // answered: the model offers no second one meanwhile.
             Intent::RetryStart => {
-                self.model.retry_start_asked();
+                self.facts.retry_start_asked();
+                self.tell_all();
                 self.opener.retry_start();
                 return None;
             }
@@ -1447,18 +1494,31 @@ mod tests {
         );
     }
 
-    /// A draft carried over into a new model reads as written there.
+    /// The drafts of every held identity, the front's and the one behind
+    /// it, carry into a new side made with the same held list, each into
+    /// its own identity's model; a draft of an identity the new side does
+    /// not hold is dropped. Mutations run: `held_drafts` listing only the
+    /// front's model -- the second identity's draft is gone; the carry
+    /// writing every draft into the front's model -- the front reads the
+    /// last draft carried, the unheld identity's.
     #[test]
-    fn drafts_carry_over_into_a_new_model() {
+    fn drafts_carry_over_into_the_model_of_each_identity() {
         let mut old = ModelSide::new(Nothing, Nothing);
-        let key = ConversationKey::Channel(
-            interweave_transport_api::ChannelId::parse("general").expect("a channel"),
-        );
-        old.model
-            .draft_changed(key.clone(), "still here".to_owned());
+        old.hold(&[first(), second()], &first());
+        old.model.draft_changed(general(), "of first".to_owned());
+        let (_, behind) = old.behind.first_mut().expect("second behind");
+        behind
+            .model
+            .draft_changed(general(), "of second".to_owned());
+        let mut drafts = old.held_drafts();
+        drafts.push((endpoint_id("gone"), general(), "of nobody".to_owned()));
+
         let mut new = ModelSide::new(Nothing, Nothing);
-        new.carry_drafts(old.drafts());
-        assert_eq!(new.model().composer(&key).draft, "still here");
+        new.hold(&[first(), second()], &first());
+        new.carry_held_drafts(drafts);
+        let draft = |e: &EndpointId| new.model_of(e).expect("held").composer(&general()).draft;
+        assert_eq!(draft(&first()), "of first");
+        assert_eq!(draft(&second()), "of second");
     }
 
     fn started(undecodable_unread: usize, undecodable_other: usize) -> Update {
@@ -1727,32 +1787,68 @@ mod tests {
         )
     }
 
-    /// The three facts `RootFacts` leaves to the front alone are refused
-    /// once a model is behind, so the doc's "must not call them" holds.
-    /// Mutation: dropping the assertion from any of the three -- its test
-    /// does not panic.
-    #[test]
-    #[should_panic(expected = "a front-only fact told with a model behind")]
-    fn a_front_only_fact_with_a_model_behind_is_refused() {
-        let mut side = ModelSide::new(Nothing, Nothing);
-        assert!(side.hold(&[first(), second()], &first()));
-        side.start_busy(None);
+    /// A surface that hands over `events` at the next take.
+    struct Events(Vec<ViewEvent>);
+
+    impl Surface for Events {
+        fn render(&mut self, _model: &UiModel) {}
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            std::mem::take(&mut self.0)
+        }
     }
 
+    /// The start's facts are the Service's, told to every identity held
+    /// (rust-ui-dev-02's REPLY 01a2190d): a busy start told while the
+    /// first is in front shows when the second comes forward; Try again
+    /// in front leaves every model Starting, and a fact told after it
+    /// (any `tell_all`) does not put Shown back; the P-up line seen on the
+    /// first's Trust page is seen on the second's too, past the next
+    /// tell. Mutations: `start_busy` telling the front alone -- the
+    /// second reads no notice; `RetryStart` changing the front's model
+    /// alone -- the next fact puts Shown back; the seen line not written
+    /// to the facts -- the second offers the P-up notice again.
     #[test]
-    #[should_panic(expected = "a front-only fact told with a model behind")]
-    fn start_refused_with_a_model_behind_is_refused() {
-        let mut side = ModelSide::new(Nothing, Nothing);
-        assert!(side.hold(&[first(), second()], &first()));
-        side.start_refused(None);
-    }
+    fn a_retry_and_a_seen_line_outlive_the_next_fact_and_a_switch() {
+        use interweave_human_ui_model::{KeyUnlock, SessionNotice};
+        let mut side = ModelSide::new(Events(Vec::new()), Nothing);
+        side.hold(&[first(), second()], &first());
+        side.start_busy(Some(StartBusy::Shown));
+        assert_eq!(
+            side.model_of(&second()).unwrap().session_notice(),
+            Some(SessionNotice::StartBusy(StartBusy::Shown)),
+            "told to the identity behind"
+        );
+        side.unlock_facts(
+            Some(UnlockFacts {
+                in_force: KeyUnlock::BackgroundCompatible,
+                configured: Some(KeyUnlock::UserPresence),
+                pending: None,
+                restart_needs_unlock: Some(false),
+            }),
+            7,
+            false,
+        );
+        assert!(side.model_of(&second()).unwrap().unlock_notice(), "control");
 
-    #[test]
-    #[should_panic(expected = "a front-only fact told with a model behind")]
-    fn unlock_facts_with_a_model_behind_are_refused() {
-        let mut side = ModelSide::new(Nothing, Nothing);
-        assert!(side.hold(&[first(), second()], &first()));
-        side.unlock_facts(None, 0, false);
+        side.surface.0 = vec![
+            ViewEvent::Intent(Intent::RetryStart),
+            ViewEvent::Trust(TrustInput::Opened),
+        ];
+        let _ = side.turn();
+        side.network_access(true);
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::StartBusy(StartBusy::Starting)),
+            "the next tell keeps the retry"
+        );
+        assert!(!side.model().unlock_notice(), "the next tell keeps it seen");
+
+        assert!(side.switch(&second(), |_| {}));
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::StartBusy(StartBusy::Starting))
+        );
+        assert!(!side.model().unlock_notice(), "seen for this start");
     }
 
     /// Named, the model shown so far is the front's, drafts and all, and
@@ -1763,7 +1859,7 @@ mod tests {
     fn naming_the_held_identities_keeps_the_model_shown_as_the_fronts() {
         let mut side = ModelSide::new(Nothing, Nothing);
         assert_eq!(side.front(), None);
-        side.carry_drafts(vec![(general(), "written".to_owned())]);
+        side.model.draft_changed(general(), "written".to_owned());
         assert!(side.hold(&[first(), second()], &first()));
         assert_eq!(side.front(), Some(&first()));
         let shown = side.model_of(&first()).expect("the front's");
@@ -1999,7 +2095,7 @@ mod tests {
         assert!(log.borrow().is_empty(), "nothing done: {:?}", log.borrow());
 
         // The old front shows a switch's snackbar and holds a draft.
-        side.carry_drafts(vec![(general(), "written".to_owned())]);
+        side.model.draft_changed(general(), "written".to_owned());
         let identities = side.model.identities_mut();
         identities
             .held_changed(vec![held("a", true), held("b", false)])

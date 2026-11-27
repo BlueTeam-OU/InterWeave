@@ -335,6 +335,11 @@ fn log_start_notes(host: &ServiceHost) {
     if let Some(why) = host.identity_key_refused() {
         log(&format!("the identity's key is not usable: {why:?}"));
     }
+    // Another held identity's, by kind alone: it holds its lease all the
+    // same, and its page names the problem.
+    for kind in host.other_identity_keys_refused() {
+        log(&format!("another identity's key is not usable: {kind}"));
+    }
     for note in host.take_facade_notes() {
         log(match note {
             FacadeNote::FrontUnread => {

@@ -77,6 +77,8 @@ impl AppClient for HubClient {
                 // Whose the updates are: the case's client holds one
                 // identity and sends as the one in front.
                 | ToView::Held(_)
+                // The identities' rows: nothing a case exchanges.
+                | ToView::Identities(_)
                 | ToView::NetworkAccess(true)
                 | ToView::AuthenticationNeeded(false)
                 // What the person's Trust page says of the unlock policy:
@@ -103,7 +105,8 @@ impl AppClient for HubClient {
                 ToView::AuthenticationNeeded(true) => {
                     return Err("the profile waits for the person's authentication".to_owned());
                 }
-                // The facade holds one identity, so every update is its.
+                // The case's profile adds no identity: the facade holds
+                // the first alone, so every update is its.
                 ToView::Update(_, update) => updates.push(*update),
                 // The service runs the network-denied posture: the case's
                 // exchange cannot happen, so it ends, saying why.

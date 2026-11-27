@@ -45,6 +45,10 @@ interweave-android-e2e-cases = { path = "../../../tests/android-e2e-cases", opti
 tokio = { workspace = true, features = ["sync", "time", "macros"] }
 # C3's two check positions.
 rand = { workspace = true }
+# The opened key's type in the store cipher the Service shares among the
+# key sources of the identities it holds (service.rs `SharedCipher`);
+# the store's own pin.
+zeroize = { version = "1", default-features = false, features = ["alloc"] }
 
 [features]
 # The android-e2e cases' replacement of the profile (src/stand_in.rs).
@@ -75,5 +79,3 @@ tempfile = { workspace = true }
 # The host's private address, which a second runtime is dialled at
 # (tests/stop_drain.rs), as the embedded conformance pair dials its own.
 interweave-test-support = { path = "../../../tests/support" }
-# The test stand-in for the store key's Keystore answers a zeroized key.
-zeroize = { version = "1", default-features = false, features = ["alloc"] }
