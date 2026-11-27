@@ -11,12 +11,12 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::{Arc, OnceLock};
+use std::sync::{Arc, Mutex, PoisonError};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use interweave_human_app_core::{
-    Command, Crossing, Facade, RosterError, Routed, SwitchOutcome, Update,
+    AddAct, AddTold, Command, Crossing, Facade, RosterError, Routed, SwitchOutcome, Update,
 };
 use interweave_human_store::StoreError;
 use interweave_human_ui_model::HeldIdentity;
@@ -58,6 +58,9 @@ pub enum ToFacade {
     /// identity it replaces, which therefore runs first
     /// (`interweave_human_app_core::ModelSide::switch`).
     Front(EndpointId),
+    /// What the person did with the add form or the list of identities
+    /// (`Facade::add`): no identity's, so it names none.
+    Add(AddAct),
     /// Close the session and stop. The lease is released; the daemon is
     /// not asked to stop (ADR-0040).
     Close,
@@ -117,6 +120,14 @@ pub enum FromFacade {
     /// when they change, never at a turn that changed nothing
     /// (`Roster::held_if_changed`).
     Held(Vec<HeldIdentity>),
+    /// Identities held since start, made while the facade runs
+    /// (`Facade::take_held_more`): sent before any update for them and
+    /// before the held list that names them, so the window gives each a
+    /// model (`ModelSide::hold_more`) before it is told anything of it.
+    HeldMore(Vec<EndpointId>),
+    /// What came of an add form's act or of a settle
+    /// (`Facade::take_add_told`).
+    Add(AddTold),
     /// The session is closed and the thread is ending.
     Closed,
 }
@@ -137,12 +148,14 @@ pub struct FacadeThread {
     /// at a time, however many messages wait.
     woken: Arc<AtomicBool>,
     /// The identities held and the one in front at start, set once the
-    /// facade is built and before its first message is sent. Beside the
-    /// queue rather than in it: the queue's bound counts what the window
-    /// has not taken of the facade's output, as it did with one identity,
-    /// and a facade waiting on a full queue must still have turned once
+    /// facade is built and before its first message is sent, and grown
+    /// by each identity held later before its [`FromFacade::HeldMore`]
+    /// is sent. Beside the queue rather than in it: the queue's bound
+    /// counts what the window has not taken of the facade's output, as it
+    /// did with one identity, and a facade waiting on a full queue must
+    /// still have turned once
     /// (`closing_while_the_facade_waits_on_a_full_queue_completes`).
-    held: Arc<OnceLock<Held>>,
+    held: Arc<Mutex<Option<Held>>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -185,7 +198,7 @@ impl FacadeThread {
         let (send, from_facade) = mpsc::sync_channel(capacity);
         let woken = Arc::new(AtomicBool::new(false));
         let wake = Arc::clone(&woken);
-        let held = Arc::new(OnceLock::new());
+        let held = Arc::new(Mutex::new(None));
         let named = Arc::clone(&held);
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
@@ -231,7 +244,7 @@ impl FacadeThread {
                     }
                     // Before any message: a take that holds an update
                     // finds the identities named.
-                    let _ = named.set(Held {
+                    *named.lock().unwrap_or_else(PoisonError::into_inner) = Some(Held {
                         held: side.held(),
                         front: side.front(),
                     });
@@ -257,6 +270,44 @@ impl FacadeThread {
                             for update in updates {
                                 out(FromFacade::Update(identity.clone(), Box::new(update)));
                             }
+                        }
+                    };
+                    // After a turn and after an add act, either of which
+                    // may hold an identity (`Roster::hold_added`), and
+                    // before anything else is sent, the turn's own updates
+                    // included: the identities held since, then each
+                    // one's start, then -- after the caller's own -- the
+                    // held list. The window drops an update for an
+                    // identity it has no model of (`ModelSide::apply_as`
+                    // answers false), and a held list told before that
+                    // model existed reaches it at the list's next change
+                    // (`ModelSide::hold_more`); the order is held by
+                    // `a_record_left_by_an_earlier_run_is_settled_at_start_through_the_real_thread`.
+                    let held_more = |side: &mut F| {
+                        let more = side.take_held_more();
+                        if !more.is_empty() {
+                            if let Some(named) = named
+                                .lock()
+                                .unwrap_or_else(PoisonError::into_inner)
+                                .as_mut()
+                            {
+                                named.held = side.held();
+                            }
+                            out(FromFacade::HeldMore(
+                                more.iter().map(|(identity, _)| identity.clone()).collect(),
+                            ));
+                            for (identity, start) in more {
+                                match start {
+                                    Ok(start) => out(FromFacade::Update(
+                                        identity,
+                                        Box::new(Update::Started(Box::new(start))),
+                                    )),
+                                    Err(_) => out(FromFacade::ListingFailed),
+                                }
+                            }
+                        }
+                        for told in side.take_add_told() {
+                            out(FromFacade::Add(told));
                         }
                     };
                     let mut daemon: Option<Option<bool>> = None;
@@ -300,6 +351,10 @@ impl FacadeThread {
                                         report("the identity in front could not be remembered");
                                     }
                                 }
+                                Some(ToFacade::Add(act)) => {
+                                    side.add(act, now());
+                                    held_more(&mut side);
+                                }
                                 Some(ToFacade::Close) | None => {
                                     closing = true;
                                     break;
@@ -310,7 +365,13 @@ impl FacadeThread {
                             side.close().await;
                             break;
                         }
-                        routed(side.turn(now()).await);
+                        let turned = side.turn(now()).await;
+                        // Before the turn's own updates: a turn that holds
+                        // an identity routes it the first identity's
+                        // connectivity in the same answer
+                        // (`Roster::turn`), which its model must exist for.
+                        held_more(&mut side);
+                        routed(turned);
                         // After the commands and the turn: either may
                         // change what an identity's row says.
                         if let Some(held) = side.held_identities() {
@@ -380,12 +441,25 @@ impl FacadeThread {
         self.to_facade.send(message).is_ok()
     }
 
+    /// Hand over what the person did with the add form or the list of
+    /// identities ([`ToFacade::Add`]); what came of it comes back as
+    /// [`FromFacade::Add`]. False once the facade thread has ended.
+    #[must_use]
+    pub fn add(&self, act: AddAct) -> bool {
+        self.to_facade.send(ToFacade::Add(act)).is_ok()
+    }
+
     /// The identities held, in held order, and the one in front at start:
     /// `None` until the facade is built, and set before its first message,
-    /// so a [`take`](Self::take) that returns an update finds it set.
+    /// so a [`take`](Self::take) that returns an update finds it set. An
+    /// identity held later is in it before its [`FromFacade::HeldMore`]
+    /// is sent.
     #[must_use]
-    pub fn held(&self) -> Option<&Held> {
-        self.held.get()
+    pub fn held(&self) -> Option<Held> {
+        self.held
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
     }
 
     /// What the facade side sent since the last call, in order. Answers

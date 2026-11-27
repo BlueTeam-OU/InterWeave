@@ -9,10 +9,16 @@
 //! entry the endpoint overlay added for this client's kind, each with
 //! its own key source. A roster of one answers as `main`'s one facade
 //! side did (app-core's `a_roster_of_one_behaves_as_its_facade_side`).
+//!
+//! The roster can also hold an identity made while it runs -- by an add
+//! form's Create, or found by a settle of a pending-add record -- over the
+//! same binding, the profile's `endpoint-keys/` and the filesystem
+//! custody each held identity's key opens under (`Roster::adding`).
 
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use interweave_human_app_core::{KeySource, Roster, RosterConfig};
+use interweave_human_app_core::{AddFactory, KeySource, Roster, RosterConfig};
 use interweave_human_store::HumanStore;
 use interweave_human_store::identity_key::FilesystemCustody;
 use interweave_ipc_client::{IpcBinding, SocketPaths};
@@ -74,6 +80,15 @@ pub fn facade_over_ipc(
             .filter_map(|h| Some((h.endpoint.clone(), h.alias.clone()?)))
             .collect(),
     };
+    let factory = AddFactory {
+        bindings: {
+            let binding = binding.clone();
+            Box::new(move |_| (binding.clone(), binding.clone()))
+        },
+        admin: Arc::new(binding.clone()),
+        paths: profile.paths.clone(),
+        cipher: Arc::new(FilesystemCustody),
+    };
     move || {
         let mut roster = Roster::new(
             config,
@@ -82,7 +97,8 @@ pub fn facade_over_ipc(
             wall_ms,
             0,
         )
-        .map_err(FacadeFault::from)?;
+        .map_err(FacadeFault::from)?
+        .adding(factory);
         // A file this build refuses is named on stderr by its kind, never
         // its content, and the identity's page says so and offers what it
         // can.

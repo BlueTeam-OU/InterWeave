@@ -3724,6 +3724,7 @@ dependencies = [
  "interweave-human-ui-model",
  "interweave-human-ui-slint",
  "interweave-ipc-client",
+ "interweave-local-client-api",
  "interweave-local-client-fake",
  "interweave-profile-config",
  "interweave-profile-identity",
