@@ -15,6 +15,7 @@ mod common;
 
 use std::collections::{BTreeSet, VecDeque};
 use std::future::Future;
+use std::os::unix::fs::PermissionsExt as _;
 use std::sync::{Arc, Mutex};
 use std::task::Poll;
 use std::time::Duration;
@@ -22,12 +23,13 @@ use std::time::Duration;
 use interweave_human_store::identity_key::{self, CipherFailure, Custody, KeyCipher};
 use interweave_human_store::{HumanStore, StoreError, StoreOptions};
 use interweave_human_transport_client::{
-    ADD_WAIT_MS, AddOutcome, FormAdd, Left, Local, PendingAddStore,
+    ADD_WAIT_MS, AddOutcome, Ended, FormAdd, KeptBecause, Left, Local, PendingAddStore, Settle,
+    Settled,
 };
 use interweave_local_client_api::{
     AdminBinding, AdminCapability, AdminPort, AdminStatus, EndpointAddChange, EndpointAddRefusal,
-    EndpointAdminView, EndpointRemoveChange, EndpointSource, Generation, LocalAdminPort,
-    TrustAdminView, TrustChange,
+    EndpointAdminView, EndpointRemoveChange, EndpointRemoveRefusal, EndpointSource, Generation,
+    LocalAdminPort, TrustAdminView, TrustChange,
 };
 use interweave_profile_config::endpoint_key;
 use interweave_profile_config::paths::ProfilePaths;
@@ -424,13 +426,41 @@ impl Device {
 
     /// Poll `form` at `now`.
     fn poll(&mut self, form: &mut FormAdd<Admins>, now: u64) -> Option<AddOutcome> {
+        self.poll_ended(form, now).map(|ended| ended.outcome)
+    }
+
+    fn poll_ended(&mut self, form: &mut FormAdd<Admins>, now: u64) -> Option<Ended> {
         let mut local = self.local();
         form.poll(now, &mut local)
     }
 
+    fn admins(&self) -> Arc<Admins> {
+        Arc::new(Admins(self.log.clone()))
+    }
+
+    /// A record and its key file, as a form whose add ended unknown left
+    /// them: the key sealed under the device's custody.
+    fn left_by_a_form(&mut self) -> EndpointId {
+        let id = identity_key::create(&self.paths, &self.keys)
+            .expect("a key")
+            .endpoint()
+            .clone();
+        self.records.store.add_pending_add(&id).expect("a record");
+        id
+    }
+
+    /// A settle of every record but `open`'s, polled at each of `times`
+    /// until it ends.
+    fn settle(&mut self, open: &[EndpointId], times: &[u64]) -> Option<Vec<Settled>> {
+        let admins = self.admins();
+        let mut local = self.local();
+        let mut settle = Settle::of(&admins, &local, open).expect("the records read");
+        times.iter().find_map(|now| settle.poll(*now, &mut local))
+    }
+
     /// Start a Create of `name` and poll it once, expecting it to end.
     fn create(&mut self, form: &mut FormAdd<Admins>, name: &str, now: u64) -> AddOutcome {
-        assert!(form.create(name), "a Create starts");
+        assert!(form.create(name, &[]), "a Create starts");
         self.poll(form, now)
             .expect("the Create ends without waiting")
     }
@@ -697,7 +727,7 @@ fn an_add_unanswered_for_the_wait_is_unknown_and_no_longer_waited_for() {
     device.script(|s| s.adds.push_back(Reply::Holds));
     let mut form = device.form();
     let start = 1_000;
-    assert!(form.create("Anna"));
+    assert!(form.create("Anna", &[]));
     assert_eq!(device.poll(&mut form, start), None, "the add is waited for");
     assert!(form.is_running());
     // The list before the add closed; the add's connection stays open.
@@ -769,7 +799,7 @@ fn found_is_the_id_listed_with_its_key_file_there() {
         let mut device = Device::new();
         device.script(|s| s.adds.push_back(Reply::Holds));
         let mut form = device.form();
-        assert!(form.create("Anna"));
+        assert!(form.create("Anna", &[]));
         assert_eq!(device.poll(&mut form, 0), None);
         let id = form.endpoint().cloned().unwrap();
         device.script(|s| s.listed = vec![view(&id, "anna-listed")]);
@@ -872,7 +902,7 @@ fn a_record_whose_delete_fails_ends_not_finished_and_the_next_create_sends_no_ad
     );
     assert!(device.log.adds().is_empty(), "still no add");
     assert!(device.records().is_empty());
-    assert!(!form.create("Anna"), "no Create after Done");
+    assert!(!form.create("Anna", &[]), "no Create after Done");
 
     // Not listed: the endpoint may have gone since, an outcome not known,
     // and the Create after it sends an add again.
@@ -918,7 +948,7 @@ fn a_first_add_answered_exists_is_read_from_the_list() {
     let mut device = Device::new();
     device.script(|s| s.adds.push_back(Reply::Holds));
     let mut form = device.form();
-    assert!(form.create("Anna"));
+    assert!(form.create("Anna", &[]));
     assert_eq!(device.poll(&mut form, 0), None);
     let id = form.endpoint().cloned().unwrap();
     // The held add times out unknown; the Create after it is answered
@@ -1062,7 +1092,7 @@ fn leaving_after_an_unknown_or_a_created_add_keeps_the_key_and_the_record() {
     let mut device = Device::new();
     device.script(|s| s.adds.push_back(Reply::Holds));
     let mut form = device.form();
-    assert!(form.create("Anna"));
+    assert!(form.create("Anna", &[]));
     assert_eq!(device.poll(&mut form, 0), None);
     let id = form.endpoint().cloned().unwrap();
     assert_eq!(device.leave(form), Left::Kept(id.clone()));
@@ -1084,4 +1114,358 @@ fn a_key_that_cannot_be_deleted_on_leaving_keeps_the_record() {
         vec![id],
         "the record is kept for the settle"
     );
+}
+
+fn kept(endpoint: &EndpointId, because: KeptBecause) -> Settled {
+    Settled::Kept {
+        endpoint: endpoint.clone(),
+        because,
+    }
+}
+
+fn remove_steps(device: &Device) -> Vec<Step> {
+    device
+        .log
+        .steps()
+        .into_iter()
+        .filter(|s| matches!(s, Step::Removed { .. }))
+        .collect()
+}
+
+#[test]
+fn a_failed_list_keeps_the_record_and_deletes_nothing() {
+    for (failure, times) in [
+        (
+            Reply::Now(Err(TransportError::BackendUnavailable)),
+            &[0][..],
+        ),
+        (Reply::Holds, &[0, ADD_WAIT_MS - 1, ADD_WAIT_MS][..]),
+    ] {
+        let mut device = Device::new();
+        let id = device.left_by_a_form();
+        device.log.take();
+        device.script(|s| s.lists.push_back(failure));
+        assert_eq!(
+            device.settle(&[], times),
+            Some(vec![kept(&id, KeptBecause::ListFailed)])
+        );
+        assert_eq!(device.records(), vec![id.clone()], "the record is kept");
+        assert!(device.key_file(&id), "the key file is kept");
+        assert!(
+            !device.log.steps().iter().any(|s| matches!(
+                s,
+                Step::Removed { .. } | Step::Retired(_) | Step::Forgot { .. }
+            )),
+            "nothing deleted, no remove: {:?}",
+            device.log.steps()
+        );
+    }
+}
+
+#[test]
+fn a_listed_id_with_its_key_file_becomes_an_identity_at_the_records_delete() {
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    device.script(|s| s.listed = vec![view(&id, "anna")]);
+    device.log.take();
+    assert_eq!(
+        device.settle(&[], &[0]),
+        Some(vec![Settled::Identity {
+            endpoint: id.clone(),
+            alias: Some("anna".to_owned()),
+        }])
+    );
+    assert!(device.records().is_empty(), "the record is deleted");
+    assert!(device.key_file(&id), "the key is the identity's");
+    assert!(remove_steps(&device).is_empty(), "no remove");
+
+    // The delete fails: no identity yet, and nothing discarded.
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    device.script(|s| {
+        s.listed = vec![view(&id, "anna")];
+        s.refuse_forgets = true;
+    });
+    assert_eq!(
+        device.settle(&[], &[0]),
+        Some(vec![kept(&id, KeptBecause::RecordNotDeleted)])
+    );
+    assert_eq!(device.records(), vec![id.clone()]);
+    assert!(device.key_file(&id));
+    assert!(remove_steps(&device).is_empty());
+}
+
+#[test]
+fn an_unlisted_id_is_discarded_key_path_platform_key_remove_then_record() {
+    for answer in [
+        Ok(EndpointRemoveChange::Removed {
+            revoked_epoch: None,
+        }),
+        Err(TransportError::EndpointUnknown),
+    ] {
+        let mut device = Device::new();
+        let id = device.left_by_a_form();
+        device.log.take();
+        device.script(|s| s.removes.push_back(Reply::Now(answer.clone())));
+        assert_eq!(
+            device.settle(&[], &[0]),
+            Some(vec![Settled::Discarded(id.clone())]),
+            "{answer:?}"
+        );
+        let steps: Vec<Step> = device
+            .log
+            .steps()
+            .into_iter()
+            .filter(|s| {
+                matches!(
+                    s,
+                    Step::Retired(_) | Step::Removed { .. } | Step::Forgot { .. }
+                )
+            })
+            .collect();
+        assert_eq!(
+            steps,
+            vec![
+                Step::Retired(identity_key::alias("default", &id)),
+                Step::Removed {
+                    endpoint: id.clone(),
+                    key_file: false,
+                },
+                Step::Forgot {
+                    endpoint: id.clone(),
+                    key_file: false,
+                },
+            ],
+            "the key path, the platform key, the remove, then the record: {answer:?}"
+        );
+        assert!(device.records().is_empty());
+    }
+}
+
+#[test]
+fn a_listed_id_whose_key_path_is_empty_is_discarded() {
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    std::fs::remove_file(identity_key::key_path(&device.paths, &id)).unwrap();
+    device.script(|s| s.listed = vec![view(&id, "anna")]);
+    assert_eq!(
+        device.settle(&[], &[0]),
+        Some(vec![Settled::Discarded(id.clone())])
+    );
+    assert_eq!(remove_steps(&device).len(), 1, "the remove is sent");
+    assert!(device.records().is_empty());
+}
+
+#[test]
+fn a_key_path_that_cannot_be_emptied_sends_no_remove_and_keeps_the_record() {
+    // The platform key.
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    device.script(|s| s.refuse_retires = true);
+    assert_eq!(
+        device.settle(&[], &[0]),
+        Some(vec![kept(&id, KeptBecause::KeyNotEmptied)])
+    );
+    assert!(remove_steps(&device).is_empty(), "no remove");
+    assert_eq!(device.records(), vec![id]);
+
+    // The key file, in a directory nobody may delete from.
+    let mut device = Device::new();
+    let id = device.left_by_a_form();
+    let dir = device
+        .paths
+        .state_dir()
+        .join(endpoint_key::ENDPOINT_KEYS_DIR);
+    let mode = |m| std::fs::Permissions::from_mode(m);
+    std::fs::set_permissions(&dir, mode(0o500)).unwrap();
+    let settled = device.settle(&[], &[0]);
+    std::fs::set_permissions(&dir, mode(0o700)).unwrap();
+    assert_eq!(settled, Some(vec![kept(&id, KeptBecause::KeyNotEmptied)]));
+    assert!(device.key_file(&id), "the file stands");
+    assert!(remove_steps(&device).is_empty(), "no remove");
+    assert_eq!(device.records(), vec![id]);
+}
+
+#[test]
+fn any_other_answer_of_the_remove_keeps_the_record() {
+    let refused = |reason| {
+        Reply::Now(Ok(EndpointRemoveChange::Refused {
+            reason,
+            detail: String::new(),
+        }))
+    };
+    for answer in [
+        Reply::Now(Err(TransportError::Internal)),
+        Reply::Now(Err(TransportError::BackendUnavailable)),
+        refused(EndpointRemoveRefusal::Authored),
+        refused(EndpointRemoveRefusal::Default),
+        Reply::Holds,
+    ] {
+        let mut device = Device::new();
+        let id = device.left_by_a_form();
+        let shown = format!("{answer:?}");
+        device.script(|s| s.removes.push_back(answer));
+        assert_eq!(
+            device.settle(&[], &[0, ADD_WAIT_MS]),
+            Some(vec![kept(&id, KeptBecause::RemoveNotDone)]),
+            "{shown}"
+        );
+        assert_eq!(remove_steps(&device).len(), 1, "{shown}");
+        assert_eq!(device.records(), vec![id], "{shown}");
+    }
+}
+
+#[test]
+fn a_key_file_no_record_names_is_never_touched() {
+    let mut device = Device::new();
+    // A key a deployment minted, or another program's add in progress:
+    // in `endpoint-keys/`, unlisted, and named by no record.
+    let stranger = identity_key::create(&device.paths, &device.keys)
+        .unwrap()
+        .endpoint()
+        .clone();
+    let id = device.left_by_a_form();
+    device.log.take();
+    assert_eq!(
+        device.settle(&[], &[0]),
+        Some(vec![Settled::Discarded(id.clone())])
+    );
+    assert!(device.key_file(&stranger), "the stranger's key stands");
+    assert_eq!(
+        device
+            .log
+            .count(|s| *s == Step::Retired(identity_key::alias("default", &stranger))),
+        0
+    );
+    assert_eq!(
+        remove_steps(&device),
+        vec![Step::Removed {
+            endpoint: id,
+            key_file: false
+        }]
+    );
+}
+
+#[test]
+fn the_settle_skips_the_open_forms_record_and_no_other() {
+    let mut device = Device::new();
+    let open = device.left_by_a_form();
+    let others = [device.left_by_a_form(), device.left_by_a_form()];
+    device.log.take();
+    assert_eq!(
+        device.settle(std::slice::from_ref(&open), &[0]),
+        Some(others.iter().cloned().map(Settled::Discarded).collect())
+    );
+    assert_eq!(device.records(), vec![open.clone()]);
+    assert!(device.key_file(&open), "the open form's key stands");
+    assert_eq!(
+        device.log.count(|s| *s == Step::Listed),
+        2,
+        "one list per record settled"
+    );
+}
+
+#[test]
+fn a_write_refused_at_the_bound_settles_once_and_is_made_once_more() {
+    // Run apart, so that a settle that never ends fails the test rather
+    // than holding the suite.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        at_the_bound();
+        tx.send(()).ok();
+    });
+    rx.recv_timeout(Duration::from_secs(120))
+        .expect("each Create ends");
+}
+
+fn at_the_bound() {
+    let full = |device: &mut Device| -> Vec<EndpointId> {
+        let ids: Vec<EndpointId> = (0..64).map(|_| device.left_by_a_form()).collect();
+        device.log.take();
+        ids
+    };
+
+    // The daemon answers: the settle frees the records, the write lands,
+    // the add is sent.
+    let mut device = Device::new();
+    let ids = full(&mut device);
+    let mut form = device.form();
+    assert!(form.create("Anna", &[]));
+    let ended = device.poll_ended(&mut form, 0).expect("ends");
+    let id = form.endpoint().cloned().unwrap();
+    assert!(
+        matches!(ended.outcome, AddOutcome::Created { .. }),
+        "{ended:?}"
+    );
+    assert_eq!(
+        ended.settled,
+        ids.iter()
+            .cloned()
+            .map(Settled::Discarded)
+            .collect::<Vec<_>>()
+    );
+    let steps = device.log.steps();
+    assert_eq!(steps.first(), Some(&Step::RecordRefused(id.clone())));
+    let recorded = position(&steps, |s| *s == Step::Recorded(id.clone()));
+    let last_remove = steps
+        .iter()
+        .rposition(|s| matches!(s, Step::Removed { .. }))
+        .unwrap();
+    assert!(last_remove < recorded, "settled, then written once more");
+    assert!(
+        position(&steps, |s| matches!(s, Step::Sealed(_))) > recorded,
+        "and only then sealed"
+    );
+    assert_eq!(device.log.adds().len(), 1);
+
+    // The daemon is down: every record is kept, the second refusal seals
+    // nothing and sends no add, and each Create settles once.
+    let mut device = Device::new();
+    let ids = full(&mut device);
+    device.script(|s| s.open_fails = Some(TransportError::BackendUnavailable));
+    let mut form = device.form();
+    for now in 0..2 {
+        assert!(form.create("Anna", &[]));
+        let ended = device.poll_ended(&mut form, now).expect("ends");
+        assert_eq!(ended.outcome, AddOutcome::Failed);
+        assert_eq!(
+            ended.settled,
+            ids.iter()
+                .map(|id| kept(id, KeptBecause::ListFailed))
+                .collect::<Vec<_>>()
+        );
+        assert_eq!(
+            device.log.count(|s| matches!(s, Step::RecordRefused(_))),
+            2,
+            "refused, settled, refused again"
+        );
+        assert_eq!(device.log.count(|s| matches!(s, Step::Sealed(_))), 0);
+        assert!(device.log.adds().is_empty());
+        device.log.take();
+    }
+    assert_eq!(device.records(), ids);
+}
+
+#[test]
+fn a_create_settles_every_record_but_those_of_forms_open_elsewhere() {
+    let mut device = Device::new();
+    let ids: Vec<EndpointId> = (0..64).map(|_| device.left_by_a_form()).collect();
+    let elsewhere = ids[0].clone();
+    let mut form = device.form();
+    assert!(form.create("Anna", std::slice::from_ref(&elsewhere)));
+    let ended = device.poll_ended(&mut form, 0).expect("ends");
+    assert!(
+        matches!(ended.outcome, AddOutcome::Created { .. }),
+        "{ended:?}"
+    );
+    assert_eq!(
+        ended.settled,
+        ids[1..]
+            .iter()
+            .cloned()
+            .map(Settled::Discarded)
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(device.records(), vec![elsewhere.clone()]);
+    assert!(device.key_file(&elsewhere), "the other form's key stands");
 }

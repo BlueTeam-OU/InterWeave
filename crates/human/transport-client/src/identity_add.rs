@@ -20,12 +20,19 @@
 //! connection, and read as no answer
 //! (`an_add_unanswered_for_the_wait_is_unknown_and_no_longer_waited_for`).
 //!
+//! [`Settle`] settles the records whose forms are gone: an id listed with
+//! its key file there becomes an identity at its record's delete, and
+//! any other id a list that answered says something of is discarded --
+//! its key path, its platform key, the administrative remove, then the
+//! record. It reaches the ids its caller gives it, which are the
+//! record's.
+//!
 //! What the add writes on this device -- the record and the key file --
 //! is reached through [`Local`], lent to each call and not kept: the
 //! store behind [`PendingAddStore`], so a test can fail one write, and
 //! the key's place and custody.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
@@ -36,6 +43,7 @@ use interweave_human_store::identity_key::{self, IdentityKey, KeyCipher};
 use interweave_human_store::{HumanStore, StoreError};
 use interweave_local_client_api::{
     AdminCapability, AdminPort as _, EndpointAddChange, EndpointAddRefusal, EndpointAdminView,
+    EndpointRemoveChange,
 };
 use interweave_profile_config::endpoint_key;
 use interweave_profile_config::paths::ProfilePaths;
@@ -198,6 +206,8 @@ enum AddFailure {
 
 type Adding = Result<EndpointAddChange, AddFailure>;
 
+type Removing = Result<EndpointRemoveChange, TransportError>;
+
 /// The endpoint list, read on a connection of its own.
 fn list<A: AssertingBinding>(binding: &Arc<A>, now: u64) -> Call<Listing> {
     let binding = Arc::clone(binding);
@@ -235,6 +245,20 @@ fn add<A: AssertingBinding>(
     )
 }
 
+/// The administrative remove of `endpoint`, on a connection of its own.
+fn remove<A: AssertingBinding>(binding: &Arc<A>, endpoint: EndpointId, now: u64) -> Call<Removing> {
+    let binding = Arc::clone(binding);
+    Call::start(
+        async move {
+            let port = binding
+                .admin(BTreeSet::from([AdminCapability::Endpoints]))
+                .await?;
+            port.remove_endpoint(endpoint).await
+        },
+        now,
+    )
+}
+
 /// What a list that answered says of one id (ADR-0061 decision 7, A
 /// 2026-11-26: Found is the id listed while its key file is at its key
 /// path).
@@ -261,9 +285,12 @@ fn seen(views: &[EndpointAdminView], endpoint: &EndpointId, paths: &ProfilePaths
 }
 
 /// Where a running Create is.
-enum Running {
+enum Running<A> {
     /// The steps on this device: the key, the record, the seal.
     Start,
+    /// The settle of the other records, after the record's write was
+    /// refused at the bound and before it is made once more.
+    Settling(Settle<A>),
     /// The list read before the add, for Found and for the aliases in use.
     Before(Call<Listing>),
     /// The add, and the alias it sent.
@@ -276,11 +303,11 @@ enum Running {
 }
 
 /// What one step of a Create leads to.
-enum Next {
+enum Next<A> {
     /// Waiting on a call.
-    Wait(Running),
+    Wait(Running<A>),
     /// Go on in this poll.
-    Go(Running),
+    Go(Running<A>),
     /// The Create ended.
     End(AddOutcome),
 }
@@ -318,7 +345,15 @@ pub struct FormAdd<A> {
     refused: Vec<EndpointAlias>,
     /// The name the running Create took its alias from.
     name: String,
-    running: Option<Running>,
+    /// The records of the other forms open now, which the running
+    /// Create's settle leaves alone.
+    open_elsewhere: Vec<EndpointId>,
+    /// The running Create settled once: a second refusal at the bound
+    /// ends it.
+    settled_once: bool,
+    /// What the running Create's settle did.
+    settled: Vec<Settled>,
+    running: Option<Running<A>>,
 }
 
 impl<A: AssertingBinding> FormAdd<A> {
@@ -340,6 +375,9 @@ impl<A: AssertingBinding> FormAdd<A> {
             done: false,
             refused: Vec::new(),
             name: String::new(),
+            open_elsewhere: Vec::new(),
+            settled_once: false,
+            settled: Vec::new(),
             running: None,
         }
     }
@@ -365,26 +403,32 @@ impl<A: AssertingBinding> FormAdd<A> {
         &self.refused
     }
 
-    /// Start a Create for the card named `name`. Nothing runs until
-    /// [`Self::poll`]. Whether it started: not while one runs, and not
-    /// after Done.
-    pub fn create(&mut self, name: &str) -> bool {
+    /// Start a Create for the card named `name`. `open_elsewhere` are
+    /// the records of the other add forms open now, which a settle at the
+    /// bound leaves alone (none where one form is open at a time).
+    /// Nothing runs until [`Self::poll`]. Whether it started: not while
+    /// one runs, and not after Done.
+    pub fn create(&mut self, name: &str, open_elsewhere: &[EndpointId]) -> bool {
         if self.running.is_some() || self.done {
             return false;
         }
         name.clone_into(&mut self.name);
+        open_elsewhere.clone_into(&mut self.open_elsewhere);
+        self.settled_once = false;
+        self.settled.clear();
         self.running = Some(Running::Start);
         true
     }
 
     /// Run the Create as far as it goes without waiting, at `now` by the
-    /// caller's clock: how it ended, or `None` while a call is waited
-    /// for (and when no Create runs).
+    /// caller's clock: how it ended, with what its settle at the bound
+    /// did, or `None` while a call is waited for (and when no Create
+    /// runs).
     pub fn poll<S: PendingAddStore + ?Sized>(
         &mut self,
         now: u64,
         local: &mut Local<'_, S>,
-    ) -> Option<AddOutcome> {
+    ) -> Option<Ended> {
         loop {
             let running = self.running.take()?;
             match self.step(running, now, local) {
@@ -393,7 +437,12 @@ impl<A: AssertingBinding> FormAdd<A> {
                     return None;
                 }
                 Next::Go(running) => self.running = Some(running),
-                Next::End(outcome) => return Some(outcome),
+                Next::End(outcome) => {
+                    return Some(Ended {
+                        outcome,
+                        settled: std::mem::take(&mut self.settled),
+                    });
+                }
             }
         }
     }
@@ -426,12 +475,19 @@ impl<A: AssertingBinding> FormAdd<A> {
 
     fn step<S: PendingAddStore + ?Sized>(
         &mut self,
-        running: Running,
+        running: Running<A>,
         now: u64,
         local: &mut Local<'_, S>,
-    ) -> Next {
+    ) -> Next<A> {
         match running {
             Running::Start => self.start(now, local),
+            Running::Settling(mut settle) => match settle.poll(now, local) {
+                None => Next::Wait(Running::Settling(settle)),
+                Some(settled) => {
+                    self.settled.extend(settled);
+                    Next::Go(Running::Start)
+                }
+            },
             Running::Before(mut call) => match call.poll(now) {
                 None => Next::Wait(Running::Before(call)),
                 Some(answer) => {
@@ -475,7 +531,11 @@ impl<A: AssertingBinding> FormAdd<A> {
     /// a record that cannot be written seals nothing, and a key that
     /// cannot be sealed is sent in no add
     /// (`the_record_is_written_before_the_key_is_sealed_and_the_key_before_the_add`).
-    fn start<S: PendingAddStore + ?Sized>(&mut self, now: u64, local: &mut Local<'_, S>) -> Next {
+    fn start<S: PendingAddStore + ?Sized>(
+        &mut self,
+        now: u64,
+        local: &mut Local<'_, S>,
+    ) -> Next<A> {
         if self.finishing {
             return Next::Go(Running::Finishing(list(&self.binding, now)));
         }
@@ -489,10 +549,22 @@ impl<A: AssertingBinding> FormAdd<A> {
             return self.stopped(now);
         };
         if !self.recorded {
-            if local.store.add_pending_add(key.endpoint()).is_err() {
-                return self.stopped(now);
+            match local.store.add_pending_add(key.endpoint()) {
+                Ok(()) => self.recorded = true,
+                // Refused at the bound: the other records are settled
+                // first, once, and the write is made once more; a second
+                // refusal is a record that cannot be written (A
+                // 2026-11-26 (iii);
+                // `a_write_refused_at_the_bound_settles_once_and_is_made_once_more`).
+                Err(StoreError::PendingAddBound) if !self.settled_once => {
+                    self.settled_once = true;
+                    return match Settle::of(&self.binding, local, &self.open_elsewhere) {
+                        Ok(settle) => Next::Go(Running::Settling(settle)),
+                        Err(_) => self.stopped(now),
+                    };
+                }
+                Err(_) => return self.stopped(now),
             }
-            self.recorded = true;
         }
         if !self.sealed {
             if identity_key::install(local.paths, key, local.cipher).is_err() {
@@ -510,7 +582,7 @@ impl<A: AssertingBinding> FormAdd<A> {
         answer: Answered<Listing>,
         now: u64,
         local: &mut Local<'_, S>,
-    ) -> Next {
+    ) -> Next<A> {
         // A list that failed reads as an empty one here: it ends no
         // Create, and the add is safe to send.
         let views = if let Answered::Answer(Ok(views)) = answer {
@@ -557,7 +629,7 @@ impl<A: AssertingBinding> FormAdd<A> {
         alias: String,
         now: u64,
         local: &mut Local<'_, S>,
-    ) -> Next {
+    ) -> Next<A> {
         let known = self.unknown_alias.is_none();
         let Some(endpoint) = self.endpoint().cloned() else {
             return self.stopped(now);
@@ -609,7 +681,7 @@ impl<A: AssertingBinding> FormAdd<A> {
         &mut self,
         answer: Answered<Listing>,
         local: &mut Local<'_, S>,
-    ) -> Next {
+    ) -> Next<A> {
         let Some(endpoint) = self.endpoint().cloned() else {
             return Next::End(AddOutcome::Unknown);
         };
@@ -628,7 +700,7 @@ impl<A: AssertingBinding> FormAdd<A> {
         &mut self,
         answer: Answered<Listing>,
         local: &mut Local<'_, S>,
-    ) -> Next {
+    ) -> Next<A> {
         let Some(endpoint) = self.endpoint().cloned() else {
             return Next::End(AddOutcome::NotFinished);
         };
@@ -658,7 +730,7 @@ impl<A: AssertingBinding> FormAdd<A> {
         endpoint: EndpointId,
         alias: Option<String>,
         local: &mut Local<'_, S>,
-    ) -> Next {
+    ) -> Next<A> {
         self.landed = true;
         if local.store.forget_pending_add(&endpoint).is_err() {
             self.finishing = true;
@@ -672,14 +744,14 @@ impl<A: AssertingBinding> FormAdd<A> {
 
     /// An add of the key ended unknown: its alias is the one every later
     /// add sends, and the list is read.
-    fn unknown(&mut self, alias: String, now: u64) -> Next {
+    fn unknown(&mut self, alias: String, now: u64) -> Next<A> {
         self.unknown_alias.get_or_insert(alias);
         Next::Go(Running::After(list(&self.binding, now)))
     }
 
     /// The Create stopped before its add: nothing created, unless an
     /// earlier add of the key ended unknown, which the list then reads.
-    fn stopped(&self, now: u64) -> Next {
+    fn stopped(&self, now: u64) -> Next<A> {
         if self.unknown_alias.is_some() {
             Next::Go(Running::After(list(&self.binding, now)))
         } else {
@@ -694,5 +766,208 @@ impl<A: AssertingBinding> FormAdd<A> {
         if self.refused.len() < REFUSED_ALIASES && !self.refused.contains(&alias) {
             self.refused.push(alias);
         }
+    }
+}
+
+/// What [`FormAdd::poll`] gives when a Create ends.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Ended {
+    /// How it ended.
+    pub outcome: AddOutcome,
+    /// What its settle did, when its record was refused at the bound: an
+    /// identity found there is one from now on, as one a settle at the
+    /// start finds.
+    pub settled: Vec<Settled>,
+}
+
+/// How the settle of one record ended (§6.2, "A pending-add record is
+/// settled").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Settled {
+    /// Listed with its key file at its key path: the record is deleted,
+    /// and the id is an identity from now on, named by its alias until it
+    /// has a card.
+    Identity {
+        /// The identity.
+        endpoint: EndpointId,
+        /// The list's row's alias.
+        alias: Option<String>,
+    },
+    /// Discarded: its key path and platform key emptied, its remove
+    /// answered `removed` or `EndpointUnknown`, and its record deleted.
+    Discarded(EndpointId),
+    /// Kept, to be settled again at the next moment.
+    Kept {
+        /// The record's id.
+        endpoint: EndpointId,
+        /// Why.
+        because: KeptBecause,
+    },
+}
+
+/// Why a settle kept a record.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum KeptBecause {
+    /// The list failed, or did not answer within the wait: nothing was
+    /// deleted.
+    ListFailed,
+    /// The id is listed, and whether a file is at its key path could not
+    /// be read: neither an identity nor a discard.
+    KeyPathUnread,
+    /// The key path or the platform key could not be emptied: no remove
+    /// was sent.
+    KeyNotEmptied,
+    /// The remove answered something other than `removed` or
+    /// `EndpointUnknown`, or nothing within the wait.
+    RemoveNotDone,
+    /// The record's delete failed.
+    RecordNotDeleted,
+}
+
+/// Where the settle of the record in hand is.
+enum Settling {
+    Listing(Call<Listing>),
+    Removing(Call<Removing>),
+}
+
+/// One settle of pending-add records whose forms are gone (§6.2; ADR-0061
+/// decision 7, A 2026-11-26 (ii)): one list per record, then the
+/// record's delete or its discard. The moments it runs at -- the start,
+/// the list's opening, a form's closing -- are the caller's; the fourth,
+/// a write refused at the bound, is [`FormAdd`]'s own.
+pub struct Settle<A> {
+    binding: Arc<A>,
+    records: VecDeque<EndpointId>,
+    current: Option<(EndpointId, Settling)>,
+    report: Vec<Settled>,
+}
+
+impl<A: AssertingBinding> Settle<A> {
+    /// A settle of `records`, which are every record but those of the add
+    /// forms open now (`the_settle_skips_the_open_forms_record_and_no_other`):
+    /// it touches no key file a record does not name
+    /// (`a_key_file_no_record_names_is_never_touched`).
+    #[must_use]
+    pub fn new(binding: Arc<A>, records: Vec<EndpointId>) -> Self {
+        Self {
+            binding,
+            records: records.into(),
+            current: None,
+            report: Vec::new(),
+        }
+    }
+
+    /// A settle of every record the store holds but `open`'s, the records
+    /// of the add forms open now.
+    ///
+    /// # Errors
+    /// The store's, reading the record.
+    pub fn of<S: PendingAddStore + ?Sized>(
+        binding: &Arc<A>,
+        local: &Local<'_, S>,
+        open: &[EndpointId],
+    ) -> Result<Self, StoreError> {
+        let records = local
+            .store
+            .pending_adds()?
+            .into_iter()
+            .filter(|id| !open.contains(id))
+            .collect();
+        Ok(Self::new(Arc::clone(binding), records))
+    }
+
+    /// Settle as far as it goes without waiting, at `now` by the caller's
+    /// clock: what was done for each record once every record is
+    /// settled, or `None` while a call is waited for. Polled again after
+    /// that, it has nothing left and gives an empty list.
+    pub fn poll<S: PendingAddStore + ?Sized>(
+        &mut self,
+        now: u64,
+        local: &mut Local<'_, S>,
+    ) -> Option<Vec<Settled>> {
+        loop {
+            let (endpoint, settling) = match self.current.take() {
+                Some(current) => current,
+                None => match self.records.pop_front() {
+                    Some(endpoint) => (endpoint, Settling::Listing(list(&self.binding, now))),
+                    None => return Some(std::mem::take(&mut self.report)),
+                },
+            };
+            match settling {
+                Settling::Listing(mut call) => match call.poll(now) {
+                    None => {
+                        self.current = Some((endpoint, Settling::Listing(call)));
+                        return None;
+                    }
+                    Some(answer) => {
+                        drop(call);
+                        self.listed(endpoint, answer, now, local);
+                    }
+                },
+                Settling::Removing(mut call) => match call.poll(now) {
+                    None => {
+                        self.current = Some((endpoint, Settling::Removing(call)));
+                        return None;
+                    }
+                    Some(answer) => {
+                        drop(call);
+                        self.removed(endpoint, &answer, local);
+                    }
+                },
+            }
+        }
+    }
+
+    /// The list's answer for one record.
+    fn listed<S: PendingAddStore + ?Sized>(
+        &mut self,
+        endpoint: EndpointId,
+        answer: Answered<Listing>,
+        now: u64,
+        local: &mut Local<'_, S>,
+    ) {
+        let Answered::Answer(Ok(views)) = answer else {
+            return self.kept(endpoint, KeptBecause::ListFailed);
+        };
+        match seen(&views, &endpoint, local.paths) {
+            Seen::Found(alias) => match local.store.forget_pending_add(&endpoint) {
+                Ok(_) => self.report.push(Settled::Identity { endpoint, alias }),
+                Err(_) => self.kept(endpoint, KeptBecause::RecordNotDeleted),
+            },
+            Seen::Unsure => self.kept(endpoint, KeptBecause::KeyPathUnread),
+            // The key path first, then the platform key, and the remove
+            // after them, so an add applied late is refused `key_missing`
+            // (`an_unlisted_id_is_discarded_key_path_platform_key_remove_then_record`).
+            Seen::KeyGone | Seen::Absent => {
+                if identity_key::remove(local.paths, &endpoint, local.cipher).is_err() {
+                    return self.kept(endpoint, KeptBecause::KeyNotEmptied);
+                }
+                let call = remove(&self.binding, endpoint.clone(), now);
+                self.current = Some((endpoint, Settling::Removing(call)));
+            }
+        }
+    }
+
+    /// The remove's answer for one record being discarded.
+    fn removed<S: PendingAddStore + ?Sized>(
+        &mut self,
+        endpoint: EndpointId,
+        answer: &Answered<Removing>,
+        local: &mut Local<'_, S>,
+    ) {
+        match answer {
+            Answered::Answer(
+                Ok(EndpointRemoveChange::Removed { .. }) | Err(TransportError::EndpointUnknown),
+            ) => match local.store.forget_pending_add(&endpoint) {
+                Ok(_) => self.report.push(Settled::Discarded(endpoint)),
+                Err(_) => self.kept(endpoint, KeptBecause::RecordNotDeleted),
+            },
+            Answered::Answer(Ok(EndpointRemoveChange::Refused { .. }) | Err(_))
+            | Answered::NoAnswer => self.kept(endpoint, KeptBecause::RemoveNotDone),
+        }
+    }
+
+    fn kept(&mut self, endpoint: EndpointId, because: KeptBecause) {
+        self.report.push(Settled::Kept { endpoint, because });
     }
 }
