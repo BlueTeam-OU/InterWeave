@@ -578,11 +578,13 @@ Remove's dialog alone (§7), since a new identity never takes a removed
 one's route. Then **Create** (`CreateIdentity`), filled. No id field, no
 label field, no advertise control (§8).
 
-**A back arrow and an overflow say where they lead** (rust-ui-dev-02's
+**A back arrow names where it leads, and an overflow names whose
+options it holds** (rust-ui-dev-02's
 QUESTION 01a21bbb, T3 and T4). The add form's back arrow is named
 `BackToIdentities` when the form was opened from Your identities, and
-`BackToCard` when it was opened from Add another identity, the card
-editor's overflow item with one identity held (cards §5.2). An
+`BackToCard` when it was opened from Add another identity, an item
+that the card editor's overflow shows while one identity is held
+(cards §5.2). An
 identity's page opened from a row of Your identities names its back
 arrow `BackToIdentities` too. `BackToConversations` stays the name of a
 back arrow that returns to Chats, and no other back arrow takes it: a
@@ -631,20 +633,21 @@ no card is named by it.
 **Create waits for the first identity's seed** (rust-ui-dev-02's T1).
 The ruling (plan §30, the note of 2026-11-26 (iii)): "A run in which
 no seed was answered offers no Add; what the person reads there is the
-add form's design to say." Read here as: the control that creates an
-identity is Create. So Add an identity and Add another identity open
-the form in every run, and the form offers Create only once, in this
-run, a seed was answered `seeded` or `present`. Until then, Create is
-not offered, and `IdentityAddWaitsSeed` ("InterWeave cannot create an
-identity yet. Create appears here once it can, and what you wrote is
-kept.") shows in its place, as `IdentityLimit` and
+add form's design to say." This note reads "Add" in that ruling as the
+control that creates an identity, which is Create. So Add an identity
+and Add another identity open the form in every run, and the form
+offers Create only after a seed was answered `seeded` or `present` in
+this run. Until then, Create is not offered, and `IdentityAddWaitsSeed`
+("InterWeave cannot create an identity yet. When it can, Create appears
+here. What you entered stays on this form.") shows in its place, as
+`IdentityLimit` and
 `IdentityAddKeyGone` do. The line is a focus stop in Create's place in
 the reading order (§11). The fields take input while it shows. When a
 seed is answered while the form is open, Create takes the line's
-place, and focus moves to Create if it was on the line (§11 F25);
+place, and focus moves to Create if focus was on the line (§11 F25);
 nothing is announced. No key exists before Create, so leaving the form
-while the line shows is leaving with no add sent ("The form is left",
-its first bullet). At the bound, `IdentityLimit` shows in Create's
+while the line shows sends no add ("The form is left", its first
+bullet). At the bound, `IdentityLimit` shows in Create's
 place whether or not a seed was answered. **Alternative named:** no
 Add control in such a run. Rejected: with one identity, Add is reached
 only from the card editor's overflow, and an item that is there in one
@@ -652,7 +655,7 @@ run and missing in the next, with nothing on screen to say why, is a
 hidden mode (heuristic: visibility of system status). On the form, the
 person can also write the card while waiting. This reading of the
 ruling, and what asks the seed again while the form waits, are
-architect-cto's (§16 Q12). Until they are ruled, this paragraph is a
+architect-cto's to rule (§16 Q12). Until they are ruled, this paragraph is a
 proposal, and acceptance 10 (u) waits for that ruling.
 
 **Create**, on a valid form (cards §5.2's input rules):
@@ -739,10 +742,11 @@ proposal, and acceptance 10 (u) waits for that ruling.
    is never in front. So a build that offers Add also builds the page of
    an identity not in front, opened from its row in Your identities
    (cards §5.2, with `IdentityNotInFront` under its app bar, cards
-   §5.7.2): a new row never opens nothing, and its `IdentityCardNotSaved`
-   never points to a page that does not exist (rust-ui-dev-02's U2,
-   option (a)). **Alternative named:** the row stays inert, and the line
-   waits until that page is built. Rejected: the person could then
+   §5.7.2), so that a new identity's row always opens a page, and the
+   page that its `IdentityCardNotSaved` points to always exists
+   (rust-ui-dev-02's U2, option (a)). **Alternative named:** the row
+   stays inert, and `IdentityCardNotSaved` waits until that page is
+   built. Rejected: the person could then
    neither name nor remove the identity they just made. With one
    identity held before, this is the moment
    the switch and the "as" lines appear (cards §5.7.3, "When the
@@ -937,19 +941,22 @@ Outcomes other than Done, each with nothing half-made shown as made:
   editor, so cards §5.2's "Leaving with unsaved changes" holds for it.
   When the Name or Family name field holds text, or a photo was
   chosen, every way of leaving the form opens `CardDiscardChanges`
-  first. Close without saving then leaves as the next item says, and
-  Continue editing keeps the form as it was. The dialog opens also
+  first, except in the two cases that the end of this item lists.
+  Close without saving then leaves as "The form is left" says, and
+  Continue editing keeps the form as it was. The dialog also opens
   after an add that ended unknown, and while `IdentityAddUnknown`,
   `IdentityAddNotFinished` or `IdentityAddWaitsSeed` shows. In those
   cases, leaving discards the fields, which is the loss that the dialog
-  names; the key and the record are kept as the next item says, and an
-  identity that the settle finds is shown with `IdentityCardNotSaved`
-  under its row (the last item of this list). The dialog does not open
-  while `IdentityLimit` or `IdentityAddKeyGone` shows in Create's
-  place: no Create on this form can save the fields any more, and the
-  line tells the person to go back, so Continue editing would lead
-  nowhere. It does not open on an empty form, and not while Create runs,
-  since Back and Escape then do nothing (step 1). Focus is as cards
+  names; the key and the record are kept as "The form is left" says,
+  and an identity that the settle finds is shown with
+  `IdentityCardNotSaved` under its row (the last item of this list).
+  The two cases in which the dialog does not open are these. It does
+  not open while `IdentityLimit` or `IdentityAddKeyGone` shows in
+  Create's place: no Create on this form can save the fields any more,
+  as that line says, so Continue editing would lead nowhere. It does
+  not open while Create runs either, since Back and Escape then do
+  nothing (step 1). Nor does it open on an empty form, as the first
+  sentence of this item says. Focus is as cards
   §5.2 gives it for this dialog (§11 F26).
 - **The form is left** (Back, any other way of leaving in cards §5.2's
   list, or the app ends):
@@ -979,17 +986,18 @@ Outcomes other than Done, each with nothing half-made shown as made:
 - **A pending-add record is settled** at four moments: at the client's
   next start; whenever Your identities opens; whenever an add form
   closes; and when a Create's record is refused at the bound (step 2;
-  ADR-0061 decision 7, A 2026-11-26 (iii)). A form closes by any way of
-  leaving it (the item before), after the deletes that the leaving
-  makes itself; the app's end is no closing, and a record that it
-  leaves is settled at the next start. The closing is a moment of its
+  ADR-0061 decision 7, A 2026-11-26 (iii)). A form closes when it is
+  left by any of the ways that "The form is left" names other than the
+  app's end, and it closes after the deletes that the leaving makes
+  itself. The app's end does not close a form: a record left when the
+  app ends is settled at the next start. The closing is a moment of its
   own (architect-cto's ruling, REPLY 01a21bbc-0911, and REQUEST 01a21bbc-4278;
   ADR-0061 decision 7, A 2026-11-27): with one identity held, the form
-  opens from the card editor, and Back returns there, so no Your
-  identities opens after it (cards §5.1, "Shown while two or more
-  identities are held"), and without that moment the form's record
+  opens from the card editor, and Back returns there, so Your
+  identities does not open after Back (cards §5.1, "Shown while two or
+  more identities are held"), and without that moment the form's record
   would wait for the next start. When the closing opens Your
-  identities, the two moments are met by one settle. The settle
+  identities, one settle runs for both moments. The settle
   handles every record except the record of a form that is open now. Each list or remove that a settle
   sends waits, on the client's side, at most the add's wait (above) for
   its answer: a list with no answer in that time is a list that
@@ -1035,9 +1043,9 @@ Outcomes other than Done, each with nothing half-made shown as made:
   identities opens and when a form closes, the person is not on a form;
   at the bound, the open form shows Create's progress indicator until
   the second write of its record (step 1). An identity found here
-  appears in Your identities as any identity does. With one identity
-  held before, a settle that finds one is a second identity added
-  (cards §5.7.3, "When the identities change"): the switch and the
+  appears in Your identities as any identity does. When one identity
+  was held before, an identity that a settle finds is a second identity
+  added (cards §5.7.3, "When the identities change"): the switch and the
   "as" lines appear on the screen that is shown, the card editor
   included, nothing is switched, and focus stays where it was.
   One case of discard leaves something that the person can see
@@ -1431,8 +1439,8 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F22 | an identity leaves the list by §7's last item | the first of these cases that applies: when that identity's page or one of its screens was shown, the screen and focus that F11 gives after Remove done (cards §5.2, "Where it lands"); when one identity is left, Chats replaces Your identities and the switcher, if either was shown, as after a Remove done with one left, focus on Chats' title (cards §5.2); when focus was on that identity's row in Your identities or the switcher, the next row, else the previous (cards §5.2's list rule); otherwise focus stays where it was | keyboard, with acceptance 13's late-remove run, in four runs: one from that identity's page; one with focus on its row in the switcher, with a row after it; one with focus on its row when it is the switcher's last row; one with two identities held, so that one is left, and the switcher open. In each of the four runs, a reconnection to the device makes `admin.endpoints.list` answer |
 | F23 | Try again on Chats' failure row after a switch (§5.4) | the switch | keyboard, with acceptance 27's failing read |
 | F24 | Create finds the form's key gone (§6.2) | `IdentityAddKeyGone`, in Create's place | keyboard, with acceptance 10's runs (j), (p) and (q), the variant of (n), and 11a (d) |
-| F25 | a seed is answered while `IdentityAddWaitsSeed` has focus (§6.2) | Create, in the line's place; with focus elsewhere, focus stays where it was | keyboard, with acceptance 10 (u) |
-| F26 | `CardDiscardChanges` opens on the add form, and closes (§6.2, "Leaving asks first") | as cards §5.2 gives it: Continue editing on opening; on Continue editing, the control that had focus when the dialog opened, by cards §5.2's rule, its case of a control that no longer exists included; on Close without saving, where the leaving puts it | keyboard, with acceptance 10 (w) |
+| F25 | a seed is answered while `IdentityAddWaitsSeed` shows (§6.2) | if focus was on the line, Create, which takes the line's place; with focus elsewhere, focus stays where it was | keyboard, with acceptance 10 (u) |
+| F26 | `CardDiscardChanges` opens on the add form, and closes (§6.2, "Leaving asks first") | as cards §5.2 gives it: Continue editing on opening; on Continue editing, the control that had focus when the dialog opened, or, if that control no longer exists, the control that cards §5.2's rule gives for that case; on Close without saving, where the leaving puts it | keyboard, with acceptance 10 (w) |
 
 ## 12. Accessibility beyond focus
 
@@ -1567,7 +1575,7 @@ front.
 | `IdentityAddNotFinished` | {name} was created, but InterWeave could not finish setting it up. Choose Create to finish. Create does not create a second one. | the add form, above Create | it exists, but is not ready yet; Create finishes it and makes nothing new |
 | `IdentityAddKeyGone` | {name} cannot be created from this form, because the key that InterWeave made for it is missing or cannot be read. Go back, then choose Add an identity to start again. | the add form, in Create's place | this form can no longer create it, since its key is missing or cannot be read; leave and start a new form |
 | `IdentityCardNotSaved` | The name and photo were not saved. Open this identity to try again. | a row | name and photo not saved; open it to try again |
-| `IdentityAddWaitsSeed` | InterWeave cannot create an identity yet. Create appears here once it can, and what you wrote is kept. | the add form, in Create's place (§6.2, "Create waits for the first identity's seed") | new text, proposal; creating is not possible yet; Create comes back here by itself; what was written stays. Must not promise a moment it cannot keep, nor name the seed or the daemon |
+| `IdentityAddWaitsSeed` | InterWeave cannot create an identity yet. When it can, Create appears here. What you entered stays on this form. | the add form, in Create's place (§6.2, "Create waits for the first identity's seed") | new text, proposal; creating is not possible yet; Create comes back here by itself; what was written stays. Must not promise a moment it cannot keep, nor name the seed or the daemon |
 | `IdentityCreating` | Creating {name} | Create's accessible name while it runs (§6.2 step 1); never visible text | new text, proposal; the identity is being made now, and the button is not waiting to be pressed |
 | `BackToIdentities` | Back to your identities | the back arrow's accessible name on the add form opened from Your identities, and on an identity's page opened from its row (§6.2) | new text, proposal; where the arrow returns |
 | `BackToCard` | Back to your card | the add form's back arrow when it was opened from the card editor's Add another identity (§6.2) | new text, proposal; where the arrow returns |
@@ -1833,9 +1841,9 @@ pass before it lands.
     (t) architect-cto's REQUEST 01a21bbc):
     (t) One identity held, the form opened from the card editor's Add
     another identity; as (c) up to `IdentityAddUnknown`, then Back and
-    Close without saving: the card editor shows again, no Your
-    identities opens, and with no restart the closing's settle has run:
-    the key file and, on Android, the platform key are gone, the remove
+    Close without saving: the card editor shows again, and Your
+    identities does not open. Without a restart, the closing's settle
+    has run: the key file and, on Android, the platform key are gone, the remove
     answered `removed`, and the record is gone. In a variant, as (r) up
     to `IdentityAddUnknown`, from the card editor with one identity
     held, then Back and Close without saving: the closing's settle finds
@@ -1844,13 +1852,14 @@ pass before it lands.
     editor, nothing is switched, and focus stays where Back put it.
     Needs ADR-0061 decision 7 as amended A 2026-11-27.
     (u) A run in which no seed was answered (a seam makes
-    `admin.trust.seed` fail): the form opens from Your identities and
-    from the card editor alike; `IdentityAddWaitsSeed` shows in Create's
-    place, Create is not offered, and the fields take text. Then a seed
-    is answered, by the moment that §16 Q12 rules, with focus on the
-    line: Create takes the line's place, with focus on it, and Create
-    ends Done. Back while the line shows sends no add and leaves no key
-    file and no record. At the bound, `IdentityLimit` shows in Create's
+    `admin.trust.seed` fail), in two variants: one opens the form from
+    Your identities, and one from the card editor. In each,
+    `IdentityAddWaitsSeed` shows in Create's place, Create is not
+    offered, and the fields take text. Then, with focus on the line, a
+    seed is answered (what asks it again is for §16 Q12 to rule): Create
+    takes the line's place and has focus, and Create ends Done. Back
+    while the line shows sends no add, and no key file and no record
+    remain. At the bound, `IdentityLimit` shows in Create's
     place in this run too. Needs §16 Q12.
     (v) An add of another key with the alias `anna-rossi`, left ahead
     of the running device (the seam of (c)), so that the list lacks it;
@@ -1870,8 +1879,8 @@ pass before it lands.
     and as `BackToCard` when it was opened from the card editor; an
     identity's page opened from its row reads `BackToIdentities` and
     names its overflow `IdentityOptions`; Create is read as
-    `IdentityCreating` while it runs, held by a seam that holds back the
-    add's answer. TalkBack blocked (§11).
+    `IdentityCreating` while it runs, and a seam holds back the add's
+    answer so that Create keeps running. TalkBack blocked (§11).
 11. Add with the card write made to fail: the identity exists, named by
     its alias, with `IdentityCardNotSaved`. Needs D1.
 11a. Add with the record's delete made to fail after the add answers
@@ -2306,6 +2315,7 @@ open:
   (`Roster::first_seeded`; a trust connection opens for a trust read or
   write), so a form opened in a run whose seed failed shows its line
   until a later trust act, made on another screen, is answered.
-  Proposed: the form's opening, while no seed was answered in the run,
-  asks it on a trust connection of its own, as a trust read does. Until
+  Proposed: when the form opens in a run in which no seed was answered,
+  the client asks the seed on a trust connection of its own, as a trust
+  read does. Until
   ruled, §6.2's paragraph is a proposal and acceptance 10 (u) waits.
