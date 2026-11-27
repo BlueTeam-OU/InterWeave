@@ -368,7 +368,11 @@ fn pending_adds(app: &App, first: &EndpointId) -> Vec<EndpointId> {
 fn a_record_left_by_an_earlier_run_is_settled_at_start_through_the_real_thread() {
     let app = app();
     let (first, found) = left_by_an_earlier_run(&app);
-    assert_eq!(pending_adds(&app, &first), [found.clone()], "the control");
+    assert_eq!(
+        pending_adds(&app, &first),
+        std::slice::from_ref(&found),
+        "the control"
+    );
     let service = ServiceHost::new();
     let mut view = View::attach(&service);
     start(&app, &service).expect("the service starts");
@@ -487,7 +491,7 @@ fn over_the_offline_posture_a_settle_and_a_create_stop_at_their_first_call() {
     let _ = service.stop(GRACE);
     assert_eq!(
         pending_adds(&app, &first),
-        [found.clone()],
+        std::slice::from_ref(&found),
         "the record is kept for the next start"
     );
     assert!(identity_key::key_path(&paths(&app), &found).exists());
