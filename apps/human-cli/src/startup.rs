@@ -230,8 +230,9 @@ pub(crate) fn refuse_pending_add(profile: &Profile, store: &HumanStore) -> Resul
     })?;
     if records.contains(speaking) {
         return Err(Failure::Refused(format!(
-            "identity {} is still being added and this client opens no session as it: \
-             the desktop client settles it first",
+            "identity {} is still being added by the desktop client, so this client \
+             cannot act as that identity; the desktop client completes or undoes that \
+             add by itself",
             speaking.as_str()
         )));
     }

@@ -307,7 +307,7 @@ fn a_run_naming_an_id_a_pending_add_record_names_is_refused_before_any_socket() 
         std::thread::sleep(std::time::Duration::from_millis(200));
         assert_eq!(connections.load(SeqCst) == 0, refused, "{record}: {stderr}");
         assert_eq!(
-            stderr.contains("is still being added"),
+            stderr.contains("is still being added by the desktop client, so this client cannot act as that identity; the desktop client completes or undoes that add by itself"),
             refused,
             "{record}: {stderr}"
         );
