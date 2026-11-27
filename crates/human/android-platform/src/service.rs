@@ -976,17 +976,30 @@ impl ServiceHost {
             .enable_time()
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
+        let cipher = Arc::clone(&store_cipher);
         let sources = key_sources(&paths, &held, move || Box::new(Arc::clone(&store_cipher)));
         let roster_config = roster_config(&config, &held);
+        // The offline binding's admin answers BackendUnavailable, so an
+        // add or a settle made here goes no further than its first
+        // administrative call, leaving the record for the next start
+        // (`over_the_offline_posture_a_settle_and_a_create_stop_at_their_first_call`
+        // in tests/adding.rs).
+        let factory = AddFactory {
+            bindings: Box::new(|_| (offline_embedded(), offline_embedded())),
+            admin: Arc::new(offline_embedded()),
+            paths: paths.clone(),
+            cipher: Arc::clone(&cipher),
+        };
         let make = self.with_key_sources(
             move || {
-                Roster::new(
+                Ok(Roster::new(
                     roster_config,
                     store,
                     |_| (offline_embedded(), offline_embedded()),
                     wall_ms,
                     0,
-                )
+                )?
+                .adding(factory))
             },
             sources,
         );

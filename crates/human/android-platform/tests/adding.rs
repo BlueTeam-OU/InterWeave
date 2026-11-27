@@ -422,3 +422,78 @@ fn a_record_left_by_an_earlier_run_is_settled_at_start_through_the_real_thread()
         "the key is kept"
     );
 }
+
+/// Over the network-denied posture the offline binding's administrative
+/// port answers `BackendUnavailable`, so no add or settle goes any
+/// further than its first call: a record an earlier run left is neither
+/// settled nor discarded at the start or at the list's opening, the key
+/// stays beside it for the next start that has the network and nothing
+/// is held or told; the form's seed ask ends unanswered, `NoSeed`, so
+/// Create is not offered, and a Create made nothing, wrote no key and
+/// holds no identity. Mutation (run, failing it): the offline roster
+/// built without `.adding(factory)` -- the form is never answered and the
+/// wait for `NoSeed` times out.
+#[test]
+fn over_the_offline_posture_a_settle_and_a_create_stop_at_their_first_call() {
+    let app = app();
+    let (first, found) = left_by_an_earlier_run(&app);
+    let service = ServiceHost::new();
+    let mut view = View::attach(&service);
+    start_offline(&app, &service).expect("the posture starts");
+    view.until("the first identity's rows", |v| {
+        v.said.iter().any(|s| matches!(s, Said::Rows(_)))
+    });
+
+    assert_eq!(service.hub().add(AddAct::Opened), Ok(()));
+    view.until("the seed ask ended", |v| v.told(&AddTold::NoSeed));
+    assert!(view.told(&AddTold::WaitsSeed), "it waited first");
+    assert!(!view.told(&AddTold::Offered), "Create is not offered");
+    let told_before = view
+        .said
+        .iter()
+        .filter(|s| matches!(s, Said::Add(_)))
+        .count();
+    create(&service, "Work");
+    assert_eq!(service.hub().add(AddAct::ListOpened), Ok(()));
+    view.until("the Create answered", |v| {
+        v.said.iter().filter(|s| matches!(s, Said::Add(_))).count() > told_before
+    });
+    // The list's settle has had its turns by then: the Create's answer
+    // went through the same loop after it.
+    std::thread::sleep(Duration::from_millis(500));
+    view.take();
+    let tails: Vec<_> = view
+        .said
+        .iter()
+        .filter_map(|s| match s {
+            Said::Add(told) => Some(told.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        tails,
+        [AddTold::WaitsSeed, AddTold::NoSeed, AddTold::NoSeed],
+        "nothing made, ended or held"
+    );
+    assert!(
+        !view.said.iter().any(|s| matches!(s, Said::HeldMore(_))),
+        "{:?}",
+        view.said
+    );
+    assert_eq!(
+        view.held.as_ref().map(|h| h.held.clone()),
+        Some(vec![first.clone()])
+    );
+    let _ = service.stop(GRACE);
+    assert_eq!(
+        pending_adds(&app, &first),
+        [found.clone()],
+        "the record is kept for the next start"
+    );
+    assert!(identity_key::key_path(&paths(&app), &found).exists());
+    let mut keys = identity_key::sealed(&paths(&app)).expect("the keys");
+    keys.sort();
+    let mut expected = vec![first, found];
+    expected.sort();
+    assert_eq!(keys, expected, "the first's and the found, none made");
+}
