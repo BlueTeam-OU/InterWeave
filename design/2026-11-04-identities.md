@@ -646,8 +646,13 @@ pending-add record is written and no add is sent.
 - **The form asks.** When the form opens and no seed was answered in
   this run, the client asks the first identity's seed on an
   administrative connection of its own, as a trust connection does
-  (ADR-0067 d. 6; `LOCAL-IPC.md`, `admin.trust.seed`), waiting at most
-  the add's wait (below). While it is asked, Create stands in its
+  (ADR-0067 d. 6; `LOCAL-IPC.md`, `admin.trust.seed`, whose "opened
+  for a trust act" is widened to name the add form's connection in the
+  supply that rides rust-ui-dev-02's next PR, not on `main` as this is
+  written; §16 Q12), waiting at most the add's wait (below). A form
+  left while the seed is asked ends nothing the person sees: an answer
+  that arrives after it only records, for the run, that a seed was
+  answered. While it is asked, Create stands in its
   place, inert: choosing it does nothing, its accessible name is
   `IdentityAddChecking`, and past 300 ms it shows its progress
   indicator (cards §7.2's threshold). A seed answered there, or on any
@@ -1074,9 +1079,13 @@ Outcomes other than Done, each with nothing half-made shown as made:
   switched. What changes is what each screen shows with two
   identities: on the card editor, cards §5.2's form for two or more,
   that is the identity's name as the app bar's subtitle, its fourth
-  field (as this note's §6.1 and §6.2 give it), and an overflow that
-  holds Make default and Remove this identity in place of Add another
-  identity; in the app options, Your identities in place of Your card
+  field (the default line, `IdentityIsDefault` on the default
+  identity; the route label is gone, §6.1), and an overflow without Add
+  another identity. The page is the first identity's, since one
+  identity held is always the first, so its overflow holds what cards
+  §5.2 gives the first identity's page with two or more held: Make
+  default and Turn off this identity on the terms cards §5.2 sets, and
+  never Remove this identity (cards §5.2: the first is never removed); in the app options, Your identities in place of Your card
   (cards §4); on Chats, the switch and the "as" lines, which a wide
   layout shows beside the editor. Focus stays where it was; when it
   was on an item of the editor's overflow menu, the menu closes and
@@ -1475,7 +1484,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F25 | the form's seed is not answered while focus is on the inert Create; or a seed is answered while `IdentityAddWaitsSeed` shows (§6.2) | in the first case, `IdentityAddWaitsSeed`; in the second, if focus was on the line or its Try again, Create, which takes their place; with focus elsewhere, focus stays where it was | keyboard, with acceptance 10 (u) |
 | F26 | `CardDiscardChanges` opens on the add form, and closes (§6.2, "Leaving asks first") | as cards §5.2 gives it: Continue editing on opening; on Continue editing, the control that had focus when the dialog opened, or, if that control no longer exists, the control that cards §5.2's rule gives for that case; on Close without saving, where the leaving puts it | keyboard, with acceptance 10 (w) |
 | F27 | Try again under `IdentityAddWaitsSeed` (§6.2) | stays on Try again, inert, while the seed is asked; on a seed not answered, stays on Try again, enabled again; on a seed answered, as F25 | keyboard, with acceptance 10 (u) |
-| F28 | a settle finds a second identity while the card editor's overflow menu is open (§6.2, the settle) | the menu closes, and focus goes to the overflow button; otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s variant and the menu opened before the settle ends |
+| F28 | a settle finds a second identity while the card editor's overflow menu is open (§6.2, the settle) | the menu closes, and focus goes to the overflow button; otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant |
 
 ## 12. Accessibility beyond focus
 
@@ -1890,10 +1899,16 @@ pass before it lands.
     held, then Back and Close without saving: the closing's settle finds
     the id listed with its key file at its key path and deletes the
     record; the card editor then shows the identity's name as its
-    subtitle and an overflow with Make default and Remove this identity,
+    subtitle and an overflow that holds no Add another identity and no
+    Remove this identity, its items cards §5.2's for the first
+    identity's page,
     the app options show Your identities, nothing is switched, and focus
     stays where Back put it; on a wide layout the switch shows on the
-    Chats bar beside the editor.
+    Chats bar beside the editor. In a second variant, for §11 F28, a
+    seam holds back the closing settle's list answer for some seconds,
+    less than the add's wait, and the editor's overflow menu is opened
+    meanwhile: when the settle finds the id, the menu closes and focus
+    is on the overflow button.
     Needs ADR-0061 decision 7 as amended A 2026-11-27.
     (u) A run in which no seed was answered (a seam makes
     `admin.trust.seed` fail), in two variants: one opens the form from
@@ -1907,8 +1922,11 @@ pass before it lands.
     the place of the line and Try again, with focus on it, and Create
     ends Done. In a third variant, Back while the line shows, then
     Close without saving: no add was sent, and no key file and no
-    record remain. In a fourth, the seam held so the ask is not
-    answered within the add's wait: the line shows when that wait ends.
+    record remain; the Name field holds text, as in the main run. In a
+    fourth, the seam held so the ask is not answered within the add's
+    wait: the line shows when that wait ends. Needs the plan note's
+    "offers no Create" and `LOCAL-IPC.md`'s widened seed ask (§16 Q12),
+    which ride rust-ui-dev-02's next PR.
     (v) An add from the command line, of another key with the alias
     `anna-rossi`, left ahead
     of the running device (the seam of (c)), so that the list lacks it;
