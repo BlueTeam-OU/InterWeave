@@ -648,13 +648,13 @@ pending-add record is written and no add is sent.
   administrative connection of its own, as a trust connection does
   (ADR-0067 d. 6; `LOCAL-IPC.md`, `admin.trust.seed`, whose "opened
   for a trust act" is widened to name the add form's connection in the
-  supply that rides rust-ui-dev-02's next PR, not on `main` as this is
-  written; §16 Q12), waiting at most the add's wait (below). A form
-  left while the seed is asked ends nothing the person sees: an answer
-  that arrives after it only records, for the run, that a seed was
-  answered. While it is asked, Create shows but is
-  inert: choosing it does nothing, its accessible name is
-  `IdentityAddChecking`, and past 300 ms it shows its progress
+  supply that rides rust-ui-dev-02's next PR, and not yet on `main`
+  when this was written; §16 Q12), waiting at most the add's wait
+  (below). Leaving the form while the seed is asked ends nothing that
+  the person sees: an answer that arrives after the form is left only
+  records, for the run, that a seed was answered. While it is asked,
+  Create shows but is inert: choosing it does nothing, its accessible
+  name is `IdentityAddChecking`, and past 300 ms it shows its progress
   indicator (cards §7.2's threshold). A seed answered there, or on any
   other connection of the run, makes Create the form's primary, as on
   any form.
@@ -1085,17 +1085,17 @@ Outcomes other than Done, each with nothing half-made shown as made:
   identities, with the identity's name as the app bar's subtitle, the
   editor's fourth field (the default line, `IdentityIsDefault` on the
   default identity; the route label is gone, §6.1), and an overflow
-  without Add another identity. The page is the first identity's,
-  since one identity held is always the first, so its overflow holds
-  what cards §5.2 gives the first identity's page with two or more
-  held: Make default and Turn off this identity on the terms cards
-  §5.2 sets, and never Remove this identity (cards §5.2: the first is
-  never removed); in the app options, Your identities in place of
-  Your card
-  (cards §4); on Chats, the switch and the "as" lines, which a wide
-  layout shows beside the editor. When focus was on an item of the
-  editor's overflow menu, the menu closes and focus goes to the
-  overflow button (§11 F28); otherwise focus stays where it was.
+  with the items that cards §5.2 lists for the first identity's page
+  when two or more identities are held: Make default and Turn off this
+  identity, on the terms that cards §5.2 sets, but neither Add another
+  identity nor Remove this identity (cards §5.2: the first identity is
+  never removed); in the app options, Your identities in place of Your
+  card (cards §4); on Chats, the switch and the "as" lines, which a
+  wide layout shows beside the editor. The card editor shows the first
+  identity's page because, when one identity is held, that identity is
+  always the first. When focus was on an item of the editor's overflow
+  menu, the menu closes and focus goes to the overflow button (§11
+  F28); otherwise focus stays where it was.
   One case of discard leaves something that the person can see
   (ADR-0061 decision 7, A 2026-11-26 (ii)). When an earlier remove of
   the id was left ahead of the running device (answered `Internal`,
@@ -1902,15 +1902,14 @@ pass before it lands.
     restart: the key file and, on Android, the platform key are gone,
     the remove answered `removed`, and the record is gone. In a variant,
     as (r) up to `IdentityAddUnknown`, from the card editor with one
-    identity
-    held, then Back and Close without saving: the closing's settle finds
-    the id listed with its key file at its key path and deletes the
-    record; the card editor then shows the identity's name as its
-    subtitle and an overflow that holds no Add another identity and no
-    Remove this identity, its items cards §5.2's for the first
-    identity's page,
-    the app options show Your identities, nothing is switched, and focus
-    stays where Back put it; on a wide layout the switch shows on the
+    identity held, then Back and Close without saving: the closing's
+    settle finds the id listed with its key file at its key path and
+    deletes the record; the card editor then shows the identity's name
+    as its subtitle and an overflow with the items that cards §5.2
+    lists for the first identity's page, which include neither Add
+    another identity nor Remove this identity; the app options show
+    Your identities, nothing is switched, and focus stays where Back
+    put it; on a wide layout the switch shows on the
     Chats bar beside the editor. In a second variant, for §11 F28, a
     seam holds back the closing settle's list answer for some seconds,
     less than the add's wait, and the editor's overflow menu is opened
@@ -1928,11 +1927,11 @@ pass before it lands.
     still failing, asks again and leaves focus on Try again, enabled
     again. Then the seam is lifted and Try again chosen: Create takes
     the place of the line and Try again, with focus on Create, and
-    Create ends Done. In the third variant, Back while the line shows, then
+    Create ends Done. In the third variant, as in the first two, the
+    Name field holds text; Back is pressed while the line shows, then
     Close without saving: no add was sent, and no key file and no
-    record remain; the Name field holds text, as in the first two
-    variants. In the fourth, the seam delays the answer past the add's
-    wait: the line shows when that wait ends. Needs the plan note's
+    record remain. In the fourth, the seam delays the answer past the
+    add's wait: the line shows when that wait ends. Needs the plan note's
     "offers no Create" and `LOCAL-IPC.md`'s widened seed ask (§16 Q12),
     which ride rust-ui-dev-02's next PR.
     (v) An add from the command line, of another key with the alias
