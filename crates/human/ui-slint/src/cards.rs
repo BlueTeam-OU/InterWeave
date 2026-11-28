@@ -20,9 +20,9 @@ use std::rc::Rc;
 
 use interweave_human_ui_model::{
     AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ContactsState, ConversationKey,
-    FocusTarget, Intent, KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit,
-    PhotoState, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill, isolated, name_problem,
-    placeholder_en, short_peer,
+    FocusTarget, IdentityIntent, Intent, KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo,
+    PhotoChange, PhotoEdit, PhotoState, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill,
+    isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -647,6 +647,43 @@ pub(crate) struct CardScreens {
     /// A contact deleted from its page: the list's first row takes focus
     /// once the list is drawn without it (design section 9's focus table).
     deleted: Option<String>,
+    /// The page the identities' model shows that this view last opened.
+    model_shown: Option<ModelPage>,
+    /// That page was left by the view -- its Back, or another page taking
+    /// the pane -- and its close was asked of the model, which has not
+    /// applied it yet: it is not opened again meanwhile.
+    model_leaving: bool,
+}
+
+/// A card page the identities' model opens and closes, rather than the
+/// view: shown while the model says it is.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum ModelPage {
+    /// Your identities (cards §5.1).
+    Identities,
+}
+
+impl ModelPage {
+    /// The page the model shows now, if any.
+    fn wanted(model: &UiModel) -> Option<Self> {
+        model
+            .identities()
+            .your_identities()
+            .map(|_| Self::Identities)
+    }
+
+    const fn cards_page(self) -> CardsPage {
+        match self {
+            Self::Identities => CardsPage::Identities,
+        }
+    }
+
+    /// What tells the model the person left it.
+    const fn close(self) -> IdentityIntent {
+        match self {
+            Self::Identities => IdentityIntent::CloseIdentities,
+        }
+    }
 }
 
 impl CardScreens {
@@ -775,6 +812,14 @@ impl View {
             input @ (CardsInput::Close | CardsInput::CloseOnward) => {
                 if matches!(input, CardsInput::CloseOnward) {
                     self.cards.forget_returns();
+                }
+                // A page the identities' model shows: the model is told,
+                // and is not shown it again meanwhile.
+                if let Some(page) = self.cards.model_shown
+                    && self.cards.page == Some(page.cards_page())
+                {
+                    self.cards.model_leaving = true;
+                    self.identities.queue(&self.shared, page.close());
                 }
                 let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
@@ -1113,9 +1158,53 @@ impl View {
         }
     }
 
+    /// Show the card page the identities' model shows, and close one it no
+    /// longer does. A page the person left by the view -- its Back, or
+    /// another page taking the pane -- has its close asked of the model
+    /// once, and is not opened again until the model shows another
+    /// (`the_list_closes_when_another_page_takes_the_pane`).
+    fn render_model_pages(&mut self, model: &UiModel, window: &AppWindow) {
+        let showing = |view: &Self, page: ModelPage| {
+            view.page == crate::Page::Cards && view.cards.page == Some(page.cards_page())
+        };
+        match ModelPage::wanted(model) {
+            None => {
+                if let Some(page) = self.cards.model_shown.take()
+                    && showing(self, page)
+                {
+                    window.invoke_cards_left();
+                    self.close_cards(window);
+                }
+                self.cards.model_leaving = false;
+            }
+            Some(page) if showing(self, page) => {
+                self.cards.model_leaving = false;
+                self.cards.model_shown = Some(page);
+            }
+            Some(page) if self.cards.model_shown == Some(page) => {
+                if !std::mem::replace(&mut self.cards.model_leaving, true) {
+                    self.identities.queue(&self.shared, page.close());
+                }
+            }
+            Some(page) => {
+                self.forget_page();
+                self.page = crate::Page::Cards;
+                self.cards.page = Some(page.cards_page());
+                self.cards.contact = None;
+                self.cards.contact_drawn = None;
+                self.cards.own_drawn = None;
+                window.set_cards_page(page.cards_page());
+                window.set_list_shown(false);
+                self.cards.model_shown = Some(page);
+                self.cards.model_leaving = false;
+            }
+        }
+    }
+
     /// Draw the card screens from `model`.
     pub(crate) fn render_cards(&mut self, model: &UiModel) -> Option<String> {
         let window = self.window.clone_strong();
+        self.render_model_pages(model, &window);
         // Another page took the pane -- the trust settings, Peers, a
         // conversation picked from the list -- so no card page is open.
         if self.page != crate::Page::Cards && self.cards.page.is_some() {

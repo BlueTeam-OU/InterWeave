@@ -5,9 +5,8 @@
 //! the identities note §4, §5, §5.2, §11 and §12 amend them), through
 //! Slint's testing backend.
 //!
-//! Nothing feeds a second identity in production yet, so these hand the
-//! model its identities directly and apply the view's identity intents as
-//! a root would. What is proved is the view's half: what the window draws,
+//! These hand the model its identities directly and apply the view's
+//! identity intents as a root would, app-core's model side apart. What is proved is the view's half: what the window draws,
 //! names, focuses and returns for a press. NOT proved here: the rendered
 //! look (a snapshot under the display wrapper is the check), a screen
 //! reader's reading, and a phone's Back key reaching `handle-back`.
@@ -22,9 +21,12 @@ use interweave_human_client_api::{Origin, Received};
 use interweave_human_core::RowId;
 use interweave_human_ui_model::{
     ConversationKey, HeldIdentity, IdentityIntent, IdentityKey, IdentityState, Intent, RuntimeHost,
-    UiModel, cluster, isolated,
+    Said, UiModel, UiText, cluster, isolated, placeholder_en,
 };
-use interweave_human_ui_slint::{View, ViewEvent};
+use interweave_human_ui_slint::{CardsPage, View, ViewEvent};
+use slint::Model as _;
+
+mod common;
 use interweave_profile_identity::ProfileIdentity;
 use interweave_test_support::endpoint_keys::endpoint_id;
 use interweave_transport_api::TransportIdentity;
@@ -1052,4 +1054,320 @@ fn a_wide_name_never_ellipsises_the_switch_below_its_three_graphemes() {
             "at {window} px the switch is {drawn} wide, below {floor}"
         );
     }
+}
+
+fn en(text: UiText) -> &'static str {
+    placeholder_en::text(text)
+}
+
+/// A model holding `tags` on a root that can add, Your identities opened
+/// as the switcher's button opens it, drawn in a window `width` wide.
+fn listed(tags: &[&str], width: f32) -> (View, UiModel) {
+    let (mut model, _) = model_with(tags);
+    model.identities_mut().set_adds(true);
+    let mut view = view(width);
+    turn(&mut view, &mut model);
+    model
+        .identities_mut()
+        .act(IdentityIntent::OpenIdentities, false);
+    turn(&mut view, &mut model);
+    turn(&mut view, &mut model);
+    (view, model)
+}
+
+/// Whether Your identities is the card page drawn.
+fn list_drawn(view: &View) -> bool {
+    view.window().get_cards_page() == CardsPage::Identities
+}
+
+/// Identities §11's reading order of Your identities: the back arrow,
+/// the title, the shared-device statement, `IdentitiesUnlisted`, the rows
+/// in order -- a row one stop, its Try again the next -- then Add an
+/// identity; the title has focus as it opens (F4). At each stop the ring
+/// is whole inside the page's scroll area (`common::ring_cut`).
+/// Mutation: the unlisted line drawn before the statement.
+#[test]
+fn your_identities_tab_order_is_the_designs() {
+    let mut identities = held(&["a", "b", "c"]);
+    identities[1].state = IdentityState::NotHidden;
+    let (mut view, mut model) = listed(&["a", "b", "c"], 1000.0);
+    hold(&mut model, identities);
+    turn(&mut view, &mut model);
+    assert!(list_drawn(&view));
+    assert_eq!(focus_id(&view), "cards-title", "F4: the title as it opens");
+    press(&view, Key::Backtab);
+    assert_eq!(focus_id(&view), "close-cards", "the back arrow before it");
+    press(&view, Key::Tab);
+    assert_eq!(focus_id(&view), "cards-title");
+    let mut stops = Vec::new();
+    for _ in 0..7 {
+        press(&view, Key::Tab);
+        slint::platform::update_timers_and_animations();
+        let on = focus_id(&view);
+        let cut = common::ring_cut(view.window()).expect("a ring at each stop");
+        assert!(cut.is_empty(), "at {on:?}: {cut:#?}");
+        stops.push(on);
+    }
+    assert_eq!(
+        stops,
+        [
+            "identities-statement",
+            "identities-unlisted",
+            "identities-row:0",
+            "identities-row:1",
+            "identities-try-again:1",
+            "identities-row:2",
+            "identities-add",
+        ]
+    );
+    // Enter on Add is Add; on a row, that row's page.
+    press(&view, Key::Return);
+    assert_eq!(turn(&mut view, &mut model), [IdentityIntent::Add]);
+    tab_to(&view, "identities-row:2", 12);
+    press(&view, Key::Return);
+    assert_eq!(
+        turn(&mut view, &mut model),
+        [IdentityIntent::OpenRow(key("c"))]
+    );
+}
+
+/// The accessible description of the one row named `tag`'s name.
+fn row_description(view: &View, tag: &str) -> String {
+    let found: Vec<_> = labelled(view, &format!("Name {tag}"))
+        .into_iter()
+        .filter(|e| e.accessible_description().is_some_and(|d| !d.is_empty()))
+        .collect();
+    assert_eq!(found.len(), 1, "one row named {tag}");
+    found[0]
+        .accessible_description()
+        .map(|d| d.to_string())
+        .unwrap_or_default()
+}
+
+/// Cards §5.1 and identities §6.1: a row's accessible name is its name
+/// and its description reads the short `EndpointId` as `IdentityIdLabel`,
+/// `IdentityDefault` on the default's row, `IdentityInFront` on the
+/// identity in front's alone, and its state's line; one check mark is
+/// drawn, the front's. Mutation: every row drawn in use.
+#[test]
+fn a_row_speaks_its_name_short_id_default_and_in_use() {
+    let (mut view, mut model) = listed(&["a", "b", "c"], 1000.0);
+    let mut identities = held(&["a", "b", "c"]);
+    identities[2].state = IdentityState::NotHidden;
+    hold(&mut model, identities);
+    model.identities_mut().switch(&key("b"), false);
+    turn(&mut view, &mut model);
+    assert!(list_drawn(&view), "a switch leaves the list open");
+    let id_line = |tag: &str| en(UiText::IdentityIdLabel).replace("{short}", &key(tag).short());
+    let first = row_description(&view, "a");
+    assert!(first.starts_with(&id_line("a")), "{first:?}");
+    assert!(first.contains(en(UiText::IdentityDefault)), "{first:?}");
+    assert!(!first.contains(en(UiText::IdentityInFront)), "{first:?}");
+    let second = row_description(&view, "b");
+    assert!(second.starts_with(&id_line("b")), "{second:?}");
+    assert!(second.contains(en(UiText::IdentityInFront)), "{second:?}");
+    assert!(!second.contains(en(UiText::IdentityDefault)), "{second:?}");
+    let third = row_description(&view, "c");
+    let state = model.identities().your_identities().expect("listed").rows[2]
+        .state
+        .as_ref()
+        .map(Said::english)
+        .expect("its state's line");
+    assert!(third.contains(state.as_str()), "{third:?}");
+    assert!(!third.contains(en(UiText::IdentityInFront)), "{third:?}");
+    let rows = view.window().get_id_list().rows;
+    let in_front: Vec<bool> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .map(|r| r.in_front)
+        .collect();
+    assert_eq!(
+        in_front,
+        [false, true, false],
+        "one check mark, the front's"
+    );
+    let drawn: Vec<String> = (0..rows.row_count())
+        .filter_map(|i| rows.row_data(i))
+        .map(|r| r.second_line.to_string())
+        .collect();
+    assert_eq!(
+        drawn,
+        [key("a").short(), key("b").short(), key("c").short()]
+    );
+}
+
+/// Plan §1.1, "Root can add": Add an identity is drawn only on a root
+/// that said it can add, the page itself either way. Mutation: Add
+/// drawn whatever the model says.
+#[test]
+fn a_view_whose_root_cannot_add_draws_no_add() {
+    let (mut view, mut model) = listed(&["a", "b"], 1000.0);
+    assert_eq!(labelled(&view, en(UiText::AddIdentity)).len(), 1);
+    model.identities_mut().set_adds(false);
+    turn(&mut view, &mut model);
+    assert!(list_drawn(&view));
+    assert_eq!(labelled(&view, en(UiText::IdentitiesUnlisted)).len(), 1);
+    assert!(
+        labelled(&view, en(UiText::AddIdentity)).is_empty(),
+        "no Add"
+    );
+}
+
+/// Cards §4 and §5.1: the app options' item reads Your card with one
+/// identity held, and Your identities with two, where it opens the list
+/// (switching nothing) in place of the card. Mutation: the item's text
+/// left as Your card.
+#[test]
+fn the_menu_reads_your_identities_with_two_and_your_card_with_one() {
+    let options = |view: &View| {
+        one(view, &view.window().get_app_options_label()).invoke_accessible_default_action();
+        slint::platform::update_timers_and_animations();
+    };
+    let (mut model, _) = model_with(&["a"]);
+    let mut view = view(1000.0);
+    turn(&mut view, &mut model);
+    options(&view);
+    assert_eq!(labelled(&view, en(UiText::OwnCardTitle)).len(), 1);
+    assert!(labelled(&view, en(UiText::IdentitiesTitle)).is_empty());
+
+    let (mut model, _) = model_with(&["a", "b"]);
+    let mut view = self::view(1000.0);
+    turn(&mut view, &mut model);
+    options(&view);
+    assert!(labelled(&view, en(UiText::OwnCardTitle)).is_empty());
+    one(&view, en(UiText::IdentitiesTitle)).invoke_accessible_default_action();
+    assert_eq!(
+        turn(&mut view, &mut model),
+        [IdentityIntent::OpenIdentities]
+    );
+    turn(&mut view, &mut model);
+    assert!(list_drawn(&view), "the list, not the card");
+    assert_eq!(
+        model.identities().front(),
+        Some(&key("a")),
+        "nothing switched"
+    );
+}
+
+/// Identities §6.1, U3: the switcher's Your identities opens the list,
+/// where it opened nothing before, its title focused (F4); the list's
+/// back arrow closes it, telling the model. Mutation: the view not
+/// showing the page the model opened.
+#[test]
+fn the_switchers_button_opens_the_list() {
+    let (mut model, _) = model_with(&["a", "b"]);
+    let mut view = view(1000.0);
+    turn(&mut view, &mut model);
+    one(&view, &switch_label("a")).invoke_accessible_default_action();
+    turn(&mut view, &mut model);
+    let button = view.window().get_id_switcher().identities.to_string();
+    one(&view, &button).invoke_accessible_default_action();
+    assert_eq!(
+        turn(&mut view, &mut model),
+        [IdentityIntent::OpenIdentities]
+    );
+    turn(&mut view, &mut model);
+    assert!(list_drawn(&view));
+    assert!(!view.window().get_id_switcher().open);
+    assert_eq!(focus_id(&view), "cards-title");
+    assert_eq!(
+        view.window().get_identities_title(),
+        en(UiText::IdentitiesTitle)
+    );
+
+    assert!(view.window().invoke_handle_back(), "Back is taken");
+    assert_eq!(
+        turn(&mut view, &mut model),
+        [IdentityIntent::CloseIdentities]
+    );
+    assert!(model.identities().your_identities().is_none());
+    assert_eq!(view.window().get_cards_page(), CardsPage::None);
+}
+
+/// Another page taking the pane -- a conversation, Contacts -- leaves
+/// Your identities, and the model is told once; it opens again only
+/// when the model opens it again. Mutation: the close not asked.
+#[test]
+fn the_list_closes_when_another_page_takes_the_pane() {
+    let (mut view, mut model) = listed(&["a", "b"], 1000.0);
+    assert!(list_drawn(&view));
+    one(&view, &view.window().get_app_options_label()).invoke_accessible_default_action();
+    slint::platform::update_timers_and_animations();
+    one(&view, en(UiText::ContactsTitle)).invoke_accessible_default_action();
+    assert_eq!(
+        turn(&mut view, &mut model),
+        [IdentityIntent::CloseIdentities]
+    );
+    assert!(model.identities().your_identities().is_none());
+    assert_eq!(view.window().get_cards_page(), CardsPage::Contacts);
+    model
+        .identities_mut()
+        .act(IdentityIntent::OpenIdentities, false);
+    turn(&mut view, &mut model);
+    assert!(list_drawn(&view), "opened again by the model");
+}
+
+/// Identities §12 and §3.1 of the plan: at 360 px and 200 % text the
+/// shared-device statement and `IdentitiesUnlisted` wrap inside the
+/// window, every line drawn: each note is as tall as its text, inside
+/// the window's width, and the next begins under it. Mutation: the
+/// note's text set `no-wrap`.
+#[test]
+fn the_statements_wrap_at_360_px_and_200_percent() {
+    // What each note's height is in a wide window at 100 %, measured
+    // before the text size changes, which every window of the thread
+    // shares.
+    let (wide, _) = listed(&["a", "b"], 1000.0);
+    let unlisted = en(UiText::IdentitiesUnlisted);
+    let wide_statement = wide.window().get_id_list().statement.to_string();
+    let at_wide: Vec<f32> = [wide_statement.as_str(), unlisted]
+        .iter()
+        .map(|text| one(&wide, text).size().height)
+        .collect();
+    drop(wide);
+    let (mut model, _) = model_with(&["a", "b"]);
+    model.identities_mut().set_adds(true);
+    let mut view = view(360.0);
+    // Tall enough that the scroll area clips neither note: the testing
+    // tree leaves out what a Flickable clips.
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 3000.0));
+    text_size(&view, 28.0);
+    turn(&mut view, &mut model);
+    model
+        .identities_mut()
+        .act(IdentityIntent::OpenIdentities, false);
+    turn(&mut view, &mut model);
+    turn(&mut view, &mut model);
+    assert!(list_drawn(&view));
+    let statement = view.window().get_id_list().statement.to_string();
+    assert_eq!(statement, wide_statement);
+    let mut tops = Vec::new();
+    for (text, at_wide) in [statement.as_str(), unlisted].into_iter().zip(at_wide) {
+        let note = one(&view, text);
+        let box_ = edges(&note);
+        assert!(
+            box_.0 >= 0.0 && box_.2 <= 360.0,
+            "{text:?} inside: {box_:?}"
+        );
+        let drawn = note
+            .query_descendants()
+            .match_type_name("Text")
+            .find_first()
+            .expect("its text");
+        let text_box = edges(&drawn);
+        assert!(
+            text_box.3 <= box_.3 + 0.5,
+            "{text:?}: its text {text_box:?} ends inside the note {box_:?}"
+        );
+        assert!(
+            box_.3 - box_.1 >= 3.0 * at_wide,
+            "{text:?} wraps over many more lines: {box_:?} against {at_wide} wide at 100 %"
+        );
+        tops.push(box_);
+    }
+    assert!(
+        tops[1].1 >= tops[0].3,
+        "the second begins under the first: {tops:?}"
+    );
 }

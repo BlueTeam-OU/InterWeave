@@ -15,7 +15,7 @@
 // take focus and does not report it would leave a stale row named there.
 
 import { Palette as Style } from "std-widgets.slint";
-import { IdLook, IdSwitch, IdSwitcherView, IdComposer, IdentitySwitch, IdentitySwitcher, ComposerAs } from "identities.slint";
+import { IdLook, IdSwitch, IdSwitcherView, IdComposer, IdListView, IdentitySwitch, IdentitySwitcher, ComposerAs, YourIdentities } from "identities.slint";
 
 // What a row's swipe does in one direction (design/2026-10-16-message-
 // swipe.md section 3): `none` when it does nothing that way, and then the
@@ -54,7 +54,9 @@ export struct ActionRow {
 
 // Contact cards (plan section 29 step 4; design/2026-10-21-contact-cards.md):
 // which card page the right-hand pane shows in the conversation's place.
-export enum CardsPage { none, contacts, contact, own-card }
+// Your identities (cards section 5.1) is one of them: the identities'
+// model opens and closes it, and Rust shows it while the model does.
+export enum CardsPage { none, contacts, contact, own-card, identities }
 
 // A note a proposal shows before Accept; a warning is drawn in `error`
 // and says so in its words, never by colour alone.
@@ -5019,6 +5021,15 @@ export component AppWindow inherits Window {
     callback id-your-identities();
     callback id-snack-pressed(int);
     callback id-snack-closed(int);
+    // Your identities (cards section 5.1), drawn as a card page: the app
+    // options' item reads its title and opens it while two or more are
+    // held (`id-listed`), and Your card with one.
+    in property <bool> id-listed;
+    in property <string> identities-title;
+    in property <IdListView> id-list;
+    callback id-list-chosen(int);
+    callback id-list-try-again(int);
+    callback id-list-add();
     // What identities.slint draws with, which cannot import this file.
     property <IdLook> id-look: {
         surface: Palette.surface,
@@ -7655,7 +7666,9 @@ export component AppWindow inherits Window {
                         FocusHeading {
                             text: root.cards-page == CardsPage.contacts ? root.contacts-title
                                 : root.cards-page == CardsPage.contact ? root.contact-title
+                                : root.cards-page == CardsPage.identities ? root.identities-title
                                 : root.own-card-title;
+                            wraps: root.cards-page == CardsPage.identities;
                             font-size: Type.title-large;
                             font-weight: 400;
                             rtl: root.rtl;
@@ -7981,6 +7994,20 @@ export component AppWindow inherits Window {
                                     }
                                 }
                             }
+                        }
+                        // Your identities (cards section 5.1), in the column
+                        // padded by the rings' reach, so no ring is cut.
+                        if root.cards-page == CardsPage.identities: YourIdentities {
+                            look: root.id-look;
+                            view: root.id-list;
+                            rtl: root.rtl;
+                            focus-seq: root.focus-seq;
+                            focus-target: root.focus-target;
+                            chosen(i) => { root.id-list-chosen(i); }
+                            try-again(i) => { root.id-list-try-again(i); }
+                            add => { root.id-list-add(); }
+                            focused(k) => { root.focus-id = k; }
+                            keyboard-mode(on) => { FocusMode.keyboard = on; }
                         }
                         // The own card: what a share sends, edited here.
                         if root.cards-page == CardsPage.own-card: VerticalLayout {
@@ -10274,14 +10301,21 @@ export component AppWindow inherits Window {
                     closed => { root.close-chats-menu(); }
                     focused(k) => { root.focus-id = k; }
                 }
+                // Your card with one identity held; with two or more, Your
+                // identities, whose row of the identity in front is its
+                // card (cards section 4).
                 MenuItem {
-                    text: root.own-card-title;
+                    text: root.id-listed ? root.identities-title : root.own-card-title;
                     focus-key: "app-own-card";
                     rtl: root.rtl;
                     pressed => {
                         root.chats-menu-open = false;
                         root.list-shown = false;
-                        root.open-own-card();
+                        if (root.id-listed) {
+                            root.id-your-identities();
+                        } else {
+                            root.open-own-card();
+                        }
                     }
                     closed => { root.close-chats-menu(); }
                     focused(k) => { root.focus-id = k; }

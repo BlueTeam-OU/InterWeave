@@ -3040,10 +3040,19 @@ impl View {
         let cards = self.render_cards(model);
         let window = self.render_window();
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
-        let (identities, identity_focus) =
-            self.identities.render(&self.window, model, &self.shared);
+        let identities::Rendered {
+            said: identities,
+            focus: identity_focus,
+            page_focus,
+        } = self
+            .identities
+            .render(&self.window, model, &self.shared, self.host);
         if let Some(target) = identity_focus {
             self.focus_key(target.to_owned());
+        }
+        // A control of a page this render may have made.
+        if let Some(target) = page_focus {
+            self.focus_key_after_draw(target);
         }
         let said = [
             conversation,

@@ -88,6 +88,43 @@ export struct IdSwitcherView {
     identities: string,
 }
 
+// One row of Your identities (cards section 5.1, identities section 6.1),
+// every string already spoken.
+export struct IdListRow {
+    name: string,
+    // The name as its accessible name.
+    name-said: string,
+    second-line: string,
+    // Its accessible description: IdentityIdLabel, IdentityDefault,
+    // IdentityInFront, the state's line and IdentityCardNotSaved.
+    description: string,
+    // IdentityDefault, on the default's row alone.
+    default: string,
+    // The identity in front: the check mark.
+    in-front: bool,
+    state: string,
+    // IdentityCardNotSaved, while its card is not saved.
+    card-not-saved: string,
+    try-again: string,
+    try-enabled: bool,
+    try-progress: bool,
+}
+
+// Your identities, top to bottom (cards section 5.1).
+export struct IdListView {
+    statement: string,
+    unlisted: string,
+    rows: [IdListRow],
+    // Add an identity, on a root that can add.
+    add-shown: bool,
+    add: string,
+    // Disabled while the store cannot write, its reason the description.
+    add-enabled: bool,
+    add-reason: string,
+    // IdentityLimit under Add, at the bound: a focus stop.
+    limit: string,
+}
+
 // The line above Send (cards section 5.7.2 N2, identities section 5.2):
 // ComposerAs, or the state's text in its place, with Try again at its end.
 export struct IdComposer {
@@ -154,6 +191,9 @@ component IdTextButton inherits FocusScope {
     in property <bool> enabled-action: true;
     in property <bool> progress;
     in property <length> target: 48px;
+    // A filled button: `primary` behind an `on-primary` label, fully
+    // rounded -- a page's one primary action (Your identities' Add).
+    in property <bool> filled;
     callback pressed();
     callback focused(string);
     callback keyboard-mode(bool);
@@ -195,12 +235,15 @@ component IdTextButton inherits FocusScope {
         reject
     }
     min-height: root.target;
-    min-width: max(root.target, label-text.preferred-width + (root.progress ? 40px : 16px));
+    min-width: max(root.target, label-text.preferred-width + (root.progress ? 40px : 16px)
+        + (root.filled ? 32px : 0px));
     Rectangle {
         opacity: root.enabled-action ? 1 : 0.38;
+        background: root.filled ? root.look.primary : transparent;
+        border-radius: root.filled ? self.height / 2 : 0px;
         HorizontalLayout {
-            padding-left: 8px;
-            padding-right: 8px;
+            padding-left: root.filled ? 24px : 8px;
+            padding-right: root.filled ? 24px : 8px;
             spacing: 8px;
             alignment: center;
             if root.progress: VerticalLayout {
@@ -211,7 +254,7 @@ component IdTextButton inherits FocusScope {
                 text: root.label;
                 font-size: root.look.label-large;
                 font-weight: 500;
-                color: root.look.primary;
+                color: root.filled ? root.look.on-primary : root.look.primary;
                 vertical-alignment: center;
                 accessible-role: none;
             }
@@ -230,6 +273,7 @@ component IdTextButton inherits FocusScope {
         width: root.width + 10px;
         height: root.height + 10px;
         look: root.look;
+        radius: root.filled ? root.height / 2 : 4px;
         shown: root.has-focus;
     }
 }
@@ -843,5 +887,290 @@ export component ComposerAs inherits HorizontalLayout {
         pressed => { root.try-again(); }
         focused(k) => { root.focused(k); }
         keyboard-mode(on) => { root.keyboard-mode(on); }
+    }
+}
+
+// A line a person moves focus to and a screen reader reads as one item
+// (identities section 11: each line of these pages is a focus stop). It
+// wraps at any text size and is never cut: its minimum width is none, so
+// a word wider than the line breaks inside it, and its height is its own
+// (a wrapped Text under a conditional layout is measured a line short).
+export component IdNote inherits FocusScope {
+    in property <IdLook> look;
+    in property <string> text;
+    in property <string> said;
+    in property <string> focus-key;
+    in property <brush> ink: root.look.on-surface;
+    in property <length> font-size: root.look.body-medium;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    callback focused(string);
+    callback keyboard-mode(bool);
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { root.keyboard-mode(true); }
+        if (reason == FocusReason.pointer-click) { root.keyboard-mode(false); }
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    accessible-role: AccessibleRole.text;
+    accessible-label: root.said;
+    VerticalLayout {
+        Text {
+            text: root.text;
+            font-size: root.font-size;
+            color: root.ink;
+            wrap: word-wrap;
+            min-width: 0px;
+            min-height: self.preferred-height;
+            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+            accessible-role: none;
+        }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        look: root.look;
+        shown: root.has-focus;
+    }
+}
+
+// One row of Your identities: one stop, which opens that identity's page
+// (cards section 5.1). The avatar, the name, the short EndpointId, Default
+// on the default's row, the check mark on the identity in front, and the
+// lines that say what the row cannot do now.
+component IdListItem inherits FocusScope {
+    in property <IdLook> look;
+    in property <IdListRow> item;
+    in property <int> index;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    callback chosen(int);
+    callback focused(string);
+    callback keyboard-mode(bool);
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { root.keyboard-mode(true); }
+        if (reason == FocusReason.pointer-click) { root.keyboard-mode(false); }
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused("identities-row:" + root.index); }
+    }
+    accessible-role: button;
+    accessible-label: root.item.name-said;
+    accessible-description: root.item.description;
+    accessible-action-default => { root.chosen(root.index); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.chosen(root.index);
+            return accept;
+        }
+        reject
+    }
+    min-height: 56px;
+    HorizontalLayout {
+        padding-left: 16px;
+        padding-right: 16px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 16px;
+        if !root.rtl: VerticalLayout {
+            alignment: center;
+            IdAvatar { look: root.look; size: 40px; }
+        }
+        VerticalLayout {
+            horizontal-stretch: 1;
+            alignment: center;
+            spacing: 2px;
+            IdOneLine {
+                value: root.item.name;
+                font-size: root.look.body-large;
+                font-weight: 500;
+                ink: root.look.on-surface;
+                rtl: root.rtl;
+            }
+            IdOneLine {
+                value: root.item.second-line;
+                font-size: root.look.body-medium;
+                ink: root.look.on-surface-variant;
+                rtl: root.rtl;
+            }
+            if root.item.default != "": Text {
+                text: root.item.default;
+                font-size: root.look.body-medium;
+                color: root.look.on-surface-variant;
+                wrap: word-wrap;
+                min-width: 0px;
+                min-height: self.preferred-height;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                accessible-role: none;
+            }
+            if root.item.state != "": Text {
+                text: root.item.state;
+                font-size: root.look.body-small;
+                color: root.look.on-surface-variant;
+                wrap: word-wrap;
+                min-width: 0px;
+                min-height: self.preferred-height;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                accessible-role: none;
+            }
+            if root.item.card-not-saved != "": Text {
+                text: root.item.card-not-saved;
+                font-size: root.look.body-small;
+                color: root.look.error;
+                wrap: word-wrap;
+                min-width: 0px;
+                min-height: self.preferred-height;
+                horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                accessible-role: none;
+            }
+        }
+        // The check mark, at the line's end; nothing on the others, so
+        // the colour is never the only sign (its description says it).
+        if root.item.in-front: VerticalLayout {
+            alignment: center;
+            Path {
+                width: 20px;
+                height: 20px;
+                viewbox-width: 20;
+                viewbox-height: 20;
+                stroke: root.look.primary;
+                stroke-width: 2px;
+                commands: "M 4 10 L 8 14 L 16 6";
+                accessible-role: none;
+            }
+        }
+        if root.rtl: VerticalLayout {
+            alignment: center;
+            IdAvatar { look: root.look; size: 40px; }
+        }
+    }
+    TouchArea {
+        pointer-event(event) => {
+            if (event.kind == PointerEventKind.down) { root.keyboard-mode(false); }
+        }
+        clicked => { root.chosen(root.index); }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        look: root.look;
+        shown: root.has-focus;
+    }
+}
+
+// Your identities (cards section 5.1, identities section 6.1), the card
+// pages' body under their back arrow and title. Its Tab order is the
+// design's (identities section 11): the shared-device statement,
+// IdentitiesUnlisted, the rows in order (a row's Try again the next stop
+// after it), then Add an identity and IdentityLimit under it.
+export component YourIdentities inherits VerticalLayout {
+    in property <IdLook> look;
+    in property <IdListView> view;
+    in property <bool> rtl;
+    in property <int> focus-seq;
+    in property <string> focus-target;
+    callback chosen(int);
+    callback try-again(int);
+    callback add();
+    callback focused(string);
+    callback keyboard-mode(bool);
+    spacing: 12px;
+    IdNote {
+        look: root.look;
+        text: root.view.statement;
+        said: root.view.statement;
+        focus-key: "identities-statement";
+        rtl: root.rtl;
+        focus-seq: root.focus-seq;
+        focus-wanted: root.focus-target == "identities-statement";
+        focused(k) => { root.focused(k); }
+        keyboard-mode(on) => { root.keyboard-mode(on); }
+    }
+    IdNote {
+        look: root.look;
+        text: root.view.unlisted;
+        said: root.view.unlisted;
+        ink: root.look.on-surface-variant;
+        focus-key: "identities-unlisted";
+        rtl: root.rtl;
+        focus-seq: root.focus-seq;
+        focus-wanted: root.focus-target == "identities-unlisted";
+        focused(k) => { root.focused(k); }
+        keyboard-mode(on) => { root.keyboard-mode(on); }
+    }
+    for item[i] in root.view.rows: VerticalLayout {
+        spacing: root.look.ring-reach;
+        IdListItem {
+            look: root.look;
+            item: item;
+            index: i;
+            rtl: root.rtl;
+            focus-seq: root.focus-seq;
+            focus-wanted: root.focus-target == "identities-row:" + i;
+            chosen(n) => { root.chosen(n); }
+            focused(k) => { root.focused(k); }
+            keyboard-mode(on) => { root.keyboard-mode(on); }
+        }
+        if item.try-again != "": HorizontalLayout {
+            alignment: root.rtl ? LayoutAlignment.start : LayoutAlignment.end;
+            padding-left: 16px;
+            padding-right: 16px;
+            IdTextButton {
+                look: root.look;
+                label: item.try-again;
+                detail: item.name-said;
+                focus-key: "identities-try-again:" + i;
+                enabled-action: item.try-enabled;
+                progress: item.try-progress;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "identities-try-again:" + i;
+                pressed => { root.try-again(i); }
+                focused(k) => { root.focused(k); }
+                keyboard-mode(on) => { root.keyboard-mode(on); }
+            }
+        }
+    }
+    if root.view.add-shown: VerticalLayout {
+        spacing: root.look.ring-reach;
+        HorizontalLayout {
+            alignment: root.rtl ? LayoutAlignment.end : LayoutAlignment.start;
+            IdTextButton {
+                look: root.look;
+                label: root.view.add;
+                detail: root.view.add-reason;
+                filled: true;
+                focus-key: "identities-add";
+                enabled-action: root.view.add-enabled;
+                focus-seq: root.focus-seq;
+                focus-wanted: root.focus-target == "identities-add";
+                pressed => { root.add(); }
+                focused(k) => { root.focused(k); }
+                keyboard-mode(on) => { root.keyboard-mode(on); }
+            }
+        }
+        if root.view.limit != "": IdNote {
+            look: root.look;
+            text: root.view.limit;
+            said: root.view.limit;
+            focus-key: "identities-limit";
+            rtl: root.rtl;
+            focus-seq: root.focus-seq;
+            focus-wanted: root.focus-target == "identities-limit";
+            focused(k) => { root.focused(k); }
+            keyboard-mode(on) => { root.keyboard-mode(on); }
+        }
     }
 }

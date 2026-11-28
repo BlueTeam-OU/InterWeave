@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: Apache-2.0
 // Copyright 2026 Andrea Benetton
-//! The identity switch, the switcher and the "As" line above Send (plan
-//! §30 step 1; `ui/identities.slint`): the model's
+//! The identity switch, the switcher, the "As" line above Send and Your
+//! identities (plan §30 step 1; `ui/identities.slint`): the model's
 //! [`interweave_human_ui_model::Identities`] drawn, and the person's acts
 //! on them queued as [`IdentityIntent`]s, which the root takes with
 //! [`View::take_identity_intents`] and applies with `Identities::act`.
@@ -21,13 +21,22 @@ use std::rc::Rc;
 use std::time::Duration;
 
 use interweave_human_ui_model::{
-    IdentityFocus, IdentityIntent, IdentityKey, Said, SendControl, TryAgainControl, UiModel,
-    UiText, cluster, placeholder_en,
+    IdentityFocus, IdentityIntent, IdentityKey, RuntimeHost, Said, SendControl, TryAgainControl,
+    UiModel, UiText, cluster, placeholder_en,
 };
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
-use crate::generated::{AppWindow, IdComposer, IdRow, IdSwitch, IdSwitcherView};
+use crate::generated::{
+    AppWindow, IdComposer, IdListRow, IdListView, IdRow, IdSwitch, IdSwitcherView,
+};
 use crate::{Input, Shared, View, enqueue};
+
+/// Your identities' title, where the list puts focus as it opens (F4):
+/// the card pages' heading, which the list is drawn under.
+const LIST_TITLE_FOCUS: &str = crate::cards::CARDS_TITLE_FOCUS;
+
+/// `IdentityLimit` under Your identities' Add (F8).
+const LIMIT_FOCUS: &str = "identities-limit";
 
 /// The most presses held between two takes: as many as the view's own
 /// input queue ([`crate::INPUT_CAP`]); a press past it is refused
@@ -82,6 +91,23 @@ pub(crate) struct IdentityViews {
     switcher_rows: Rc<VecModel<IdRow>>,
     /// The switcher's view was set once, its rows model with it.
     switcher_set: bool,
+    /// Your identities' rows as last drawn, by place: what a press names.
+    list_keys: Rc<RefCell<Vec<IdentityKey>>>,
+    /// Your identities' rows, one model for the view's life, updated in
+    /// place as the switcher's are.
+    list_rows: Rc<VecModel<IdListRow>>,
+    /// Your identities' view was set once, its rows model with it.
+    list_set: bool,
+}
+
+/// What [`IdentityViews::render`] asks of the view: what to announce,
+/// focus on a control already drawn, and focus on one the render that
+/// asks may make -- Your identities' title, a row, the limit's line.
+#[derive(Debug, Default)]
+pub(crate) struct Rendered {
+    pub(crate) said: Option<String>,
+    pub(crate) focus: Option<&'static str>,
+    pub(crate) page_focus: Option<String>,
 }
 
 /// Queue `intent` from a window callback and wake the root, after the
@@ -175,6 +201,35 @@ impl IdentityViews {
                 press(&p, &s, IdentityIntent::SnackbarClosed(id));
             }
         });
+        // Your identities: a row and its Try again by their place as last
+        // drawn, Add on its own.
+        let list_keys: Rc<RefCell<Vec<IdentityKey>>> = Rc::new(RefCell::new(Vec::new()));
+        let at = |keys: &RefCell<Vec<IdentityKey>>, at: i32| {
+            usize::try_from(at)
+                .ok()
+                .and_then(|at| keys.borrow().get(at).cloned())
+        };
+        let (p, s, listed) = (
+            Rc::clone(&presses),
+            Rc::clone(shared),
+            Rc::clone(&list_keys),
+        );
+        window.on_id_list_chosen(move |place| {
+            if let Some(key) = at(&listed, place) {
+                press(&p, &s, IdentityIntent::OpenRow(key));
+            }
+        });
+        let (p, s, listed) = (
+            Rc::clone(&presses),
+            Rc::clone(shared),
+            Rc::clone(&list_keys),
+        );
+        window.on_id_list_try_again(move |place| {
+            if let Some(key) = at(&listed, place) {
+                press(&p, &s, IdentityIntent::TryAgain(key));
+            }
+        });
+        window.on_id_list_add(on(IdentityIntent::Add));
         Self {
             presses,
             rows,
@@ -186,20 +241,147 @@ impl IdentityViews {
             send_held: false,
             switcher_rows: Rc::new(VecModel::default()),
             switcher_set: false,
+            list_keys,
+            list_rows: Rc::new(VecModel::default()),
+            list_set: false,
+        }
+    }
+
+    /// Queue `intent` as a press would: how a card page the identities'
+    /// model shows says it was left by the page's own Back.
+    pub(crate) fn queue(&self, shared: &RefCell<Shared>, intent: IdentityIntent) {
+        press(&self.presses, shared, intent);
+    }
+
+    /// Draw Your identities (cards §5.1, identities §6.1) and the app
+    /// options' item that opens it.
+    fn render_list(&self, window: &AppWindow, model: &UiModel, host: RuntimeHost) {
+        let ids = model.identities();
+        window.set_id_listed(ids.shows_identity());
+        window.set_identities_title(placeholder_en::text(UiText::IdentitiesTitle).into());
+        let page = ids.your_identities();
+        *self.list_keys.borrow_mut() = page
+            .as_ref()
+            .map(|p| p.rows.iter().map(|r| r.key.clone()).collect())
+            .unwrap_or_default();
+        let rows: Vec<IdListRow> = page.as_ref().map_or_else(Vec::new, |p| {
+            p.rows
+                .iter()
+                .map(|r| {
+                    let (try_again, try_enabled, try_progress) = try_again_parts(r.try_again);
+                    let state = r.state.as_ref().map(Said::english).unwrap_or_default();
+                    let text_of = |t: Option<UiText>| t.map_or("", placeholder_en::text);
+                    let description = sentences(
+                        [
+                            Some(r.second_line_label.english()),
+                            r.default.map(|t| placeholder_en::text(t).to_owned()),
+                            r.description.map(|t| placeholder_en::text(t).to_owned()),
+                            (!state.is_empty()).then(|| state.clone()),
+                            r.card_not_saved.map(|t| placeholder_en::text(t).to_owned()),
+                        ]
+                        .into_iter()
+                        .flatten(),
+                    );
+                    IdListRow {
+                        name: r.name.as_str().into(),
+                        name_said: spoken(&r.name).into(),
+                        second_line: r.second_line.as_str().into(),
+                        description: spoken(&description).into(),
+                        default: text_of(r.default).into(),
+                        in_front: r.in_front,
+                        state: state.into(),
+                        card_not_saved: text_of(r.card_not_saved).into(),
+                        try_again,
+                        try_enabled,
+                        try_progress,
+                    }
+                })
+                .collect()
+        });
+        // In place, row by row: a row made again loses the focus it holds.
+        let model_rows = &self.list_rows;
+        for (at, row) in rows.iter().enumerate() {
+            if at < model_rows.row_count() {
+                if model_rows.row_data(at).as_ref() != Some(row) {
+                    model_rows.set_row_data(at, row.clone());
+                }
+            } else {
+                model_rows.push(row.clone());
+            }
+        }
+        while model_rows.row_count() > rows.len() {
+            model_rows.remove(model_rows.row_count() - 1);
+        }
+        let add = page.as_ref().and_then(|p| p.add);
+        let view = IdListView {
+            statement: page.as_ref().map_or_else(SharedString::new, |p| {
+                placeholder_en::host_text(host, p.statement).into()
+            }),
+            unlisted: page.as_ref().map_or_else(SharedString::new, |p| {
+                placeholder_en::text(p.unlisted).into()
+            }),
+            rows: ModelRc::from(Rc::clone(&self.list_rows)),
+            add_shown: add.is_some(),
+            add: add.map_or("", |a| placeholder_en::text(a.text)).into(),
+            add_enabled: add.is_some_and(|a| a.disabled.is_none()),
+            add_reason: add
+                .and_then(|a| a.disabled)
+                .map_or("", placeholder_en::text)
+                .into(),
+            limit: add
+                .and_then(|a| a.limit)
+                .map_or("", placeholder_en::text)
+                .into(),
+        };
+        // Set again only when what it holds besides the rows changed: the
+        // rows model never compares equal to itself.
+        let drawn = window.get_id_list();
+        let same = self.list_set
+            && drawn.statement == view.statement
+            && drawn.unlisted == view.unlisted
+            && drawn.add_shown == view.add_shown
+            && drawn.add == view.add
+            && drawn.add_enabled == view.add_enabled
+            && drawn.add_reason == view.add_reason
+            && drawn.limit == view.limit;
+        if !same {
+            window.set_id_list(view);
+        }
+    }
+
+    /// Where the model's focus request for Your identities puts focus:
+    /// its title (F4), the row Done named (F6, F9), the limit (F8).
+    fn list_focus(&self, model: &UiModel, to: IdentityFocus) -> Option<String> {
+        let ids = model.identities();
+        match to {
+            IdentityFocus::IdentitiesTitle if ids.identities_open() => {
+                Some(LIST_TITLE_FOCUS.to_owned())
+            }
+            IdentityFocus::Row => {
+                let row = ids.focus_row()?;
+                let at = self.list_keys.borrow().iter().position(|k| k == row)?;
+                Some(format!("identities-row:{at}"))
+            }
+            IdentityFocus::Limit if ids.identities_open() => Some(LIMIT_FOCUS.to_owned()),
+            _ => None,
         }
     }
 
     /// Draw the model's identities: the switch, the switcher, the switch's
-    /// snackbar and the composer's line. Returns what to announce -- the
-    /// switch's snackbar as it opens -- and where to move focus.
+    /// snackbar, the composer's line and Your identities. Returns what to
+    /// announce -- the switch's snackbar as it opens -- and where to move
+    /// focus.
     pub(crate) fn render(
         &mut self,
         window: &AppWindow,
         model: &UiModel,
         shared: &Rc<RefCell<Shared>>,
-    ) -> (Option<String>, Option<&'static str>) {
+        host: RuntimeHost,
+    ) -> Rendered {
         let ids = model.identities();
         let mut focus = None;
+        let mut page_focus = None;
+        self.render_list(window, model, host);
 
         let switch = ids.switch_view();
         window.set_id_switch(switch.as_ref().map_or_else(IdSwitch::default, |v| {
@@ -387,7 +569,7 @@ impl IdentityViews {
         }
 
         // The model's focus request, once: the switcher's title takes focus
-        // as it opens on its own (F1), so only the switch is asked here.
+        // as it opens on its own (F1), so it is not asked here.
         if let Some((seq, to)) = ids.focus_request()
             && self.focus_seen != Some(seq)
         {
@@ -395,8 +577,13 @@ impl IdentityViews {
             if to == IdentityFocus::Switch && switch.is_some() {
                 focus = Some(SWITCH_FOCUS);
             }
+            page_focus = self.list_focus(model, to);
         }
-        (said, focus)
+        Rendered {
+            said,
+            focus,
+            page_focus,
+        }
     }
 }
 
