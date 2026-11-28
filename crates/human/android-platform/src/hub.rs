@@ -832,8 +832,9 @@ impl Hub {
     /// told [`ToView::HeldMore`], listed or not -- one not listed hears
     /// them before the listing that follows. Under the one slot lock, so
     /// a view attaching is told them once, in the list it is attached
-    /// with or in the message, never in neither or both. Refused unless
-    /// it is the hub's current facade.
+    /// with or in the message, not in neither and not in both
+    /// (`a_view_attached_after_a_create_is_told_the_new_identity_held`).
+    /// Refused unless it is the hub's current facade.
     pub(crate) fn held_more(&self, generation: u64, more: Vec<EndpointId>) {
         let commands = self.commands();
         if !commands.current(generation) {
@@ -1544,6 +1545,10 @@ mod tests {
         assert!(
             matches!(&told[0], ToView::Held(h) if h.held == [me(), other.clone()] && h.front == me()),
             "named once, front unchanged: {told:?}"
+        );
+        assert!(
+            !told.iter().any(|t| matches!(t, ToView::HeldMore(_))),
+            "a late view is told them in its list and not again: {told:?}"
         );
         hub.retire(g);
         let again = hub.started(tokio::sync::mpsc::unbounded_channel().0, held());

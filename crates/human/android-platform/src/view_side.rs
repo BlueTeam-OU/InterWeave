@@ -42,7 +42,7 @@ use crate::hub::{Held, StoreAnswer, StoreGeneration, ToView, UnlockSaid};
 pub struct ListingFailed;
 
 /// How many add classes wait for [`ViewSide::take_add_classes`] at most;
-/// past it the oldest goes (`add_classes_wait_to_a_bound`).
+/// past it the oldest goes (`add_classes_name_no_id_alias_or_card`).
 const ADD_CLASS_CAP: usize = 32;
 
 /// What came of an add act or a settle, as the platform log names it: its
@@ -675,7 +675,8 @@ mod tests {
 
     /// What an add came to reaches the log as a class, in order, naming
     /// no identity, alias or card; and what waits is bounded. Mutation:
-    /// no bound -- the length assert fails.
+    /// no bound -- the length assert fails; the bound dropping the newest
+    /// instead of the oldest -- the first-entry assert fails.
     #[test]
     fn add_classes_name_no_id_alias_or_card() {
         use interweave_human_app_core::CardSaved;
@@ -714,11 +715,21 @@ mod tests {
             assert!(!class.contains("zelinda"), "{class}");
         }
         assert!(side.take_add_classes().is_empty(), "taken once");
-        for _ in 0..ADD_CLASS_CAP + 5 {
+        side.apply(ToView::Add(AddTold::Offered)).expect("applied");
+        for _ in 0..ADD_CLASS_CAP {
             side.apply(ToView::Add(AddTold::NotStarted))
                 .expect("applied");
         }
-        assert_eq!(side.take_add_classes().len(), ADD_CLASS_CAP, "bounded");
+        side.apply(ToView::Add(AddTold::WaitsSeed))
+            .expect("applied");
+        let kept = side.take_add_classes();
+        assert_eq!(kept.len(), ADD_CLASS_CAP, "bounded");
+        assert_eq!(kept[0], "create did not start", "the oldest went");
+        assert_eq!(
+            kept.last().copied(),
+            Some("create waits for the first identity's seed"),
+            "the newest stayed"
+        );
     }
 
     /// The add act goes to the hub as it was given, in order with the
