@@ -1123,7 +1123,12 @@ Outcomes other than Done, each with nothing half-made shown as made:
   always the first. The overflow button is drawn only while the
   overflow holds an item: with the first identity the default, cards
   §5.2 offers neither Make default nor Turn off on it, and the editor
-  shows no overflow button. When focus was on an item of the editor's
+  shows no overflow button. The rule holds on every identity's page,
+  so a Make default that leaves the overflow with no item (two or more
+  held, on an identity that was not the default) takes its button
+  away, and focus then goes to the page's title, overriding cards §8's
+  "stays on the overflow button" for that case; its Undo brings the
+  button back, and focus is then as cards §8 gives it (§11 F31). When focus was on an item of the editor's
   overflow menu, the menu closes and focus goes to the overflow button,
   or to the page's title when no button is drawn (§11 F28); otherwise
   focus stays where it was.
@@ -1167,8 +1172,8 @@ Outcomes other than Done, each with nothing half-made shown as made:
   identity, but the client could not take it into the identities it
   holds yet (the store could not be read, or the client holds as many
   as it can), and Your identities lists only identities the client
-  holds. Done lands where it would have, with no row for the new
-  identity and focus on that screen's title (§11 F30): Your identities
+  holds. Done lands, with no row for the new identity and focus on
+  that screen's title (§11 F30), on: Your identities
   when two or more identities were held before; with one held before,
   the card editor that the form was opened from, as after Back (cards
   §5.1: Your identities is shown only while two or more are held), so
@@ -1593,6 +1598,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; when the overflow then holds no item (Make default and Turn off not offered there, cards §5.2), no overflow button is drawn, and focus goes to the page's title (rust-ui-dev-02's QUESTION 01a21fa9, U2); otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant, once with the first identity not the default (the overflow keeps an item) and once with it the default (it keeps none) |
 | F29 | Remove chosen in the identity Remove dialog (§7, "While Remove runs") | stays on Remove, its accessible name `IdentityRemoving`, while it runs; Tab and Shift+Tab do not reach the disabled Cancel; when it ends done, F11; when it ends with `IdentityChangeFailed`, `IdentityRemoveUnfinished` or `IdentityRemoveUnfinishedRows`, the overflow button of the identity's page | keyboard, with acceptance 13's refusal run, its run with the unlink made to fail, and a run whose remove answer is held past the add's wait; desktop screen reader: Remove read as "Removing {identity}" while it runs |
 | F30 | Create ends Done with the identity made and not held yet (§6.2) | the title of the screen Done lands on: Your identities with two or more held before, the card editor with one; when the identity is held later, F28 in the card editor, and otherwise focus stays where it was | keyboard, with acceptance 11b's runs |
+| F31 | Make default leaves the identity page's overflow with no item (§6.2's settle, the overflow button's rule) | the page's title; on its Undo, as cards §8 gives it (the overflow button, back with Make default) | keyboard, with acceptance 14a |
 
 ## 12. Accessibility beyond focus
 
@@ -2213,6 +2219,11 @@ pass before it lands.
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
+14a. With two identities held, both on, and the first the default:
+    on the added identity's page, Make default from the overflow; the
+    overflow button is gone and focus is on the page's title; Undo on
+    the snackbar brings Make default and the button back, and focus is
+    on the overflow button. *(§6.2, F31.)*
 15. Advertise: no screen offers a control for it; with `advertise: true`
     authored and the assertion made to fail, the identity shows
     `IdentityNotHidden` with Try again and no lease is granted; made to
@@ -2258,7 +2269,7 @@ pass before it lands.
     Pixel; Escape and Back close each menu, sheet and dialog with
     focus on the opener, except the identity Remove dialog while Remove
     runs, which they leave open (13a); no key switches identity without the switcher.
-21. Focus table: each row F1–F30 holds, checked as its row says.
+21. Focus table: each row F1–F31 holds, checked as its row says.
 22. Contrast: one row per mark and surface named in §12, each measured
     at or above its ratio, light and dark.
 23. TalkBack: each "as" line is read with its control, and each
