@@ -45,6 +45,8 @@ pub(crate) struct Script {
     pub(crate) hold_send: Option<Arc<tokio::sync::Notify>>,
     /// The status `admin.status` reports.
     pub(crate) health: Option<Health>,
+    /// The session-queue drop count the port reports; `None` keeps none.
+    pub(crate) events_dropped: Option<u64>,
     /// Lease epochs minted.
     pub(crate) epochs: u32,
     /// When set, `join` panics: a binding bug the server must survive.
@@ -299,15 +301,23 @@ impl AdminPort for FakeAdmin {
     }
 
     async fn status(&self) -> Result<AdminStatus, TransportError> {
-        let health = self.fake.script().health.unwrap_or(Health::Healthy);
+        // One lock: a second guard in the struct literal below deadlocks.
+        let (health, leased, events_dropped) = {
+            let script = self.fake.script();
+            (
+                script.health.unwrap_or(Health::Healthy),
+                script.leased.len(),
+                script.events_dropped,
+            )
+        };
         Ok(AdminStatus {
             health,
             peer: peer(),
             connectivity: connectivity(),
-            active_leases: self.fake.script().leased.len(),
+            active_leases: leased,
             pre_auth: None,
             ingress: None,
-            events_dropped: None,
+            events_dropped,
             events_refused: Some(9),
         })
     }

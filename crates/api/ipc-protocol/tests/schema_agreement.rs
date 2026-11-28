@@ -1007,7 +1007,10 @@ fn every_result() -> Vec<(&'static str, Value)> {
             events_dropped: Some(4),
             events_refused: Some(5),
         },
-        ServerCounters::default(),
+        ServerCounters {
+            events_dropped_at_close: Some(6),
+            ..ServerCounters::default()
+        },
     );
     let list = EndpointList::from_views(vec![
         EndpointAdminView {

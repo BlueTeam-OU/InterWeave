@@ -29,6 +29,8 @@ impl Counters {
                 .cross_domain_capability_denied
                 .load(Ordering::Relaxed),
             peer_credential_refused_total: self.peer_credential_refused.load(Ordering::Relaxed),
+            // Kept here, so always served, 0 included (LOCAL-IPC.md A 2026-11-28).
+            events_dropped_at_close: Some(self.events_dropped_at_close.load(Ordering::Relaxed)),
         }
     }
 
@@ -52,8 +54,10 @@ impl Counters {
     /// session's close returned and the connection could not write, and
     /// what was still in its lane (`LOCAL-IPC.md` §Disconnect/reconnect, A
     /// 2026-11-28). A floor, counted as the stop's is, and never part of
-    /// [`events_dropped_at_stop`](Self::events_dropped_at_stop). Not part
-    /// of `admin.status` either: no status field carries it.
+    /// [`events_dropped_at_stop`](Self::events_dropped_at_stop). Unlike the
+    /// stop's, it is served by `admin.status` as
+    /// `ipc.events_dropped_at_close_total` (`snapshot`), since the server
+    /// is still answering when a client closes.
     #[must_use]
     pub fn events_dropped_at_close(&self) -> u64 {
         self.events_dropped_at_close.load(Ordering::Relaxed)

@@ -1157,6 +1157,81 @@ mod tests {
         );
     }
 
+    /// `admin.status` serves what a leaving client did not read as
+    /// `ipc.events_dropped_at_close_total`: 0 before, then the queue it
+    /// left, while the session-queue overflow count (the fake's 2) and
+    /// the stop's count do not move (`LOCAL-IPC.md` A 2026-11-28).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_clients_close_is_served_in_admin_status_apart_from_the_other_drops() {
+        const QUEUED: usize = 1000;
+        let fake = Fake::default();
+        fake.script().events_dropped = Some(2);
+        let mut short = config();
+        short.shutdown_grace = Duration::from_millis(300);
+        short.limits = Limits {
+            // The ceiling is across both sockets: the admin connection and
+            // the one data client.
+            max_clients: 2,
+            max_admin_clients: 1,
+        };
+        let harness = Harness::start(&fake, short);
+        let mut admin = Client::connect(&harness.paths.admin).await;
+        admin.hello(ADMIN).await;
+        let mut asked = 0_u32;
+        let mut status = async |admin: &mut Client| -> serde_json::Value {
+            asked += 1;
+            admin
+                .send(&format!(
+                    r#"{{"type":"request","id":"s{asked}","method":"admin.status"}}"#
+                ))
+                .await;
+            let answer = admin.response().await;
+            let answer: serde_json::Value = serde_json::from_str(&answer.body).expect("json");
+            answer["result"]["ipc"].clone()
+        };
+        let before = status(&mut admin).await;
+        assert_eq!(before["events_dropped_at_close_total"], 0, "{before}");
+        assert_eq!(before["events_dropped_total"], 2, "{before}");
+
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let held = stuff(&fake, QUEUED).await;
+        leave(&mut client).await;
+        // The close is counted when the connection ends, after the grace
+        // the server gives a client that does not read.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while status(&mut admin).await["events_dropped_at_close_total"] == 0 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "a close is counted within the grace"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let after = status(&mut admin).await;
+        let left = after["events_dropped_at_close_total"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("a kept count is served: {after}"));
+        assert!(
+            left >= held as u64,
+            "at least what the session held: {after}"
+        );
+        assert_eq!(
+            after["events_dropped_total"], 2,
+            "overflow count unmoved: {after}"
+        );
+        let counters = harness.stop().await;
+        assert_eq!(
+            counters.events_dropped_at_stop(),
+            0,
+            "the stop's is unmoved"
+        );
+        assert_eq!(
+            counters.events_dropped_at_close(),
+            left,
+            "one count, served whole"
+        );
+    }
+
     /// Only a CLEAN end of stream is a client leaving: a stream cut inside
     /// a frame is a connection lost, and is handed nothing and counts
     /// nothing, as before A 2026-11-28 -- the client reads only what the
