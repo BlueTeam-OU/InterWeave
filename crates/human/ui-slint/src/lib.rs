@@ -1231,6 +1231,44 @@ pub enum CopyFeedback {
 /// rendering notifier runs.
 type FrameTasks = Rc<RefCell<Vec<Box<dyn FnOnce()>>>>;
 
+/// How long [`View::focus_page_control`] waits between its bumps.
+const PAGE_FOCUS_RETRY: Duration = Duration::from_millis(30);
+
+/// How many bumps [`View::focus_page_control`] makes at most after its
+/// own two: about a third of a second, a page's layout many times over.
+const PAGE_FOCUS_TRIES: u32 = 10;
+
+/// Bump the focus request for `target` after [`PAGE_FOCUS_RETRY`], `tries`
+/// times at most, while focus is still where it was when the request was
+/// made (`before`, the `focus-id` then) and the request is the newest.
+/// Focus anywhere else ends it: on the target, the request landed; on
+/// any other control, the person moved it, and it is never taken back
+/// (`a_page_focus_retry_never_takes_focus_back_from_the_person`).
+fn retry_page_focus(
+    window: slint::Weak<AppWindow>,
+    wanted: Rc<RefCell<Option<String>>>,
+    target: String,
+    before: SharedString,
+    tries: u32,
+) {
+    if tries == 0 {
+        return;
+    }
+    slint::Timer::single_shot(PAGE_FOCUS_RETRY, move || {
+        let Some(shown) = window.upgrade() else {
+            return;
+        };
+        if wanted.borrow().is_some()
+            || shown.get_focus_target().as_str() != target
+            || shown.get_focus_id() != before
+        {
+            return;
+        }
+        shown.set_focus_seq(shown.get_focus_seq().wrapping_add(1));
+        retry_page_focus(window, wanted, target, before, tries - 1);
+    });
+}
+
 /// Run `task` once a frame rendered after this call is drawn, a redraw
 /// asked for ([`View::after_next_frame`]).
 fn after_frame(tasks: &FrameTasks, window: &AppWindow, task: impl FnOnce() + 'static) {
@@ -1879,6 +1917,30 @@ impl View {
     /// snackbar (the default).
     pub fn set_copy_feedback(&mut self, feedback: CopyFeedback) {
         self.copy_feedback.set(feedback);
+    }
+
+    /// Focus `target`, a control of a page the same render opens, as
+    /// [`Self::focus_key_after_draw`] does, then again every
+    /// [`PAGE_FOCUS_RETRY`] while focus stays where it was, until a newer
+    /// request comes or [`PAGE_FOCUS_TRIES`] have passed. A control
+    /// instantiated after a bump takes that value as its first and sees no
+    /// change; on the desktop's real event loop both of
+    /// `focus_key_after_draw`'s bumps could pass before the page was laid
+    /// out, and the field asked stayed unfocused (desktop-e2e `adding.rs`,
+    /// F5; the software renderer gives no notice of a frame drawn).
+    pub(crate) fn focus_page_control(&mut self, target: String) {
+        self.focus_key_after_draw(target.clone());
+        // Only a page this render opened can lack its controls yet; on a
+        // page already laid out the two bumps land, and a retry could
+        // take focus back from where the person moved it since.
+        if self.cards.opened_now.is_none() {
+            return;
+        }
+        let (window, wanted) = (swipe::weak(&self.window), Rc::clone(&self.focus_wanted));
+        let before = self.window.get_focus_id();
+        if before.as_str() != target {
+            retry_page_focus(window, wanted, target, before, PAGE_FOCUS_TRIES);
+        }
     }
 
     /// Run `task` once a frame rendered after this call has been handed to
@@ -3077,7 +3139,7 @@ impl View {
         }
         // A control of a page this render may have made.
         if let Some(target) = page_focus {
-            self.focus_key_after_draw(target);
+            self.focus_page_control(target);
         }
         let said = [
             conversation,

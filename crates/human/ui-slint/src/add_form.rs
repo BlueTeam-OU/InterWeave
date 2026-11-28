@@ -248,7 +248,7 @@ impl View {
         {
             self.add_forms.focus_seen = Some(seq);
             if let Some(key) = focus_key(at) {
-                self.focus_key_after_draw(key.to_owned());
+                self.focus_page_control(key.to_owned());
             }
         }
     }

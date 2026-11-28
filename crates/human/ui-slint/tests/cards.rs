@@ -5675,3 +5675,23 @@ fn copy_puts_the_alias_on_the_clipboard() {
     assert!(shows(&view, text(UiText::AliasNotCopied)));
     assert_eq!(focus(&view), "page-alias-copy", "focus stays");
 }
+
+/// A page's focus request is asked again until it lands (the desktop's
+/// event loop can lay a page out after its first asks), and never takes
+/// focus back from where the person moved it since: F5 lands on Name,
+/// the person tabs on at once, and long after, focus is where the person
+/// put it. Mutation: the retry not stopping when focus moved.
+#[test]
+fn a_page_focus_retry_never_takes_focus_back_from_the_person() {
+    use interweave_human_ui_model::AddFrom;
+    let (view, _model, _root) = add_form(AddFrom::Identities, true, 1000.0);
+    assert_eq!(focus(&view), "add-name", "F5");
+    key(&view, slint::platform::Key::Tab);
+    slint::platform::update_timers_and_animations();
+    assert_eq!(focus(&view), "add-surname");
+    for _ in 0..20 {
+        i_slint_backend_testing::mock_elapsed_time(std::time::Duration::from_millis(30));
+        slint::platform::update_timers_and_animations();
+    }
+    assert_eq!(focus(&view), "add-surname", "not taken back");
+}

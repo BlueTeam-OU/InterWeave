@@ -677,6 +677,9 @@ pub(crate) struct CardScreens {
     pub(crate) alias_board: Option<AliasBoard>,
     /// The Copy's snackbar's time.
     page_snack_timer: Option<slint::Timer>,
+    /// The page the identities' model shows that this render opened,
+    /// whose controls may not be laid out yet (`View::focus_page_control`).
+    pub(crate) opened_now: Option<ModelPage>,
 }
 
 /// A card page the identities' model opens and closes, rather than the
@@ -1252,6 +1255,7 @@ impl View {
         let showing = |view: &Self, page: ModelPage| {
             view.page == crate::Page::Cards && view.cards.page == Some(page.cards_page())
         };
+        self.cards.opened_now = None;
         match ModelPage::wanted(model) {
             None => {
                 match self.cards.model_shown.take() {
@@ -1306,6 +1310,7 @@ impl View {
                 window.set_list_shown(false);
                 self.cards.model_shown = Some(page);
                 self.cards.model_leaving = false;
+                self.cards.opened_now = Some(page);
                 if page == ModelPage::Page {
                     // The page opens on its title, as Your card does, and
                     // with the form's values Done did not save (F9).
