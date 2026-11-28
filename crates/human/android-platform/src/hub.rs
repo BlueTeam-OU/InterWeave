@@ -1481,10 +1481,6 @@ mod tests {
         assert_eq!(identities_in(&after_stop.take()), [rows(&["c"])]);
     }
 
-    /// What the model side sends across reaches the facade naming the
-    /// identity it is for, a command or a switch, in the order sent; with
-    /// no facade it is handed back whole. Mutations: `cross` sending the
-    /// command as `None`, or dropping the switch.
     /// An add act crosses in the order sent among commands and switches,
     /// and is handed back once no facade takes it. Mutation: `Hub::add`
     /// sending another act than it was given -- the first assert fails.
@@ -1562,6 +1558,10 @@ mod tests {
         );
     }
 
+    /// What the model side sends across reaches the facade naming the
+    /// identity it is for, a command or a switch, in the order sent; with
+    /// no facade it is handed back whole. Mutations: `cross` sending the
+    /// command as `None`, or dropping the switch.
     #[test]
     fn a_crossing_reaches_the_facade_naming_its_identity() {
         let hub = Hub::new();
