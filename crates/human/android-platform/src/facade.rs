@@ -155,6 +155,37 @@ async fn carry<F: Facade>(
             }
             Vec::new()
         }
+        ToFacade::Add(act) => {
+            facade.add(act, now);
+            Vec::new()
+        }
+    }
+}
+
+/// Tell the hub what the facade held and was told of an add since it was
+/// last asked: the identities held, named before anything else of the
+/// turn or the message that held them (an update for an identity the view
+/// has no model of is dropped by its model side), then each one's start
+/// -- or its failure -- then what each add act and settle came to. Called
+/// after every carried message and every turn, before that step's own
+/// updates are published and before the held list is told
+/// (`a_created_identity_is_named_before_any_update_for_it`).
+fn tell_held_more<F: Facade>(facade: &mut F, hub: &Hub, generation: u64) {
+    let more = facade.take_held_more();
+    if !more.is_empty() {
+        hub.held_more(
+            generation,
+            more.iter().map(|(identity, _)| identity.clone()).collect(),
+        );
+        for (identity, start) in more {
+            match start {
+                Ok(start) => hub.update(generation, &identity, Update::Started(Box::new(start))),
+                Err(_) => hub.listing_failed(generation),
+            }
+        }
+    }
+    for told in facade.take_add_told() {
+        hub.add_told(generation, told);
     }
 }
 
@@ -248,8 +279,12 @@ impl FacadeLoop {
         // tests/root.rs
         // `a_second_send_while_one_is_in_flight_is_not_sent_twice`). What can
         // wait is at most one per action and per unread row the model
-        // holds: rows the store holds, bounded by its quota; and a switch,
-        // one per the person's choice in the switcher. The loop below
+        // holds: rows the store holds, bounded by its quota; a switch,
+        // one per the person's choice in the switcher; and an add act,
+        // one per the person's act on the add form or the list of
+        // identities, which `Hub::add` and `ViewSide::add` send without a
+        // `ModelSide`, so none is deduplicated, and no Android screen
+        // sends one yet. The loop below
         // takes every waiting command each turn, which is latency, not the
         // bound. The other direction is bounded (hub.rs `TO_VIEW`).
         let (commands, mut waiting) = mpsc::unbounded_channel();
@@ -385,13 +420,17 @@ impl FacadeLoop {
                             if matches!(message, ToFacade::Command { .. }) {
                                 hub.before_command();
                             }
-                            publish(carry(facade, message, now(), &note).await);
+                            let routed = carry(facade, message, now(), &note).await;
+                            tell_held_more(facade, &hub, generation);
+                            publish(routed);
                         }
                         if closing_now {
                             break;
                         }
                         if !hub.turns_held() {
-                            publish(facade.turn(now()).await);
+                            let routed = facade.turn(now()).await;
+                            tell_held_more(facade, &hub, generation);
+                            publish(routed);
                         }
                     }
                     facade.close().await;
@@ -462,7 +501,9 @@ impl FacadeLoop {
 mod closing_tests {
     use super::{FacadeLoop, FacadeNote, HeldState, carry, closing};
     use crate::hub::{Held, Hub, ToFacade};
-    use interweave_human_app_core::{Command, Facade, Routed, Start, SwitchOutcome, Update};
+    use interweave_human_app_core::{
+        AddAct, AddTold, Command, Facade, Routed, Start, SwitchOutcome, Update,
+    };
     use interweave_human_store::StoreError;
     use interweave_human_ui_model::HeldIdentity;
     use interweave_transport_api::EndpointId;
@@ -503,6 +544,15 @@ mod closing_tests {
         rows: Option<Vec<HeldIdentity>>,
         /// What a command changes the rows to.
         after_command: Option<Vec<HeldIdentity>>,
+        /// An identity the next turn holds, as a settle does: it is held
+        /// before the turn answers, which routes an update to it.
+        holds_in_turn: Option<EndpointId>,
+        /// Identities held since `take_held_more` was asked.
+        more: Vec<EndpointId>,
+        /// What an add act or a settle came to, since asked.
+        told: Vec<AddTold>,
+        /// The add acts carried out.
+        added: Vec<AddAct>,
     }
 
     impl Recorder {
@@ -516,6 +566,10 @@ mod closing_tests {
                 fronted: Vec::new(),
                 rows: None,
                 after_command: None,
+                holds_in_turn: None,
+                more: Vec::new(),
+                told: Vec::new(),
+                added: Vec::new(),
             }
         }
     }
@@ -531,7 +585,25 @@ mod closing_tests {
             Vec::new()
         }
         fn turn(&mut self, _now: u64) -> impl Future<Output = Routed> {
-            std::future::ready(Vec::new())
+            let Some(held) = self.holds_in_turn.take() else {
+                return std::future::ready(Vec::new());
+            };
+            self.held.push(held.clone());
+            self.more.push(held.clone());
+            self.told.push(AddTold::Held(held.clone()));
+            std::future::ready(vec![(held, vec![Update::Done(Command::Reopen)])])
+        }
+        fn take_held_more(&mut self) -> Vec<(EndpointId, Result<Start, StoreError>)> {
+            std::mem::take(&mut self.more)
+                .into_iter()
+                .map(|identity| (identity, Ok(a_start())))
+                .collect()
+        }
+        fn add(&mut self, act: AddAct, _now: u64) {
+            self.added.push(act);
+        }
+        fn take_add_told(&mut self) -> Vec<AddTold> {
+            std::mem::take(&mut self.told)
         }
         fn execute(
             &mut self,
@@ -570,6 +642,19 @@ mod closing_tests {
         }
         fn held_identities(&mut self) -> Option<Vec<HeldIdentity>> {
             self.rows.take()
+        }
+    }
+
+    fn a_start() -> Start {
+        Start {
+            pending: Vec::new(),
+            summaries: Vec::new(),
+            counted_through: None,
+            undecodable_unread: 0,
+            undecodable_other: 0,
+            kept: 0,
+            contacts: Ok(Vec::new()),
+            identity: None,
         }
     }
 
@@ -775,6 +860,90 @@ mod closing_tests {
         assert_eq!(facade.front, other());
         assert_eq!(*said.borrow(), vec![FacadeNote::FrontUnremembered]);
         assert!(facade.ran.is_empty(), "a switch runs no command");
+    }
+
+    /// An add act is carried to the facade as the act itself, answering
+    /// nothing. Mutation: the `ToFacade::Add` arm dropping the act fails
+    /// the `added` assert.
+    #[test]
+    fn an_add_act_is_carried_to_the_facade() {
+        let mut facade = Recorder::new(vec![me()], me());
+        let note = |_| {};
+        let act = AddAct::Create {
+            name: "Work".to_owned(),
+            surname: None,
+            photo: None,
+        };
+        assert!(run(carry(&mut facade, ToFacade::Add(AddAct::Opened), 0, &note)).is_empty());
+        assert!(run(carry(&mut facade, ToFacade::Add(act.clone()), 0, &note)).is_empty());
+        assert_eq!(facade.added, vec![AddAct::Opened, act]);
+        assert!(facade.ran.is_empty(), "an add act runs no command");
+    }
+
+    /// An identity the facade holds in a turn is named to the view before
+    /// anything else of the turn: `HeldMore`, then its start, then what
+    /// the add came to, then the turn's own updates, which name it. A
+    /// model side drops an update for an identity it was not told of.
+    /// Mutation: `tell_held_more` called after `publish` -- the turn's
+    /// update for the identity comes before `HeldMore` and the order
+    /// assert fails.
+    #[test]
+    fn a_created_identity_is_named_before_any_update_for_it() {
+        let executor = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(1)
+            .enable_time()
+            .build()
+            .expect("a runtime");
+        let hub = Arc::new(Hub::new());
+        let mut link = hub.attach(Arc::new(|| {}));
+        let facade = FacadeLoop::spawn(
+            executor.handle().clone(),
+            move || {
+                let mut recorder = Recorder::new(vec![me()], me());
+                recorder.holds_in_turn = Some(other());
+                Ok(recorder)
+            },
+            &hub,
+            |_| {},
+        )
+        .expect("spawned");
+        let mut seen: Vec<&'static str> = Vec::new();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !seen.contains(&"update") {
+            assert!(std::time::Instant::now() < deadline, "told: {seen:?}");
+            for message in link.take() {
+                match message {
+                    crate::hub::ToView::HeldMore(more) if more == [other()] => {
+                        seen.push("held more");
+                    }
+                    crate::hub::ToView::Update(identity, update) if identity == other() => {
+                        seen.push(if matches!(*update, Update::Started(_)) {
+                            "started"
+                        } else {
+                            "update"
+                        });
+                    }
+                    crate::hub::ToView::Add(AddTold::Held(held)) if held == other() => {
+                        seen.push("told held");
+                    }
+                    _ => {}
+                }
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+        assert_eq!(seen, ["held more", "started", "told held", "update"]);
+        // A view attached after it is told the identity held.
+        let mut later = hub.attach(Arc::new(|| {}));
+        let held = later.take().into_iter().find_map(|m| match m {
+            crate::hub::ToView::Held(held) => Some(held),
+            _ => None,
+        });
+        assert_eq!(
+            held.map(|h| h.held),
+            Some(vec![me(), other()]),
+            "a later view is told the new identity"
+        );
+        let _ = facade.close(std::time::Duration::from_secs(5));
     }
 
     /// Every command the hub accepted before the close is handed to the

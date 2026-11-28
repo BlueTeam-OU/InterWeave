@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, Receiver, SyncSender, TrySendError};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
-use interweave_human_app_core::{Command, Crossing, Update};
+use interweave_human_app_core::{AddAct, AddTold, Command, Crossing, Update};
 use interweave_human_ui_model::{HeldIdentity, StartBusy, UnlockFacts};
 use interweave_transport_api::EndpointId;
 
@@ -63,6 +63,10 @@ pub enum ToFacade {
     /// identity it replaces, which therefore runs first
     /// (`interweave_human_app_core::ModelSide::switch`).
     Front(EndpointId),
+    /// What the person did with the add form or the list of identities,
+    /// carried out in the order it was sent among the commands and
+    /// switches (`Facade::add`).
+    Add(AddAct),
 }
 
 /// What a view is sent.
@@ -77,6 +81,17 @@ pub enum ToView {
     /// facade comes and goes with the service, and a take may hold one
     /// start's messages after another's, each start's naming in its order.
     Held(Held),
+    /// Identities held since the last [`ToView::Held`], made while the
+    /// client runs ([`AddAct::Create`], or a settle): sent before any
+    /// update for them, so the model side gives each a model of its own
+    /// ([`crate::ViewSide`], `ModelSide::hold_more`) before the first
+    /// update routed to it (`a_created_identity_is_named_before_any_update_for_it`).
+    /// The hub keeps them in what a view attached later is told
+    /// ([`Self::Held`]; `a_view_attached_after_a_create_is_told_the_new_identity_held`).
+    HeldMore(Vec<EndpointId>),
+    /// What came of the add form's acts and of the settles
+    /// ([`AddTold`]), in the order the facade told it.
+    Add(AddTold),
     /// The held identities as their rows read now -- name, alias, state,
     /// unread -- told by the facade at its start and after a turn that
     /// changed them (app-core's `Facade::held_identities`), and to a view
@@ -248,7 +263,17 @@ struct Slot {
     busy: Option<StartBusy>,
     /// `Refused`'s, as [`ToView::StartRefused`] says it.
     refused: Option<StartBusy>,
+    /// What the facade that runs told of an add while no view took it,
+    /// oldest first, handed to the view that attaches next
+    /// ([`Hub::attach`]) and cleared there. A settle at a service's start
+    /// is told before any Activity is bound, and was lost with no
+    /// viewer. At most [`ADD_TOLD_CAP`]; past it the oldest goes
+    /// (`add_told_kept_with_no_viewer_is_handed_to_the_next_view_once`).
+    adds: Vec<AddTold>,
 }
+
+/// How many add tolds the hub keeps for a view not attached yet.
+const ADD_TOLD_CAP: usize = 32;
 
 impl Default for Slot {
     fn default() -> Self {
@@ -265,6 +290,7 @@ impl Default for Slot {
             unlock: None,
             busy: None,
             refused: None,
+            adds: Vec::new(),
         }
     }
 }
@@ -472,6 +498,11 @@ impl Hub {
         if let Some(identities) = slot.identities.clone() {
             viewer.send(ToView::Identities(identities));
         }
+        // After the held list and rows the view applies them to, in the
+        // order told.
+        for told in std::mem::take(&mut slot.adds) {
+            viewer.send(ToView::Add(told));
+        }
         viewer.send(ToView::NetworkAccess(slot.network));
         viewer.send(ToView::AuthenticationNeeded(slot.authentication));
         if let Some(answer) = slot.store {
@@ -535,7 +566,22 @@ impl Hub {
         match self.to_facade(ToFacade::Command { identity, command }) {
             Ok(()) => Ok(()),
             Err(ToFacade::Command { command, .. }) => Err(command),
-            Err(ToFacade::Front(_)) => unreachable!("handed back as it was sent"),
+            Err(ToFacade::Front(_) | ToFacade::Add(_)) => {
+                unreachable!("handed back as it was sent")
+            }
+        }
+    }
+
+    /// Hand an add act to the facade that takes commands, in the order
+    /// sent among them.
+    ///
+    /// # Errors
+    /// The act, when no facade takes it.
+    pub fn add(&self, act: AddAct) -> Result<(), AddAct> {
+        match self.to_facade(ToFacade::Add(act)) {
+            Ok(()) => Ok(()),
+            Err(ToFacade::Add(act)) => Err(act),
+            Err(_) => unreachable!("handed back as it was sent"),
         }
     }
 
@@ -566,7 +612,9 @@ impl Hub {
         if let Err(back) = sender.send(ToFacade::Front(to.clone())) {
             return match back.0 {
                 ToFacade::Front(to) => Err(Crossing::Front(to)),
-                ToFacade::Command { .. } => unreachable!("handed back as it was sent"),
+                ToFacade::Command { .. } | ToFacade::Add(_) => {
+                    unreachable!("handed back as it was sent")
+                }
             };
         }
         if let Some(held) = self.slot().held.as_mut() {
@@ -763,6 +811,8 @@ impl Hub {
         }
         // A facade that starts tells its own; one that stopped holds none.
         slot.identities = None;
+        // Likewise: a retired facade's tolds are not the next one's.
+        slot.adds.clear();
         if let Some(viewer) = slot.viewer.as_mut() {
             // Listed again from the new facade's first turn: rows the
             // last one showed may have changed while none ran.
@@ -790,6 +840,80 @@ impl Hub {
         slot.identities = Some(identities.clone());
         if let Some(viewer) = slot.viewer.as_ref()
             && !viewer.send(ToView::Identities(identities))
+        {
+            slot.viewer = None;
+        }
+    }
+
+    /// Facade `generation` held `more` while it runs: the held list a
+    /// view attached later is told gains them, and the attached view is
+    /// told [`ToView::HeldMore`], listed or not -- one not listed hears
+    /// them before the listing that follows. A view attached after it is
+    /// told them in the list it is attached with
+    /// (`a_view_attached_after_a_create_is_told_the_new_identity_held`).
+    /// The list grows and the message goes out in one hold of the slot
+    /// lock, which `attach` takes too, so a view attaching meanwhile
+    /// cannot be told them twice; no test interleaves an attach inside
+    /// that hold.
+    /// Refused unless it is the hub's current facade.
+    pub(crate) fn held_more(&self, generation: u64, more: Vec<EndpointId>) {
+        let commands = self.commands();
+        if !commands.current(generation) {
+            return;
+        }
+        let mut slot = self.slot();
+        if let Some(held) = slot.held.as_mut() {
+            for identity in &more {
+                if !held.held.contains(identity) {
+                    held.held.push(identity.clone());
+                }
+            }
+        }
+        if let Some(viewer) = slot.viewer.as_ref()
+            && !viewer.send(ToView::HeldMore(more))
+        {
+            slot.viewer = None;
+        }
+    }
+
+    /// Facade `generation` tells what came of an add act or a settle: to
+    /// the attached view, listed or not, or kept for the next to attach
+    /// when none takes it; refused unless it is the hub's current facade.
+    pub(crate) fn add_told(&self, generation: u64, told: AddTold) {
+        let commands = self.commands();
+        if !commands.current(generation) {
+            return;
+        }
+        let mut slot = self.slot();
+        // Kept when no view takes it: one attached whose link is gone
+        // refuses the send, and the told is then the next view's.
+        let kept = told.clone();
+        if slot
+            .viewer
+            .as_ref()
+            .is_some_and(|v| v.send(ToView::Add(told)))
+        {
+            return;
+        }
+        slot.viewer = None;
+        if slot.adds.len() == ADD_TOLD_CAP {
+            slot.adds.remove(0);
+        }
+        slot.adds.push(kept);
+    }
+
+    /// Facade `generation` could not list the store for an identity it
+    /// held while it runs: told to a listed view, as a listing's failure
+    /// is. A view not listed yet is listed by the facade's next turn and
+    /// hears its own.
+    pub(crate) fn listing_failed(&self, generation: u64) {
+        let commands = self.commands();
+        if !commands.current(generation) {
+            return;
+        }
+        let mut slot = self.slot();
+        if let Some(viewer) = slot.viewer.as_ref().filter(|v| v.listed)
+            && !viewer.send(ToView::ListingFailed)
         {
             slot.viewer = None;
         }
@@ -1387,6 +1511,152 @@ mod tests {
         let later = hub.started(commands, held());
         hub.identities(later, rows(&["c"]));
         assert_eq!(identities_in(&after_stop.take()), [rows(&["c"])]);
+    }
+
+    /// An add act crosses in the order sent among commands and switches,
+    /// and is handed back once no facade takes it. Mutation: `Hub::add`
+    /// sending another act than it was given -- the first assert fails.
+    #[test]
+    fn an_add_act_reaches_the_facade_in_the_order_sent_and_none_once_nothing_runs() {
+        let hub = Hub::new();
+        assert_eq!(
+            hub.add(AddAct::Opened),
+            Err(AddAct::Opened),
+            "no facade runs"
+        );
+        let (commands, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands, held());
+        assert_eq!(hub.command(None, Command::Reopen), Ok(()));
+        assert_eq!(hub.add(AddAct::Opened), Ok(()));
+        assert_eq!(hub.cross(Crossing::Front(me())), Ok(()));
+        assert_eq!(hub.add(AddAct::Left), Ok(()));
+        let mut order = Vec::new();
+        while let Ok(message) = rx.try_recv() {
+            order.push(message);
+        }
+        assert_eq!(
+            order,
+            vec![
+                ToFacade::Command {
+                    identity: None,
+                    command: Command::Reopen
+                },
+                ToFacade::Add(AddAct::Opened),
+                ToFacade::Front(me()),
+                ToFacade::Add(AddAct::Left),
+            ]
+        );
+        hub.retire(g);
+        assert_eq!(hub.add(AddAct::ListOpened), Err(AddAct::ListOpened));
+    }
+
+    /// An identity held while the facade runs is in what a view attached
+    /// later is told, and the view attached already hears it as
+    /// `HeldMore`; a retired facade's is refused. Mutations: `held_more`
+    /// not growing the slot's list -- the late view's `Held` lacks it;
+    /// not checking the generation -- the retired facade's reaches the
+    /// view. The late view's `HeldMore` assert holds `attach` to telling
+    /// no `HeldMore` of its own; it says nothing of an attach inside
+    /// `held_more`'s lock hold, which the method's doc names untested.
+    #[test]
+    fn a_view_attached_after_a_create_is_told_the_new_identity_held() {
+        let hub = Hub::new();
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands, held());
+        let mut early = hub.attach(Arc::new(|| {}));
+        let _ = early.take();
+        let other = interweave_test_support::endpoint_keys::endpoint_id("created");
+        hub.held_more(g, vec![other.clone()]);
+        hub.held_more(g, vec![other.clone()]);
+        let heard = early.take();
+        assert!(
+            matches!(&heard[..], [ToView::HeldMore(m), ToView::HeldMore(_)] if *m == [other.clone()]),
+            "{heard:?}"
+        );
+        let mut late = hub.attach(Arc::new(|| {}));
+        let told = late.take();
+        assert!(
+            matches!(&told[0], ToView::Held(h) if h.held == [me(), other.clone()] && h.front == me()),
+            "named once, front unchanged: {told:?}"
+        );
+        assert!(
+            !told.iter().any(|t| matches!(t, ToView::HeldMore(_))),
+            "a late view is told them in its list and not again: {told:?}"
+        );
+        hub.retire(g);
+        let again = hub.started(tokio::sync::mpsc::unbounded_channel().0, held());
+        hub.held_more(
+            g,
+            vec![interweave_test_support::endpoint_keys::endpoint_id("stale")],
+        );
+        let mut view = hub.attach(Arc::new(|| {}));
+        assert!(
+            matches!(&view.take()[0], ToView::Held(h) if h.held == [me()]),
+            "a retired facade's identity is not told (generation {again})"
+        );
+    }
+
+    fn adds_in(taken: &[ToView]) -> Vec<AddTold> {
+        taken
+            .iter()
+            .filter_map(|t| match t {
+                ToView::Add(told) => Some(told.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// An add told while no view is attached is handed to the view that
+    /// attaches next, in the order told, once; one told to an attached
+    /// view is not kept; what waits is bounded and a retired facade's is
+    /// not the next one's. Mutations: `add_told` keeping nothing -- the
+    /// first assert fails; `attach` not replaying them -- the first
+    /// assert fails; not clearing on replay -- the second attach assert
+    /// fails; no bound -- the length assert fails; the bound dropping
+    /// the newest -- the first-entry assert fails; `say_running` not
+    /// clearing them -- the last assert fails.
+    #[test]
+    fn add_told_kept_with_no_viewer_is_handed_to_the_next_view_once() {
+        let hub = Hub::new();
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands, held());
+        hub.add_told(g, AddTold::Offered);
+        hub.add_told(g, AddTold::WaitsSeed);
+        let mut first = hub.attach(Arc::new(|| {}));
+        assert_eq!(
+            adds_in(&first.take()),
+            [AddTold::Offered, AddTold::WaitsSeed],
+            "told once, in order"
+        );
+        let mut second = hub.attach(Arc::new(|| {}));
+        assert!(adds_in(&second.take()).is_empty(), "not told again");
+        hub.add_told(g, AddTold::NoSeed);
+        assert_eq!(adds_in(&second.take()), [AddTold::NoSeed], "told live");
+        let mut third = hub.attach(Arc::new(|| {}));
+        assert!(adds_in(&third.take()).is_empty(), "a live told is not kept");
+
+        drop(third);
+        hub.add_told(g, AddTold::Offered);
+        for _ in 0..ADD_TOLD_CAP {
+            hub.add_told(g, AddTold::NotStarted);
+        }
+        hub.add_told(g, AddTold::WaitsSeed);
+        let mut late = hub.attach(Arc::new(|| {}));
+        let kept = adds_in(&late.take());
+        assert_eq!(kept.len(), ADD_TOLD_CAP, "bounded");
+        assert_eq!(kept[0], AddTold::NotStarted, "the oldest went");
+        assert_eq!(kept.last(), Some(&AddTold::WaitsSeed), "the newest stayed");
+
+        drop(late);
+        hub.add_told(g, AddTold::Offered);
+        hub.retire(g);
+        let (commands, _rx2) = tokio::sync::mpsc::unbounded_channel();
+        hub.started(commands, held());
+        let mut after = hub.attach(Arc::new(|| {}));
+        assert!(
+            adds_in(&after.take()).is_empty(),
+            "a retired facade's told is not the next one's"
+        );
     }
 
     /// What the model side sends across reaches the facade naming the
