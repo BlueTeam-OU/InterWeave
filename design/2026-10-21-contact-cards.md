@@ -768,8 +768,8 @@ out (§11).
   the page that does not have focus (WCAG 2.2 SC 4.1.3, status messages).
 - When the picture cannot be used, `PhotoUnusable` shows under the
   circle and is announced once through the live region (found while
-  Save waits for it, or while a line above Save names the photo as
-  the cause, `CardNotSavedPhoto` is announced in its place, "While
+  Save waits for it, or while the line above Save was left by a Save
+  the photo stopped, `CardNotSavedPhoto` is announced in its place, "While
   Save runs", above); focus stays
   on the button, so the person can choose another at once. The line
   is read after the circle in the reading order and is not a stop of
@@ -1865,7 +1865,7 @@ snackbar text (the photo removed snackbar shows on the contact page only, §6.3;
 editor's Remove photo announces nothing, §5.2); in the card editor,
 a prepared photo announces `PhotoAdded` and an unusable one
 `PhotoUnusable`, except one found while Save waits for it, or while
-a line above Save names the photo as the cause, which announces
+the line above Save was left by a Save the photo stopped, which announces
 `CardNotSavedPhoto` in its place (§5.2, "The line above Save"), and
 the start of preparing announces nothing (§5.2); Accept announces nothing of its own. Focus moves to the confirmation
 row (§9 item 1's focus table), and the screen reader reads that row:
@@ -2330,6 +2330,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     Bianchi" with the new photo. In (d), choosing another picture
     turns `CardNotSavedPhoto` into `CardNotSaved` at once, and only
     `PhotoAdded` is announced when it is ready (a second run of (d));
+    in a third run of (d), the other picture is one that cannot be
+    used: the line becomes `CardNotSavedPhoto`, focus stays where it
+    was, and `CardNotSavedPhoto` is heard once, `PhotoUnusable` never;
     in a second run of (d2), Remove photo while `CardNotSavedPhotoSlow`
     shows does the same, with nothing announced; in a third run of
     (d2), the held picture is released as one that cannot be used: the
