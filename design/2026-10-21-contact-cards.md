@@ -357,22 +357,22 @@ recovery, which needs the changes still there to retry with).
   past the preparations measured above, which no record times;
   falsified, and the bound revisited, if a camera photograph's
   preparation on the Pixel 9a reaches it.) After the photo, the Save
-  waits for three things, and this design gives none of them a bound
-  of its own, a stated exception to the rule that every wait is
-  bounded: the commands and turns queued ahead of it on the facade's
+  waits for the commands and turns queued ahead of it on the facade's
   one task (`crates/human/app-core/src/roster.rs`: they run one after
-  another); SQLite's file lock, which the store's `BUSY_TIMEOUT` (5 s)
-  bounds for each statement, one or two; and the device's write
-  itself. The store's in-process lock adds no wait, since every
-  handle of one open runs on that same task. Why no bound: a timer in
-  the editor could fire while the write still lands, the unknown
-  outcome this rule keeps out, and a bound before the first statement
-  would need the facade to drop a queued Save and a store call that
-  gives up before it starts, neither of which exists, for a wait that
-  is the app's own local work. (Hypothesis: on the Pixel 9a the hold
-  after the photo is under a second; falsified, and a bound before
-  the first statement specified, if a Save is seen held past 5 s.)
-  The outcome is the write's: a read after a write that landed (the
+  another; the store's in-process lock adds no wait, since every
+  handle of one open runs on that same task). That wait is bounded
+  too: a Save whose write has not started 5 seconds after its photo
+  was ready (at once, with no photo being prepared) is dropped from
+  the queue before its first statement and ends as a Save that wrote
+  nothing (`CardNotSaved`), so that outcome is definite. The bound is
+  kept where the queue is, never by a timer in the editor, which could
+  fire while the write still lands. Once started, the write's waits
+  are SQLite's file lock, which the store's `BUSY_TIMEOUT` (5 s)
+  bounds for each statement, one or two, each ending in a refusal,
+  and the device's write itself, which no software bound can cut
+  without the unknown outcome. (Hypothesis, 5 s: far past a local
+  write; falsified if a Save is seen dropped by it on the Pixel 9a
+  with nothing else running.) The outcome is the write's: a read after a write that landed (the
   page's view read again) that fails never makes a written Save show
   as not written.
 - **A way of leaving chosen while Save runs** (any of the list under
@@ -429,15 +429,18 @@ recovery, which needs the changes still there to retry with).
   line, `CardNotSaved`, `CardNotSavedPhoto` or
   `CardNotSavedPhotoSlow`. It stays until the next Save starts or the
   editor closes. A line that names the photo as the cause never
-  outlives that cause: when the photo changes while it shows (a
-  picture prepared, found unusable, chosen, or removed, the photo
-  step's events), `CardNotSavedPhoto` or `CardNotSavedPhotoSlow`
-  becomes `CardNotSaved`, which is true whatever the photo became:
-  nothing was saved, the changes are in the editor, and Save is the
-  way on. The line stays where it is, so focus on it stays there; the
-  change of text is not announced, since the photo step's own
-  announcement (`PhotoAdded`, `PhotoUnusable`, or none for a choice or
-  a removal) already says what changed, and nothing is read twice.
+  outlives that cause. When the photo changes while it shows, the line
+  follows the photo: a picture prepared, chosen or removed makes it
+  `CardNotSaved` (nothing was saved, the changes are in the editor,
+  and Save is the way on); a picture found unusable makes it
+  `CardNotSavedPhoto`, since the editor is then in that item's state
+  (the new photo gone, Save saving the card without it), whichever
+  line showed before. The line stays where it is, so focus on it stays
+  there. The change of text is not announced, except that a picture
+  found unusable announces `CardNotSavedPhoto` in place of
+  `PhotoUnusable`, as in the item above; otherwise the photo step's
+  own announcement (`PhotoAdded`, or none for a choice or a removal)
+  says what changed, and nothing is read twice.
 - **A kill while Save runs** leaves the card as the store has it: the
   write is one transaction, so either the card as before or as saved,
   and the editor, showing only progress, has said neither. What
@@ -1935,7 +1938,7 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
    | a card's valid Save while it runs (§5.2, "While Save runs") | stays on Save, its accessible name `CardSaving`; the fields, the photo's buttons and the overflow button are not reached | keyboard, with item 28's held preparation; desktop screen reader: Save read as `CardSaving` |
-   | a card's Save that wrote nothing (§5.2) | the line above Save: `CardNotSaved` (the store's refusal) or `CardNotSavedPhotoSlow` (the photo not ready within 30 s); when the cause was a photo that cannot be used, the photo's button (Add a photo, or Change photo), with `CardNotSavedPhoto` announced once and `PhotoUnusable` not announced | keyboard, with item 28's runs; desktop screen reader: `CardNotSaved` and `CardNotSavedPhotoSlow` read when focus moves to them, and in 28 (d) `CardNotSavedPhoto` heard once, then "Change photo", and `PhotoUnusable` not heard; TalkBack blocked (§8) |
+   | a card's Save that wrote nothing (§5.2) | the line above Save: `CardNotSaved` (the store's refusal, or the write not started within 5 s) or `CardNotSavedPhotoSlow` (the photo not ready within 30 s); when the cause was a photo that cannot be used, the photo's button (Add a photo, or Change photo), with `CardNotSavedPhoto` announced once and `PhotoUnusable` not announced | keyboard, with item 28's runs; desktop screen reader: `CardNotSaved` and `CardNotSavedPhotoSlow` read when focus moves to them, and in 28 (d) `CardNotSavedPhoto` heard once, then "Change photo", and `PhotoUnusable` not heard; TalkBack blocked (§8) |
    | a way of leaving chosen while Save runs (§5.2) | after a Save that wrote: where that way of leaving puts focus with no unsaved change; after one that wrote nothing: Continue editing in `CardDiscardChanges`, then, on Continue editing, the line above Save (`CardNotSaved` or `CardNotSavedPhotoSlow`), or, after a photo that cannot be used, the photo's button, as the row above says | keyboard, with item 28's held runs |
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
@@ -2313,9 +2316,18 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     timed-out Save is never written), and Save then writes "Anna
     Bianchi" with the new photo. In (d), choosing another picture
     turns `CardNotSavedPhoto` into `CardNotSaved` at once, and only
-    `PhotoAdded` is announced when it is ready; in (d2), Remove photo
-    while `CardNotSavedPhotoSlow` shows does the same, with nothing
-    announced.
+    `PhotoAdded` is announced when it is ready (a second run of (d));
+    in a second run of (d2), Remove photo while `CardNotSavedPhotoSlow`
+    shows does the same, with nothing announced; in a third run of
+    (d2), the held picture is released as one that cannot be used: the
+    line becomes `CardNotSavedPhoto`, focus stays on it,
+    `CardNotSavedPhoto` is heard once and `PhotoUnusable` is not.
+    (d3) A Save whose write is held from starting for more than 5
+    seconds after its photo was ready (a test hook on the facade's
+    queue): at 5 seconds and not before, the Save ends with
+    `CardNotSaved` focused, and the card read back after the hook is
+    released is still "Anna Rossi" (the dropped Save is never
+    written).
     (e) A kill while (b)'s
     Save waits leaves the card "Anna Rossi"; a kill after it wrote
     leaves "Anna Bianchi". Desktop screen reader: `CardSaving` and
@@ -2384,9 +2396,9 @@ and are for them to write.
 | `KeepEditing` / `DiscardChanges` | Continue editing / Close without saving | its actions; stacked, Close without saving above (§5.2) |
 | `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle; announced once (§5.2) |
 | `CardSaving` | Saving your card | new text, proposal (j207); the accessible name of Save while it runs (§5.2, "While Save runs"); says the save is under way, never that it is done |
-| `CardNotSaved` | Your card was not saved. Your changes are still here. Choose Save to try again. | new text, proposal (j207); the line above Save after a Save the store refused, whatever the store's cause (§5.2); must say nothing was saved, that the edits are still in the editor, and that Save is the way on; must not name a cause, since the degraded store's notice names its own, once |
-| `CardNotSavedPhoto` | Your card was not saved, because the new photo cannot be used. Choose another photo, or choose Save to save your card without it. | new text, proposal (j207); the line above Save after a Save whose new photo could not be prepared (§5.2), announced once; must say nothing was saved, that the photo is the cause and cannot be used, and both ways on, so that Save is not read as a retry of the same card; becomes `CardNotSaved` when the photo changes (§5.2, "The line above Save") |
-| `CardNotSavedPhotoSlow` | Your card was not saved, because the new photo is still being prepared. Choose Save again when it is ready. | new text, proposal (j207); the line above Save after a Save whose photo was not ready within 30 seconds (§5.2); must say nothing was saved, that the photo is still being prepared (not that it cannot be used), and that Save once it is ready is the way on; becomes `CardNotSaved` when the photo changes (§5.2, "The line above Save") |
+| `CardNotSaved` | Your card was not saved. Your changes are still here. Choose Save to try again. | new text, proposal (j207); the line above Save after a Save the store refused, whatever the store's cause, or a Save whose write did not start within 5 s, and in place of `CardNotSavedPhoto` or `CardNotSavedPhotoSlow` once the photo is prepared, chosen or removed (§5.2, "The line above Save"); in each, "try again" holds: Save writes the editor as it then is; must say nothing was saved, that the edits are still in the editor, and that Save is the way on; must not name a cause, since the degraded store's notice names its own, once |
+| `CardNotSavedPhoto` | Your card was not saved, because the new photo cannot be used. Choose another photo, or choose Save to save your card without it. | new text, proposal (j207); the line above Save after a Save whose new photo could not be prepared (§5.2), announced once; must say nothing was saved, that the photo is the cause and cannot be used, and both ways on, so that Save is not read as a retry of the same card; follows the photo when it changes (§5.2, "The line above Save") |
+| `CardNotSavedPhotoSlow` | Your card was not saved, because the new photo is still being prepared. Choose Save again when it is ready. | new text, proposal (j207); the line above Save after a Save whose photo was not ready within 30 seconds (§5.2); must say nothing was saved, that the photo is still being prepared (not that it cannot be used), and that Save once it is ready is the way on; follows the photo when it changes (§5.2, "The line above Save") |
 | `CardPhotoPreparing` | Preparing the photo… | new text, proposal; the editor's photo circle, accessible label while a chosen picture is being prepared (§5.2); must say the photo is not ready yet |
 | `PhotoAdded` | Photo ready | new text, proposal; announced once in the editor when a chosen picture has been prepared (§5.2); must not say it is saved or sent, since that happens only on Save and Share |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
