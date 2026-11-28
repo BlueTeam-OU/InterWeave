@@ -604,14 +604,35 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         self.tell_all();
     }
 
-    /// The service stopped under this model, which a root keeps showing
-    /// -- its rows, its open conversation, its drafts -- while the start
-    /// that follows is refused for the person (unlock note §11). What a
-    /// kept model must not do is what review F3 found in one: read Ready,
-    /// and hold a command in flight no facade will answer. So every
-    /// command in flight fails as [`Failure::ServiceStopped`], and the
-    /// session reads as a fresh model's with no service: not running.
+    /// The service stopped under the models, which a root keeps showing
+    /// -- their rows, their open conversation, their drafts -- while the
+    /// start that follows is refused for the person (unlock note §11).
+    /// What a kept model must not do is what review F3 found in one: read
+    /// Ready, and hold a command in flight no facade will answer. So in
+    /// every identity held, in front or behind (the service is the
+    /// profile's, not one identity's), every command in flight fails as
+    /// [`Failure::ServiceStopped`], and the session reads as a fresh
+    /// model's with no service: not running. Counts and kept state are
+    /// left as they are, as the front's always were
+    /// (`a_stop_reaches_the_identity_behind_as_it_does_the_front`).
     pub fn stopped(&mut self) {
+        self.stop_front();
+        // Each identity behind is brought in front of its own fields for
+        // the stop, as `apply_as` does, so one routine serves both.
+        let mut behind = std::mem::take(&mut self.behind);
+        for (_, held) in &mut behind {
+            self.exchange(held);
+            self.stop_front();
+            self.exchange(held);
+        }
+        self.behind = behind;
+        self.daemon_seen(Some(false));
+    }
+
+    /// The stop of [`Self::stopped`] for the model held in the front's
+    /// fields: its commands in flight failed and its session reading
+    /// "not running".
+    fn stop_front(&mut self) {
         let in_flight: Vec<InFlight> = self.in_flight.drain().collect();
         for waiting in in_flight {
             match waiting {
@@ -637,7 +658,6 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 attempt: 0,
                 next_at: 0,
             }));
-        self.daemon_seen(Some(false));
     }
 
     /// Every draft holding text ([`UiModel::drafts`]) of every identity
@@ -1516,6 +1536,75 @@ mod tests {
             side.command_for(Intent::MarkRead(row)).is_some(),
             "nothing held in flight"
         );
+    }
+
+    /// The service is the profile's: a stop reaches the identity behind
+    /// as it does the front -- its commands and its send in flight fail,
+    /// its session reads not running -- and a switch brings that, not the
+    /// state before the stop, to the front. Mutation: `stopped` stopping
+    /// only the front.
+    #[test]
+    fn a_stop_reaches_the_identity_behind_as_it_does_the_front() {
+        use interweave_human_ui_model::SessionNotice;
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.hold(&[first(), second()], &first());
+        let ready = || Update::Client(ClientEvent::Session(SessionState::Ready { endpoint: None }));
+        side.apply_as(&first(), ready());
+        side.apply_as(&second(), ready());
+        let row = RowId::from_stored(7);
+
+        // The second's in flight, put there while it is in front.
+        assert!(side.switch(&second(), |_| {}));
+        let read = side.command_for(Intent::MarkRead(row)).expect("issued");
+        let sent = Intent::Send {
+            key: general(),
+            draft: "hi".to_owned(),
+        };
+        side.command_for(sent.clone()).expect("send issued");
+        assert!(side.command_for(sent.clone()).is_none(), "control: waits");
+        // The first's, with it behind.
+        assert!(side.switch(&first(), |_| {}));
+        let first_row = RowId::from_stored(8);
+        let first_read = side
+            .command_for(Intent::MarkRead(first_row))
+            .expect("issued");
+        assert_eq!(side.model().session_notice(), None, "control: Ready");
+
+        side.stopped();
+        let problems = side.take_problems();
+        let failed = |command| Problem::Command {
+            command,
+            why: Failure::ServiceStopped,
+        };
+        // The reads a switch asks of a model are in flight too, so the
+        // three named are among the failures, not all of them.
+        assert!(problems.contains(&failed(first_read)), "the front's");
+        assert!(problems.contains(&failed(read)), "the one behind's command");
+        assert!(
+            problems.contains(&failed(Command::Send {
+                key: general(),
+                draft: String::new()
+            })),
+            "the one behind's send"
+        );
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::NoDaemon),
+            "control: the front"
+        );
+        assert!(
+            side.command_for(Intent::MarkRead(first_row)).is_some(),
+            "control: the front's freed"
+        );
+
+        assert!(side.switch(&second(), |_| {}));
+        assert_eq!(
+            side.model().session_notice(),
+            Some(SessionNotice::NoDaemon),
+            "the one behind reads not running"
+        );
+        assert!(side.command_for(Intent::MarkRead(row)).is_some(), "freed");
+        assert!(side.command_for(sent).is_some(), "its send no longer waits");
     }
 
     /// The drafts of every held identity, the front's and the one behind
