@@ -1182,13 +1182,17 @@ mod tests {
     }
 
     /// With two identities held, the model brought in front by a switch
-    /// -- running, and under the lock with nothing to take the switch --
-    /// is that identity's own: its session and the sends it has in flight
-    /// are its own, never the one switched from. The first is Ready with
-    /// a send in flight, the other neither; a second press of Send is
-    /// swallowed only by the identity whose send is in flight. Under the
-    /// lock the first, which was in front at the stop, is brought back
-    /// with its send failed and no Ready session.
+    /// while the service runs is that identity's own: its session and the
+    /// sends it has in flight are its own, never the one switched from.
+    /// The first is Ready with a send in flight, the other neither; a
+    /// second press of Send is swallowed only by the identity whose send
+    /// is in flight. Under the lock, with nothing to take the switch,
+    /// the test holds that the switch is applied locally (the front is
+    /// the other's) and that the first, which was in front at the stop,
+    /// is brought back with its send failed and no Ready session; it does
+    /// not hold that a model brought in front under the lock is that
+    /// identity's own, since app-core's `ModelSide::stopped` sets aside
+    /// the front's alone.
     /// Mutations run, each failing it: `ModelSide::exchange` not
     /// swapping `in_flight` -- the first identity's send is swallowed
     /// for the other; not swapping the model -- the other reads the
