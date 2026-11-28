@@ -708,7 +708,8 @@ where
     }
 
     /// What a stopped client's session still holds, taken out here to be
-    /// counted -- the session's close would drop it uncounted. What its
+    /// counted -- the session's close would return it, and a stop's end
+    /// drops what the close returns uncounted. What its
     /// lane still holds is the writer's to count, since the `close`
     /// overtakes it there or the writer closes it giving up (`run`).
     async fn count_held(&self) {
