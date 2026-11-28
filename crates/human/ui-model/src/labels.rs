@@ -1651,6 +1651,10 @@ ui_texts! {
     /// itself (below Android 13, and the desktop), with no action.
     // PLACEHOLDER (en)
     AliasCopied => "The name to use on the command line was copied.",
+    /// The snackbar when the platform refuses that Copy, with no action;
+    /// focus stays on Copy (identities §6.2, "Its Copy").
+    // PLACEHOLDER (en)
+    AliasNotCopied => "Could not copy the name to use on the command line. Choose Copy to try again.",
     /// The snackbar at Done, `{name}` the new identity's.
     ConfirmIdentityAdded => "{name} was created. It does not trust any peer yet.",
     /// The add form, above Create: the client knows that nothing was
@@ -2457,6 +2461,7 @@ mod tests {
             UiText::CopyAlias,
             UiText::CopyAliasName,
             UiText::AliasCopied,
+            UiText::AliasNotCopied,
             UiText::ConfirmIdentityAdded,
             UiText::IdentityAddFailed,
             UiText::IdentityAddUnknown,
