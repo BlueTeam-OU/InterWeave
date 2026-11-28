@@ -672,6 +672,13 @@ impl Root {
         if let Some(problem) = self.side.take_held_refused() {
             log(&format!("the identities held were not taken: {problem:?}"));
         }
+        // What an add act or a settle came to, by class: no Android
+        // screen sends an add act or shows its answer yet (the add form is
+        // a later change, plan section 30's note of 2026-11-27), so the
+        // platform log is where a settle at the start is seen.
+        for class in self.side.take_add_classes() {
+            log(&format!("identity add: {class}"));
+        }
         // Before a reattach can replace the side, whose stop record it
         // reads (j280 review round 1, risk 1).
         self.held_ended();
