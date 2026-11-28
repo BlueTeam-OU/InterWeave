@@ -1328,16 +1328,32 @@ where focus lands — with its dialog changed for ADR-0067:
     in the switcher and its composer line read
     `IdentityPartlyRemoved` ("{identity} was only partly removed. It
     cannot send or receive."), as §5.2's states are shown, the send
-    control disabled with that as its reason, and its page shows
-    `KeyMissing`, the alias line with its Copy (§6.2), and Remove in
-    its overflow, and nothing else. It shows no card field, photo
-    control or Save: a Save writes a card row for the identity, and the
-    client admits nothing to its store for it (ADR-0061 decision 7).
-    It offers no Make default: Remove is not offered on the default
-    (cards §5.2, `IdentityRemoveDefault`), so a Make default would take
-    away the person's way to end the span. Share is not reached: its
-    entries are in a direct conversation (cards §5.3), and the identity
-    has none in the span (below). `IdentityPartlyRemoved` takes the
+    control disabled with that as its reason. Its page keeps the app
+    bar every identity's page has (its name as the subtitle, and
+    `IdentityNotInFront` when it is not in front, §5's N10), and below
+    it shows `KeyMissing` and the alias line with its Copy (§6.2); its
+    overflow holds Remove and no other item. This overrides cards §5.2
+    for that page, each item for its reason:
+    - no card field, photo control or Save: a Save writes a card row
+      for the identity, and the client admits nothing to its store for
+      it (ADR-0061 decision 7);
+    - no Make default: Remove is not offered on the default (cards
+      §5.2, `IdentityRemoveDefault`), so a Make default would take away
+      the person's way to end the span;
+    - no Turn on, and no `IdentityDefaultNeedsOn`, when the identity is
+      off (cards §5.2's "**Turn on** is in the overflow of the page of
+      any identity that is off"): turning it on would enable an
+      endpoint with no key and no lease, which still could not send or
+      receive, and the line's way to the default (Make default) is not
+      offered;
+    - Share is not reached: its entries are in a direct conversation
+      (cards §5.3), and the identity has none in the span (below).
+    In the span the identity does not count as turned on for cards
+    §5.2's rules that keep one identity turned on: it holds no lease,
+    so it is not the one the runtime needs. So its own Remove is
+    offered whatever else is on, and it does not make the first
+    identity's Turn off offered: with it the only other identity on,
+    Turn off is not offered. `IdentityPartlyRemoved` takes the
     place of every
     other state of §5.2 for that identity, `IdentityUnavailable`
     included while the device cannot store new messages (whose notice
@@ -2272,8 +2288,12 @@ pass before it lands.
     shows no conversation in Chats and no way to start one as it
     (needs plan §18 carry 11's new-conversation flow: no client builds
     one at this note's head, so before it the check holds by absence),
-    and its page shows `KeyMissing`, the alias with its Copy and Remove,
-    with no card field, photo control or Save and no Make default;
+    and its page shows `KeyMissing`, the alias with its Copy, and an
+    overflow of Remove alone, with no card field, photo control or Save,
+    no Make default and no Turn on, and, opened while another identity
+    is in front, `IdentityNotInFront`; in a run with no default, the
+    first identity and this one on, the first identity's page offers
+    no Turn off;
     after the restart neither row shows it;
     Remove chosen again completes as above, with no snackbar of
     failure. With a seam that drops the connection after the device has
