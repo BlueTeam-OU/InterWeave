@@ -36,6 +36,7 @@ use interweave_transport_api::TransportIdentity;
 use slint::{Model as _, ModelRc, SharedString, VecModel};
 
 use interweave_human_ui_model::{body, cluster, cut};
+mod add_form;
 mod cards;
 #[cfg(all(feature = "desktop", target_os = "linux"))]
 mod clipboard;
@@ -1191,6 +1192,8 @@ pub struct View {
     frame_tasks: Option<FrameTasks>,
     /// The identity switch, the switcher and the line above Send.
     identities: identities::IdentityViews,
+    /// The add form's acts and what it last drew.
+    add_forms: add_form::AddForms,
 }
 
 /// What showing `key` reads: its unread messages, and the card
@@ -1499,6 +1502,8 @@ impl View {
         wire_swipe(&window, &shared);
         wire_conversation_pane(&window, &shared);
         let identities = identities::IdentityViews::wire(&window, &shared);
+        let add_forms = add_form::AddForms::default();
+        add_form::wire(&window, &shared, &add_forms);
 
         Ok(Self {
             window,
@@ -1533,6 +1538,7 @@ impl View {
             },
             frame_tasks: None,
             identities,
+            add_forms,
             seen: Seen::default(),
             next_slot_b,
             selection_unrendered: false,
@@ -3038,6 +3044,7 @@ impl View {
         let connect = self.render_connect(model);
         let peers = self.render_peers(model);
         let cards = self.render_cards(model);
+        self.render_add_form(model);
         let window = self.render_window();
         let outcome = self.render_swipe(model, focused.as_ref(), on_undo);
         let identities::Rendered {

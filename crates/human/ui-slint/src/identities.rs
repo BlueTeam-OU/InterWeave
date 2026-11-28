@@ -230,6 +230,7 @@ impl IdentityViews {
             }
         });
         window.on_id_list_add(on(IdentityIntent::Add));
+        window.on_id_add_another(on(IdentityIntent::AddAnother));
         Self {
             presses,
             rows,
@@ -254,10 +255,17 @@ impl IdentityViews {
     }
 
     /// Draw Your identities (cards §5.1, identities §6.1) and the app
-    /// options' item that opens it.
+    /// options' item that opens it, and the card editor's overflow.
     fn render_list(&self, window: &AppWindow, model: &UiModel, host: RuntimeHost) {
         let ids = model.identities();
         window.set_id_listed(ids.shows_identity());
+        // The card editor's overflow and its one item (cards §5.2, F28).
+        window.set_own_overflow(
+            ids.editor_overflow()
+                .map_or("", placeholder_en::text)
+                .into(),
+        );
+        window.set_identity_options_label(placeholder_en::text(UiText::IdentityOptions).into());
         window.set_identities_title(placeholder_en::text(UiText::IdentitiesTitle).into());
         let page = ids.your_identities();
         *self.list_keys.borrow_mut() = page
@@ -353,6 +361,10 @@ impl IdentityViews {
     /// its title (F4), the row Done named (F6, F9), the limit (F8).
     fn list_focus(&self, model: &UiModel, to: IdentityFocus) -> Option<String> {
         let ids = model.identities();
+        // A page over the list -- the add form -- keeps its own focus.
+        if ids.add_form().is_some() {
+            return None;
+        }
         match to {
             IdentityFocus::IdentitiesTitle if ids.identities_open() => {
                 Some(LIST_TITLE_FOCUS.to_owned())
@@ -534,27 +546,45 @@ impl IdentityViews {
         let model_snack = model.snackbar().map(|s| s.id);
         let model_snack_new = model_snack.is_some() && model_snack != self.model_snack_seen;
         self.model_snack_seen = model_snack;
-        let mut snack = ids.switch_snackbar();
-        let snack_new = snack.is_some_and(|s| self.snack_announced != Some(s.id));
-        if let Some(s) = snack
+        // Done's ConfirmIdentityAdded takes the same place, with no
+        // action; the model holds one of the two at a time.
+        let mut snack = ids
+            .switch_snackbar()
+            .map(|s| {
+                (
+                    s.id,
+                    s.snackbar.said.english(),
+                    placeholder_en::text(s.snackbar.action),
+                )
+            })
+            .or_else(|| {
+                ids.added_snackbar()
+                    .map(|(id, said)| (id, said.english(), ""))
+            });
+        let snack_new = snack
+            .as_ref()
+            .is_some_and(|s| self.snack_announced != Some(s.0));
+        if let Some(s) = &snack
             && model_snack_new
             && !snack_new
         {
-            press(&self.presses, shared, IdentityIntent::SnackbarClosed(s.id));
+            press(&self.presses, shared, IdentityIntent::SnackbarClosed(s.0));
             snack = None;
         }
         let mut said = None;
-        if let Some(s) = snack {
+        if let Some((id, text, _)) = &snack {
+            let id = *id;
             if snack_new {
-                self.snack_announced = Some(s.id);
-                said = Some(s.snackbar.said.english());
+                // Announced once, as it opens (identities §6.2 step 4).
+                self.snack_announced = Some(id);
+                said = Some(text.clone());
                 if let Some(id) = model_snack {
                     enqueue(shared, Input::SnackClosed(id));
                 }
             }
-            if self.snack_timed != Some(s.id) {
-                self.snack_timed = Some(s.id);
-                let (presses, shared, id) = (Rc::clone(&self.presses), Rc::clone(shared), s.id);
+            if self.snack_timed != Some(id) {
+                self.snack_timed = Some(id);
+                let (presses, shared) = (Rc::clone(&self.presses), Rc::clone(shared));
                 let ms = shared.borrow().touch.snackbar_ms;
                 slint::Timer::single_shot(Duration::from_millis(ms), move || {
                     press(&presses, &shared, IdentityIntent::SnackbarClosed(id));
@@ -562,10 +592,10 @@ impl IdentityViews {
             }
         }
         window.set_id_snack_shown(snack.is_some());
-        if let Some(s) = snack {
-            window.set_id_snack_id(i32::try_from(s.id).unwrap_or(i32::MAX));
-            window.set_id_snack_text(s.snackbar.said.english().into());
-            window.set_id_snack_action(placeholder_en::text(s.snackbar.action).into());
+        if let Some((id, text, action)) = snack {
+            window.set_id_snack_id(i32::try_from(id).unwrap_or(i32::MAX));
+            window.set_id_snack_text(text.into());
+            window.set_id_snack_action(action.into());
         }
 
         // The model's focus request, once: the switcher's title takes focus

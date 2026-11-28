@@ -19,10 +19,10 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, Avatar, AvatarHue, CardAnswer, ContactView, ContactsState, ConversationKey,
-    FocusTarget, IdentityIntent, Intent, KeyProblem, KeyStep, KeyView, OwnPhotoStep, Photo,
-    PhotoChange, PhotoEdit, PhotoState, ProposalItem, ProposalNote, RowId, UiModel, UiText, fill,
-    isolated, name_problem, placeholder_en, short_peer,
+    AcceptLine, AddFrom, AddIntent, Avatar, AvatarHue, CardAnswer, ContactView, ContactsState,
+    ConversationKey, FocusTarget, IdentityIntent, Intent, KeyProblem, KeyStep, KeyView,
+    OwnPhotoStep, Photo, PhotoChange, PhotoEdit, PhotoState, ProposalItem, ProposalNote, RowId,
+    UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -203,6 +203,8 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_close_cards_onward(on(shared, CardsInput::CloseOnward));
     window.on_own_card_remove_photo(on(shared, CardsInput::RemoveOwnPhoto));
     window.on_own_card_choose_photo(on(shared, CardsInput::ChoosePhoto));
+    // The add form's Add a photo opens the same picker, for the form.
+    window.on_add_choose_photo(on(shared, CardsInput::ChoosePhoto));
     // Unsaved, as Save would write it: names trimmed, an empty surname
     // none, and the photo as the model judges it (design 5.2).
     let s = Rc::clone(shared);
@@ -661,27 +663,42 @@ pub(crate) struct CardScreens {
 pub(crate) enum ModelPage {
     /// Your identities (cards §5.1).
     Identities,
+    /// The add form (identities §6.2), by where it was opened from.
+    AddForm(AddFrom),
+}
+
+/// What tells the model the person left a page it shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) enum Leaving {
+    /// An act of the identities.
+    Identity(IdentityIntent),
+    /// An act of the add form, which the form judges: leaving may ask
+    /// first, or do nothing while Create runs.
+    Add(AddIntent),
 }
 
 impl ModelPage {
-    /// The page the model shows now, if any.
+    /// The page the model shows now, if any: the form over the list.
     fn wanted(model: &UiModel) -> Option<Self> {
-        model
-            .identities()
-            .your_identities()
-            .map(|_| Self::Identities)
+        let ids = model.identities();
+        if let Some(form) = ids.add_form() {
+            return Some(Self::AddForm(form.from()));
+        }
+        ids.your_identities().map(|_| Self::Identities)
     }
 
     const fn cards_page(self) -> CardsPage {
         match self {
             Self::Identities => CardsPage::Identities,
+            Self::AddForm(_) => CardsPage::AddIdentity,
         }
     }
 
     /// What tells the model the person left it.
-    const fn close(self) -> IdentityIntent {
+    const fn close(self) -> Leaving {
         match self {
-            Self::Identities => IdentityIntent::CloseIdentities,
+            Self::Identities => Leaving::Identity(IdentityIntent::CloseIdentities),
+            Self::AddForm(_) => Leaving::Add(AddIntent::Leave),
         }
     }
 }
@@ -818,8 +835,15 @@ impl View {
                 if let Some(page) = self.cards.model_shown
                     && self.cards.page == Some(page.cards_page())
                 {
+                    // The form's leaving is the form's: it may ask first,
+                    // or do nothing while Create runs, so the page stays
+                    // until the model closes it.
+                    if matches!(page, ModelPage::AddForm(_)) {
+                        self.tell_left(page);
+                        return Vec::new();
+                    }
                     self.cards.model_leaving = true;
-                    self.identities.queue(&self.shared, page.close());
+                    self.tell_left(page);
                 }
                 let own = self.cards.page == Some(CardsPage::OwnCard);
                 self.close_cards(&window);
@@ -958,6 +982,28 @@ impl View {
                 input => input,
             }
         };
+        // The add form's photo is the form's: the picker's answer goes to
+        // it as an act, prepared by the root for no identity (§6.2).
+        if self.cards.page == Some(CardsPage::AddIdentity) {
+            match input {
+                CardsInput::PhotoPicked(_, picked) => {
+                    self.focus_key("add-choose-photo".to_owned());
+                    if let Some(chosen) = picked {
+                        self.add_forms
+                            .queue(&self.shared, AddIntent::ChoosePhoto(chosen));
+                    }
+                }
+                CardsInput::ChoosePhoto => {
+                    let request = PhotoRequest(
+                        PHOTO_REQUESTS.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1,
+                    );
+                    self.shared.borrow_mut().cards.photo_request = Some(request);
+                    self.pick_photo(request);
+                }
+                _ => {}
+            }
+            return Vec::new();
+        }
         if self.cards.page != Some(CardsPage::OwnCard) {
             return Vec::new();
         }
@@ -1050,7 +1096,7 @@ impl View {
 
     /// Whether this build can choose a photo: the root's picker, or the
     /// desktop's file dialog.
-    fn photo_choosable(&self) -> bool {
+    pub(crate) fn photo_choosable(&self) -> bool {
         self.cards.photo_picker.is_some() || cfg!(feature = "desktop")
     }
 
@@ -1163,17 +1209,41 @@ impl View {
     /// another page taking the pane -- has its close asked of the model
     /// once, and is not opened again until the model shows another
     /// (`the_list_closes_when_another_page_takes_the_pane`).
+    /// Tell the model the person left `page`.
+    fn tell_left(&self, page: ModelPage) {
+        match page.close() {
+            Leaving::Identity(intent) => self.identities.queue(&self.shared, intent),
+            Leaving::Add(intent) => self.add_forms.queue(&self.shared, intent),
+        }
+    }
+
     fn render_model_pages(&mut self, model: &UiModel, window: &AppWindow) {
         let showing = |view: &Self, page: ModelPage| {
             view.page == crate::Page::Cards && view.cards.page == Some(page.cards_page())
         };
         match ModelPage::wanted(model) {
             None => {
-                if let Some(page) = self.cards.model_shown.take()
-                    && showing(self, page)
-                {
-                    window.invoke_cards_left();
-                    self.close_cards(window);
+                match self.cards.model_shown.take() {
+                    // A form opened from the card editor returns to it
+                    // (`BackToCard`), focus on the overflow that opened
+                    // it, or on the title once that holds no item (F28).
+                    Some(page @ ModelPage::AddForm(AddFrom::Card)) if showing(self, page) => {
+                        self.cards.page = Some(CardsPage::OwnCard);
+                        self.cards.own_drawn = None;
+                        self.cards.own_errors = (String::new(), String::new());
+                        window.set_cards_page(CardsPage::OwnCard);
+                        let to = if model.identities().editor_overflow().is_some() {
+                            "own-options"
+                        } else {
+                            CARDS_TITLE_FOCUS
+                        };
+                        self.focus_key_after_draw(to.to_owned());
+                    }
+                    Some(page) if showing(self, page) => {
+                        window.invoke_cards_left();
+                        self.close_cards(window);
+                    }
+                    _ => {}
                 }
                 self.cards.model_leaving = false;
             }
@@ -1183,10 +1253,18 @@ impl View {
             }
             Some(page) if self.cards.model_shown == Some(page) => {
                 if !std::mem::replace(&mut self.cards.model_leaving, true) {
-                    self.identities.queue(&self.shared, page.close());
+                    self.tell_left(page);
                 }
             }
             Some(page) => {
+                // Back from a form opened from the list: on Add, which
+                // opened it; Done's own focus request comes after this
+                // and replaces it (F6).
+                if self.cards.model_shown == Some(ModelPage::AddForm(AddFrom::Identities))
+                    && page == ModelPage::Identities
+                {
+                    self.focus_key_after_draw("identities-add".to_owned());
+                }
                 self.forget_page();
                 self.page = crate::Page::Cards;
                 self.cards.page = Some(page.cards_page());
@@ -1218,7 +1296,10 @@ impl View {
         // the editor went -- Back, another card page, another page taking
         // the pane -- the platform is told its read is no longer wanted
         // (#483 F3).
-        if self.cards.page != Some(CardsPage::OwnCard) {
+        if !matches!(
+            self.cards.page,
+            Some(CardsPage::OwnCard | CardsPage::AddIdentity)
+        ) {
             self.abandon_photo_pick();
         }
         self.render_proposals(model, &window);

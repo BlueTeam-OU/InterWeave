@@ -54,9 +54,45 @@ export struct ActionRow {
 
 // Contact cards (plan section 29 step 4; design/2026-10-21-contact-cards.md):
 // which card page the right-hand pane shows in the conversation's place.
-// Your identities (cards section 5.1) is one of them: the identities'
-// model opens and closes it, and Rust shows it while the model does.
-export enum CardsPage { none, contacts, contact, own-card, identities }
+// Your identities (cards section 5.1) and the add form (identities section
+// 6.2) are among them: the identities' model opens and closes each, and
+// Rust shows it while the model does.
+export enum CardsPage { none, contacts, contact, own-card, identities, add-identity }
+
+// The add form as drawn (identities section 6.2), every string from Rust.
+// The fields' text is `add-name` and `add-surname`, which the person edits.
+export struct AddFormShown {
+    title: string,
+    // The back arrow's name: BackToIdentities or BackToCard.
+    back: string,
+    note: string,
+    // Create runs: the fields take no input.
+    inert: bool,
+    has-photo: bool,
+    photo: image,
+    // The photo circle's accessible name.
+    circle: string,
+    photo-preparing: bool,
+    // PhotoUnusable, under the photo's buttons.
+    photo-unusable: string,
+    name-error: string,
+    surname-error: string,
+    // The line above Create, and whether it says a failure.
+    line-above: string,
+    line-error: bool,
+    create-shown: bool,
+    create-label: string,
+    // Create's accessible name in place of its label: IdentityAddChecking
+    // while the seed is asked, IdentityCreating while it runs.
+    create-name: string,
+    create-checking: bool,
+    create-running: bool,
+    // What stands in Create's place, and Try again under it.
+    in-place: string,
+    try-again: string,
+    try-enabled: bool,
+    try-progress: bool,
+}
 
 // A note a proposal shows before Accept; a warning is drawn in `error`
 // and says so in its words, never by colour alone.
@@ -4000,6 +4036,8 @@ component NameField inherits VerticalLayout {
     in property <int> focus-seq;
     in property <bool> focus-wanted;
     in-out property <string> value;
+    // Takes no input while what it fills runs (the add form's Create).
+    in property <bool> read-only;
     callback focused(string);
     callback accepted();
     changed focus-seq => {
@@ -4030,6 +4068,7 @@ component NameField inherits VerticalLayout {
             color: Palette.on-surface;
             vertical-alignment: center;
             single-line: true;
+            read-only: root.read-only;
             text <=> root.value;
             accessible-label: Drawn.spoken(root.label);
             accessible-description: Drawn.spoken(root.error);
@@ -4084,6 +4123,97 @@ component ProgressRing inherits Rectangle {
         stroke-width: 4px;
         transform-rotation: root.reduced-motion ? 0deg : animation-tick() * 360deg / 1000ms;
         commands: "M 1 0.1 A 0.9 0.9 0 0 1 1.9 1";
+    }
+}
+
+// The add form's Create (identities section 6.2): a filled button that
+// shows its progress in itself. While the seed is asked it is inert and
+// shows its progress only past `progress-after` ms (cards section 7.2's
+// threshold); while Create runs, at once. Its accessible name is `name`
+// when one is given, the state it is in; choosing it while inert does
+// nothing, which the model judges.
+component CreateButton inherits FocusScope {
+    focus-gained(reason) => {
+        if (reason == FocusReason.tab-navigation) { FocusMode.keyboard = true; }
+        if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
+    }
+    in property <string> text;
+    in property <string> name;
+    in property <string> focus-key;
+    in property <int> focus-seq;
+    in property <bool> focus-wanted;
+    in property <bool> checking;
+    in property <bool> running;
+    in property <int> progress-after;
+    in property <bool> reduced-motion;
+    callback pressed();
+    callback focused(string);
+    changed focus-seq => {
+        if (root.focus-wanted) { root.focus(); }
+    }
+    // The asking has run past the threshold. A flag the timer sets, so
+    // its `running` binding is never assigned.
+    property <bool> late;
+    changed checking => {
+        if (!root.checking) { root.late = false; }
+    }
+    Timer {
+        interval: root.progress-after * 1ms;
+        running: root.checking && !root.late;
+        triggered => { root.late = true; }
+    }
+    out property <bool> progress: root.running || (root.checking && root.late);
+    accessible-role: button;
+    accessible-label: Drawn.spoken(root.name != "" ? root.name : root.text);
+    accessible-action-default => { root.pressed(); }
+    key-pressed(event) => {
+        if (event.text == Key.Return || event.text == " ") {
+            root.pressed();
+            return accept;
+        }
+        reject
+    }
+    changed has-focus => {
+        if (self.has-focus) { root.focused(root.focus-key); }
+    }
+    min-height: 48px;
+    min-width: label.preferred-width + 48px + (root.progress ? 28px : 0px);
+    Rectangle {
+        background: Palette.primary;
+        border-radius: self.height / 2;
+        HorizontalLayout {
+            padding-left: 24px;
+            padding-right: 24px;
+            spacing: 8px;
+            alignment: center;
+            if root.progress: VerticalLayout {
+                alignment: center;
+                ProgressRing {
+                    size: 20px;
+                    ink: Palette.on-primary;
+                    reduced-motion: root.reduced-motion;
+                }
+            }
+            label := Text {
+                text: root.text;
+                font-size: Type.label-large;
+                font-weight: 500;
+                color: Palette.on-primary;
+                vertical-alignment: center;
+                accessible-role: none;
+            }
+        }
+    }
+    TapArea {
+        tapped => { root.pressed(); }
+    }
+    FocusRing {
+        x: -5px;
+        y: -5px;
+        width: root.width + 10px;
+        height: root.height + 10px;
+        radius: root.height / 2;
+        shown: root.has-focus;
     }
 }
 
@@ -4883,6 +5013,9 @@ export component AppWindow inherits Window {
     changed focus-id => {
         if (root.windowed) { root.focus-moved(); }
         root.focus-traced(self.focus-id);
+        // The add form is told where focus is: a seed's answer moves it
+        // only from where F25 says.
+        if (root.cards-page == CardsPage.add-identity) { root.add-focused(root.focus-id); }
     }
     in property <string> header-title;
     // The full PeerId of a direct conversation, or the channel id (U5a).
@@ -5030,6 +5163,50 @@ export component AppWindow inherits Window {
     callback id-list-chosen(int);
     callback id-list-try-again(int);
     callback id-list-add();
+    // The add form (identities section 6.2): what Rust draws, the fields
+    // the person edits, and each act back to Rust, which the model judges.
+    in property <AddFormShown> add-form;
+    in-out property <string> add-name;
+    in-out property <string> add-surname;
+    // How long an inert Create waits before it shows its progress, ms
+    // (ui-model's PROGRESS_AFTER_MS).
+    in property <int> add-progress-after;
+    callback add-edited();
+    callback add-create();
+    callback add-try-again();
+    callback add-choose-photo();
+    callback add-remove-photo();
+    callback add-leave();
+    callback add-discard(bool);
+    callback add-focused(string);
+    changed add-name => { root.add-edited(); }
+    changed add-surname => { root.add-edited(); }
+    // The card editor's overflow (cards section 5.2): its one item while
+    // one identity is held on a root that can add, AddAnotherIdentity;
+    // empty, no button is drawn (identities F28).
+    in property <string> own-overflow;
+    in property <string> identity-options-label;
+    // The card pages' back arrow's name: where it leads (identities
+    // section 6.2, WCAG 2.4.6).
+    out property <string> cards-back: root.cards-page == CardsPage.add-identity
+        ? root.add-form.back : root.back-label;
+    in-out property <bool> own-menu-open;
+    callback id-add-another();
+    function close-own-menu() {
+        root.own-menu-open = false;
+        root.focus-target = "own-options";
+        root.focus-seq += 1;
+    }
+    // F28: the item gone while its menu is open -- a second identity
+    // found -- closes the menu, and focus goes to the page's title, the
+    // button being gone with its item.
+    changed own-overflow => {
+        if (root.own-overflow == "" && root.own-menu-open) {
+            root.own-menu-open = false;
+            root.focus-target = "cards-title";
+            root.focus-seq += 1;
+        }
+    }
     // What identities.slint draws with, which cannot import this file.
     property <IdLook> id-look: {
         surface: Palette.surface,
@@ -5747,6 +5924,17 @@ export component AppWindow inherits Window {
     // Back on a card page: the own card's editor with unsaved changes
     // asks first (contact-cards design 5.2), else the page closes.
     function close-cards-page() {
+        // The add form's leaving is the model's to decide -- inert while
+        // Create runs, asking first with unsaved changes -- so it is only
+        // asked here; the control that had focus is where Continue
+        // editing returns (F26).
+        if (root.cards-page == CardsPage.add-identity) {
+            if (!root.own-discard-open) {
+                root.own-discard-return = root.focus-id;
+                root.add-leave();
+            }
+            return;
+        }
         // Back to the page's control that had focus -- its title or the
         // editor's controls, each taking a focus request -- else, focus
         // beside the editor on a wide window, to its first field
@@ -5775,6 +5963,7 @@ export component AppWindow inherits Window {
     // options item being gone with its menu, the app options button.
     function keep-editing() {
         root.own-discard-open = false;
+        if (root.cards-page == CardsPage.add-identity) { root.add-discard(false); }
         if (root.own-discard-return == "app-options") {
             root.chats-menu-closed-seq += 1;
             return;
@@ -5786,6 +5975,11 @@ export component AppWindow inherits Window {
     // way taken goes on.
     function discard-changes() {
         root.own-discard-open = false;
+        // The add form: the model leaves it, and Rust shows what is next.
+        if (root.cards-page == CardsPage.add-identity) {
+            root.add-discard(true);
+            return;
+        }
         if (root.own-discard-then == 0) {
             root.leave-cards-page();
             return;
@@ -5885,6 +6079,10 @@ export component AppWindow inherits Window {
         }
         if (root.share-open) {
             root.close-share();
+            return true;
+        }
+        if (root.own-menu-open && root.own-overflow != "") {
+            root.close-own-menu();
             return true;
         }
         // A dialog over a card page answers Back before the page does.
@@ -6497,7 +6695,8 @@ export component AppWindow inherits Window {
                     padding-bottom: 12px;
                 Snackbar {
                     text: root.id-snack-text;
-                    undo: true;
+                    // ConfirmIdentityAdded has no action (identities 6.2).
+                    undo: root.id-snack-action != "";
                     undo-label: root.id-snack-action;
                     snack-id: root.id-snack-id;
                     action-key: "identity-switch-back";
@@ -7649,7 +7848,7 @@ export component AppWindow inherits Window {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.cards-back;
                             focus-key: "close-cards";
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "close-cards";
@@ -7667,8 +7866,10 @@ export component AppWindow inherits Window {
                             text: root.cards-page == CardsPage.contacts ? root.contacts-title
                                 : root.cards-page == CardsPage.contact ? root.contact-title
                                 : root.cards-page == CardsPage.identities ? root.identities-title
+                                : root.cards-page == CardsPage.add-identity ? root.add-form.title
                                 : root.own-card-title;
-                            wraps: root.cards-page == CardsPage.identities;
+                            wraps: root.cards-page == CardsPage.identities
+                                || root.cards-page == CardsPage.add-identity;
                             font-size: Type.title-large;
                             font-weight: 400;
                             rtl: root.rtl;
@@ -7678,13 +7879,28 @@ export component AppWindow inherits Window {
                             focused(k) => { root.focus-id = k; }
                         }
                     }
+                    // The card editor's overflow, drawn only while it
+                    // holds an item (identities F28), at the bar's end.
+                    if root.cards-page == CardsPage.own-card && root.own-overflow != "": VerticalLayout {
+                        alignment: center;
+                        IconButton {
+                            glyph: Glyph.more;
+                            rtl: root.rtl;
+                            label: root.identity-options-label;
+                            focus-key: "own-options";
+                            focus-seq: root.focus-seq;
+                            focus-wanted: root.focus-target == "own-options";
+                            pressed => { root.own-menu-open = true; }
+                            focused(k) => { root.focus-id = k; }
+                        }
+                    }
                     if root.rtl: VerticalLayout {
                         alignment: center;
                         IconButton {
                             glyph: Glyph.back;
                             rtl: root.rtl;
                             ink: Palette.on-surface;
-                            label: root.back-label;
+                            label: root.cards-back;
                             focus-key: "close-cards";
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "close-cards";
@@ -8008,6 +8224,171 @@ export component AppWindow inherits Window {
                             add => { root.id-list-add(); }
                             focused(k) => { root.focus-id = k; }
                             keyboard-mode(on) => { FocusMode.keyboard = on; }
+                        }
+                        // The add form (identities section 6.2): the card
+                        // editor's fields for a card that does not exist
+                        // yet, IdentityNewNote, the line above Create, then
+                        // Create or what stands in its place. Its Tab
+                        // order is the design's (section 11): the photo's
+                        // buttons, Name, Family name, the note, the line,
+                        // then Create, or the line in its place and Try
+                        // again. Each line is a focus stop.
+                        if root.cards-page == CardsPage.add-identity: VerticalLayout {
+                            spacing: 12px;
+                            VerticalLayout {
+                                spacing: 8px;
+                                HorizontalLayout {
+                                    alignment: start;
+                                    Rectangle {
+                                        width: 96px;
+                                        height: 96px;
+                                        accessible-role: image;
+                                        accessible-label: Drawn.spoken(root.add-form.circle);
+                                        PhotoCircle {
+                                            size: 96px;
+                                            has-photo: root.add-form.has-photo;
+                                            photo: root.add-form.photo;
+                                        }
+                                        if root.add-form.photo-preparing: Rectangle {
+                                            width: 96px;
+                                            height: 96px;
+                                            border-radius: 48px;
+                                            background: Palette.surface.with-alpha(0.7);
+                                        }
+                                        if root.add-form.photo-preparing: ProgressRing {
+                                            size: 64px;
+                                            reduced-motion: root.reduced-motion;
+                                        }
+                                    }
+                                }
+                                if root.own-photo-choosable: HorizontalLayout {
+                                    alignment: start;
+                                    ActionButton {
+                                        text: root.add-form.has-photo ? root.change-photo-label : root.add-photo-label;
+                                        text-button: true;
+                                        wraps: true;
+                                        target: 48px;
+                                        enabled-action: !root.add-form.inert;
+                                        focus-key: "add-choose-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "add-choose-photo";
+                                        pressed => { root.add-choose-photo(); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                                if root.add-form.has-photo: HorizontalLayout {
+                                    alignment: start;
+                                    ActionButton {
+                                        text: root.remove-photo-label;
+                                        text-button: true;
+                                        wraps: true;
+                                        target: 48px;
+                                        enabled-action: !root.add-form.inert;
+                                        focus-key: "add-remove-photo";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "add-remove-photo";
+                                        pressed => { root.add-remove-photo(); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                                if root.add-form.photo-unusable != "": Text {
+                                    text: root.add-form.photo-unusable;
+                                    wrap: word-wrap;
+                                    min-height: self.preferred-height;
+                                    min-width: 0px;
+                                    font-size: Type.body-medium;
+                                    color: Palette.error;
+                                    accessible-role: text;
+                                    accessible-label: Drawn.spoken(self.text);
+                                }
+                            }
+                            NameField {
+                                label: root.name-label;
+                                error: root.add-form.name-error;
+                                value <=> root.add-name;
+                                read-only: root.add-form.inert;
+                                focus-key: "add-name";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "add-name";
+                                accepted => { root.add-create(); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                            NameField {
+                                label: root.surname-label;
+                                error: root.add-form.surname-error;
+                                value <=> root.add-surname;
+                                read-only: root.add-form.inert;
+                                focus-key: "add-surname";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "add-surname";
+                                accepted => { root.add-create(); }
+                                focused(k) => { root.focus-id = k; }
+                            }
+                            FocusNote {
+                                text: root.add-form.note;
+                                ink: Palette.on-surface-variant;
+                                rtl: root.rtl;
+                                focus-key: "add-note";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "add-note";
+                                focused(k) => { root.focus-id = k; }
+                            }
+                            if root.add-form.line-above != "": FocusNote {
+                                text: root.add-form.line-above;
+                                ink: root.add-form.line-error ? Palette.error : Palette.on-surface;
+                                rtl: root.rtl;
+                                focus-key: "add-line-above";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "add-line-above";
+                                focused(k) => { root.focus-id = k; }
+                            }
+                            if root.add-form.create-shown: HorizontalLayout {
+                                alignment: start;
+                                CreateButton {
+                                    text: root.add-form.create-label;
+                                    name: root.add-form.create-name;
+                                    checking: root.add-form.create-checking;
+                                    running: root.add-form.create-running;
+                                    progress-after: root.add-progress-after;
+                                    reduced-motion: root.reduced-motion;
+                                    focus-key: "add-create";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "add-create";
+                                    pressed => { root.add-create(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                            }
+                            if root.add-form.in-place != "": FocusNote {
+                                text: root.add-form.in-place;
+                                rtl: root.rtl;
+                                focus-key: "add-in-place";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "add-in-place";
+                                focused(k) => { root.focus-id = k; }
+                            }
+                            if root.add-form.try-again != "": HorizontalLayout {
+                                alignment: start;
+                                spacing: 8px;
+                                ActionButton {
+                                    text: root.add-form.try-again;
+                                    detail: root.add-form.in-place;
+                                    text-button: true;
+                                    target: 48px;
+                                    enabled-action: root.add-form.try-enabled;
+                                    focus-key: "add-try-again";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "add-try-again";
+                                    pressed => { root.add-try-again(); }
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                                if root.add-form.try-progress: VerticalLayout {
+                                    alignment: center;
+                                    ProgressRing {
+                                        size: 20px;
+                                        reduced-motion: root.reduced-motion;
+                                    }
+                                }
+                            }
                         }
                         // The own card: what a share sends, edited here.
                         if root.cards-page == CardsPage.own-card: VerticalLayout {
@@ -10318,6 +10699,48 @@ export component AppWindow inherits Window {
                         }
                     }
                     closed => { root.close-chats-menu(); }
+                    focused(k) => { root.focus-id = k; }
+                }
+            }
+        }
+        // The card editor's overflow menu (cards section 5.2), under its
+        // button at the pane's top end. Escape or a press outside closes
+        // it, focus back on its button.
+        if root.own-menu-open && root.own-overflow != "": TouchArea {
+            x: 0;
+            y: 0;
+            width: root.width;
+            height: root.height;
+            clicked => {
+                FocusMode.keyboard = false;
+                root.close-own-menu();
+            }
+        }
+        if root.own-menu-open && root.own-overflow != "": Rectangle {
+            x: root.rtl ? root.safe-area-insets.left + 8px
+                : root.width - self.width - root.safe-area-insets.right - 8px;
+            y: root.safe-area-insets.top + 72px;
+            width: max(200px, own-menu-items.preferred-width);
+            height: own-menu-items.preferred-height;
+            background: Palette.surface-container-high;
+            border-radius: 4px;
+            drop-shadow-blur: 8px;
+            drop-shadow-offset-y: 2px;
+            drop-shadow-color: #00000052;
+            TouchArea {}
+            own-menu-items := VerticalLayout {
+                padding-top: 8px;
+                padding-bottom: 8px;
+                MenuItem {
+                    text: root.own-overflow;
+                    focus-key: "own-add-another";
+                    first: true;
+                    rtl: root.rtl;
+                    pressed => {
+                        root.own-menu-open = false;
+                        root.id-add-another();
+                    }
+                    closed => { root.close-own-menu(); }
                     focused(k) => { root.focus-id = k; }
                 }
             }

@@ -4888,3 +4888,588 @@ fn every_control_of_a_proposal_taller_than_the_window_is_a_tab_stop() {
         "Copy PeerId, the link, Decline, Update contact: {walk:?}"
     );
 }
+
+// The add form (identities §6.2, plan §30 PR 3 commit 12). A test root
+// carries the form's acts as app-core's model side does
+// (`ModelSide::take_add_acts`): the form held here, told to the model.
+
+/// The form as the root holds it, and whether a seed was answered.
+struct FormRoot {
+    form: Option<interweave_human_ui_model::AddForm>,
+    seeded: bool,
+}
+
+thread_local! {
+    /// The testing platform is set on this thread.
+    static PLATFORM: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// A window as [`view`] makes one, the testing platform set once per
+/// thread, as a test that makes two windows needs.
+fn second_view() -> View {
+    if !PLATFORM.replace(true) {
+        return view();
+    }
+    let mut view = View::new(RuntimeHost::Daemon).expect("a window");
+    view.set_clock(|| NOW, |_| 0);
+    view.window().show().expect("shown");
+    view
+}
+
+/// One held identity in front, or `n` held, on a root that can add.
+fn held_model(n: usize) -> UiModel {
+    use interweave_human_ui_model::{HeldIdentity, IdentityKey, IdentityState};
+    let mut model = UiModel::new();
+    let held = (0..n)
+        .map(|i| HeldIdentity {
+            key: IdentityKey::new(endpoint_id(&format!("id{i}")).as_str()),
+            card_name: Some(format!("Name {i}")),
+            alias: format!("alias-{i}"),
+            state: IdentityState::Ready,
+            is_first: i == 0,
+            is_default: i == 0,
+            unread: 0,
+            not_sent: false,
+        })
+        .collect();
+    model
+        .identities_mut()
+        .held_changed(held)
+        .expect("a held list");
+    model.identities_mut().start(None);
+    model.identities_mut().set_adds(true);
+    model
+}
+
+/// Every act since the last turn carried out as a root would, then a
+/// render and the timers a focus request waits on. Returns the add acts
+/// taken.
+fn form_turn(
+    view: &mut View,
+    model: &mut UiModel,
+    root: &mut FormRoot,
+) -> Vec<interweave_human_ui_model::AddIntent> {
+    use interweave_human_ui_model::{AddForm, AddIntent, AddValues, FrontOutcome, Leave};
+    let mut taken = Vec::new();
+    for _ in 0..8 {
+        let events = view.take_events(model);
+        let identity = view.take_identity_intents();
+        let acts = view.take_add_intents();
+        if events.is_empty() && identity.is_empty() && acts.is_empty() {
+            break;
+        }
+        for intent in identity {
+            if let FrontOutcome::OpenAdd(from) = model.identities_mut().act(intent, false)
+                && root.form.is_none()
+            {
+                root.form = Some(AddForm::open(from, root.seeded, 0));
+            }
+        }
+        for act in acts {
+            taken.push(act.clone());
+            let Some(form) = root.form.as_mut() else {
+                continue;
+            };
+            let left = match act {
+                AddIntent::Edited { name, surname } => {
+                    let photo = form.values().photo;
+                    form.edit(AddValues {
+                        name,
+                        surname,
+                        photo,
+                    });
+                    false
+                }
+                AddIntent::Focused(at) => {
+                    form.focused(at);
+                    false
+                }
+                AddIntent::ChoosePhoto(_) => {
+                    form.photo_chosen();
+                    false
+                }
+                AddIntent::RemovePhoto => {
+                    form.photo_removed();
+                    false
+                }
+                AddIntent::Create => {
+                    form.create_checked();
+                    false
+                }
+                AddIntent::TryAgain => {
+                    form.try_again(0);
+                    false
+                }
+                AddIntent::Leave => form.ask_leave() == Leave::Go,
+                AddIntent::Discard(close) => form.discard_answered(close),
+            };
+            if left {
+                root.form = None;
+            }
+        }
+        model.identities_mut().set_form(root.form.clone());
+    }
+    model.identities_mut().set_form(root.form.clone());
+    view.render(model);
+    settle();
+    view.render(model);
+    settle();
+    taken
+}
+
+/// The form open from Your identities (two held) or from the card
+/// editor (one held), its seed answered or not, in a window `width` wide.
+fn add_form(
+    from: interweave_human_ui_model::AddFrom,
+    seeded: bool,
+    width: f32,
+) -> (View, UiModel, FormRoot) {
+    use interweave_human_ui_model::{AddForm, AddFrom, IdentityIntent};
+    let mut view = second_view();
+    // A platform picker, so the photo's button is drawn.
+    record_picks(&mut view);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(width, 1400.0));
+    let mut model = held_model(if from == AddFrom::Identities { 2 } else { 1 });
+    if from == AddFrom::Identities {
+        model
+            .identities_mut()
+            .act(IdentityIntent::OpenIdentities, false);
+    }
+    let mut root = FormRoot {
+        form: Some(AddForm::open(from, seeded, 0)),
+        seeded,
+    };
+    form_turn(&mut view, &mut model, &mut root);
+    (view, model, root)
+}
+
+fn focus(view: &View) -> String {
+    view.window().get_focus_id().to_string()
+}
+
+/// Type `typed` into the focused field, a key at a time.
+fn type_text(view: &View, typed: &str) {
+    for c in typed.chars() {
+        let text: slint::SharedString = c.to_string().into();
+        let window = view.window().window();
+        window.dispatch_event(slint::platform::WindowEvent::KeyPressed { text: text.clone() });
+        window.dispatch_event(slint::platform::WindowEvent::KeyReleased { text });
+    }
+}
+
+/// Tab `n` times from where focus is, each stop's ring whole inside its
+/// scroll area (`common::ring_cut`); the stops passed.
+fn tab_stops(view: &View, n: usize) -> Vec<String> {
+    (0..n)
+        .map(|_| {
+            key(view, slint::platform::Key::Tab);
+            settle();
+            let on = focus(view);
+            if let Some(cut) = common::ring_cut(view.window()) {
+                assert!(cut.is_empty(), "at {on:?}: {cut:#?}");
+            }
+            on
+        })
+        .collect()
+}
+
+/// Identities §11's reading order of the add form: the back arrow, the
+/// title, the photo's button, Name, Family name, `IdentityNewNote`, the
+/// line above Create when one shows, then Create; with the seed not
+/// answered, `IdentityAddWaitsSeed` and its Try again in Create's place.
+/// The Name field has focus as the form opens (F5). Mutation: the note
+/// drawn after Create.
+#[test]
+fn the_add_form_tab_order_is_the_designs() {
+    use interweave_human_ui_model::{AddEnding, AddFrom};
+    let (mut view, mut model, mut root) = add_form(AddFrom::Identities, true, 1000.0);
+    assert_eq!(focus(&view), "add-name", "F5");
+    key(&view, slint::platform::Key::Backtab);
+    key(&view, slint::platform::Key::Backtab);
+    key(&view, slint::platform::Key::Backtab);
+    settle();
+    assert_eq!(focus(&view), "close-cards");
+    assert_eq!(
+        tab_stops(&view, 6),
+        [
+            "cards-title",
+            "add-choose-photo",
+            "add-name",
+            "add-surname",
+            "add-note",
+            "add-create",
+        ]
+    );
+    // A line above Create is a stop between the note and Create.
+    let form = root.form.as_mut().expect("open");
+    form.edit(interweave_human_ui_model::AddValues {
+        name: "Anna".to_owned(),
+        surname: String::new(),
+        photo: false,
+    });
+    assert!(form.create());
+    form.ended(AddEnding::Failed);
+    form_turn(&mut view, &mut model, &mut root);
+    assert_eq!(focus(&view), "add-line-above", "F7");
+    assert_eq!(tab_stops(&view, 1), ["add-create"]);
+
+    // The seed not answered: the line and Try again in Create's place.
+    let (mut view, mut model, mut root) = add_form(AddFrom::Identities, false, 1000.0);
+    root.form.as_mut().expect("open").seed_told(false);
+    form_turn(&mut view, &mut model, &mut root);
+    assert_eq!(focus(&view), "add-name", "focus was not on Create");
+    assert_eq!(
+        tab_stops(&view, 4),
+        ["add-surname", "add-note", "add-in-place", "add-try-again"]
+    );
+}
+
+/// Identities §11: in a field Enter presses the form's primary, Create,
+/// and Space types a space. Mutation: the field's `accepted` not wired
+/// to Create.
+#[test]
+fn enter_in_a_field_presses_create_and_space_types_a_space() {
+    use interweave_human_ui_model::{AddFrom, AddIntent};
+    let (mut view, mut model, mut root) = add_form(AddFrom::Identities, true, 1000.0);
+    assert_eq!(focus(&view), "add-name");
+    type_text(&view, "Anna Rossi");
+    let acts = form_turn(&mut view, &mut model, &mut root);
+    assert!(acts.contains(&AddIntent::Edited {
+        name: "Anna Rossi".to_owned(),
+        surname: String::new()
+    }));
+    assert_eq!(view.window().get_add_name(), "Anna Rossi", "a space typed");
+    key(&view, slint::platform::Key::Return);
+    let acts = form_turn(&mut view, &mut model, &mut root);
+    assert!(acts.contains(&AddIntent::Create), "{acts:?}");
+    assert!(root.form.as_ref().expect("open").running());
+}
+
+/// Identities §6.2 step 1: while Create runs, the back arrow, Escape and
+/// Back do nothing -- the form stays, no dialog opens -- and the fields
+/// take no input. Mutation: the view closing the form's page itself.
+#[test]
+fn back_and_escape_are_inert_while_create_runs() {
+    use interweave_human_ui_model::{AddFrom, AddIntent, AddValues};
+    let (mut view, mut model, mut root) = add_form(AddFrom::Identities, true, 1000.0);
+    let form = root.form.as_mut().expect("open");
+    form.edit(AddValues {
+        name: "Anna".to_owned(),
+        surname: String::new(),
+        photo: false,
+    });
+    assert!(form.create());
+    form_turn(&mut view, &mut model, &mut root);
+    assert!(view.window().get_add_form().inert);
+    for way in ["arrow", "escape", "back"] {
+        match way {
+            "arrow" => press(&view, text(UiText::BackToIdentities)),
+            "escape" => key(&view, slint::platform::Key::Escape),
+            _ => assert!(view.window().invoke_handle_back()),
+        }
+        let acts = form_turn(&mut view, &mut model, &mut root);
+        assert!(acts.contains(&AddIntent::Leave), "{way}: {acts:?}");
+        assert!(root.form.is_some(), "{way}: the form stays");
+        assert_eq!(
+            view.window().get_cards_page(),
+            interweave_human_ui_slint::CardsPage::AddIdentity,
+            "{way}"
+        );
+        assert!(!view.window().get_own_discard_open(), "{way}: no dialog");
+    }
+}
+
+/// Identities §6.2 and §12: Create is read as `IdentityAddChecking`
+/// while the seed is asked, as Create once it is answered, and as
+/// `IdentityCreating` with the name while it runs; its progress shows
+/// past 300 ms of asking and at once while it runs. Mutation: Create's
+/// accessible name left as its label.
+#[test]
+fn create_is_read_as_checking_then_as_creating_by_name() {
+    use interweave_human_ui_model::{AddFrom, AddValues};
+    let (mut view, mut model, mut root) = add_form(AddFrom::Identities, false, 1000.0);
+    assert!(shows(&view, text(UiText::IdentityAddChecking)));
+    assert!(!shows(&view, text(UiText::CreateIdentity)));
+    root.form.as_mut().expect("open").seed_told(true);
+    form_turn(&mut view, &mut model, &mut root);
+    assert!(shows(&view, text(UiText::CreateIdentity)));
+    let form = root.form.as_mut().expect("open");
+    form.edit(AddValues {
+        name: "Anna".to_owned(),
+        surname: "Rossi".to_owned(),
+        photo: false,
+    });
+    assert!(form.create());
+    form_turn(&mut view, &mut model, &mut root);
+    let creating = fill(
+        text(UiText::IdentityCreating),
+        &[("name", &isolated("Anna Rossi"))],
+    );
+    assert!(shows(&view, &creating), "read as {creating:?}");
+    assert!(view.window().get_add_form().create_running);
+}
+
+/// Identities §11 and §12: each line -- the line above Create, the line
+/// in its place -- is a focus stop that takes focus when it shows (F7,
+/// F8), is read by its text, and keeps its ring whole: the page's body
+/// is padded by the ring's reach inside its scroll area. Mutation: the
+/// line above not a focus stop.
+#[test]
+fn each_line_is_a_focus_stop_revealed_and_read() {
+    use interweave_human_ui_model::{AddEnding, AddFrom, AddValues};
+    for (ending, key_id) in [
+        (AddEnding::Failed, "add-line-above"),
+        (AddEnding::Unknown, "add-line-above"),
+        (AddEnding::NotFinished, "add-line-above"),
+        (AddEnding::Limit, "add-in-place"),
+        (AddEnding::KeyGone, "add-in-place"),
+    ] {
+        let (mut view, mut model, mut root) = add_form(AddFrom::Identities, true, 1000.0);
+        let form = root.form.as_mut().expect("open");
+        form.edit(AddValues {
+            name: "Anna".to_owned(),
+            surname: String::new(),
+            photo: false,
+        });
+        assert!(form.create());
+        form.ended(ending.clone());
+        let drawn = form.view(0);
+        form_turn(&mut view, &mut model, &mut root);
+        assert_eq!(focus(&view), key_id, "{ending:?}");
+        let said = drawn
+            .line_above
+            .or(drawn.in_place.map(|p| p.said))
+            .expect("a line")
+            .english();
+        assert!(shows(&view, &said), "{ending:?} read as {said:?}");
+        // The ring at the line, by Tab back and forth.
+        key(&view, slint::platform::Key::Backtab);
+        key(&view, slint::platform::Key::Tab);
+        settle();
+        assert_eq!(focus(&view), key_id);
+        let cut = common::ring_cut(view.window()).expect("a ring");
+        assert!(cut.is_empty(), "{ending:?}: {cut:#?}");
+    }
+}
+
+/// Identities §6.2, the seed not answered: `IdentityAddWaitsSeed` and Try
+/// again stand in Create's place, Create not drawn; focus moves to the
+/// line from the inert Create (F25); Try again is inert while it asks,
+/// focus staying on it (F27); a seed answered brings Create back, focus
+/// on it from the line or Try again. Mutation: the line drawn beside
+/// Create.
+#[test]
+fn the_waits_line_and_try_again_take_creates_place() {
+    use interweave_human_ui_model::{AddFrom, AddIntent};
+    let (mut view, mut model, mut root) = add_form(AddFrom::Card, false, 1000.0);
+    root.form
+        .as_mut()
+        .expect("open")
+        .focused(interweave_human_ui_model::AddFocus::Create);
+    root.form.as_mut().expect("open").seed_told(false);
+    form_turn(&mut view, &mut model, &mut root);
+    assert!(shows(&view, text(UiText::IdentityAddWaitsSeed)));
+    assert!(!shows(&view, text(UiText::CreateIdentity)));
+    assert!(!shows(&view, text(UiText::IdentityAddChecking)));
+    assert_eq!(focus(&view), "add-in-place", "F25");
+    key(&view, slint::platform::Key::Tab);
+    settle();
+    assert_eq!(focus(&view), "add-try-again");
+    key(&view, slint::platform::Key::Return);
+    let acts = form_turn(&mut view, &mut model, &mut root);
+    assert!(acts.contains(&AddIntent::TryAgain));
+    assert!(
+        !view.window().get_add_form().try_enabled,
+        "inert while asked"
+    );
+    assert!(view.window().get_add_form().try_progress);
+    assert_eq!(focus(&view), "add-try-again", "F27");
+    root.form.as_mut().expect("open").seed_told(true);
+    form_turn(&mut view, &mut model, &mut root);
+    assert!(shows(&view, text(UiText::CreateIdentity)));
+    assert!(!shows(&view, text(UiText::IdentityAddWaitsSeed)));
+    assert_eq!(focus(&view), "add-create", "F25's second case");
+}
+
+/// Identities §6.2 "Leaving asks first", run (w), F26: the back arrow,
+/// Escape and Back on a form whose Name holds text open
+/// `CardDiscardChanges`, focus on Continue editing, which keeps the form
+/// and returns focus where it was; Close without saving leaves; on an
+/// empty form none of them asks. Mutation: the dialog not opened from
+/// the model's ask.
+#[test]
+fn back_escape_and_the_arrow_ask_before_leaving_a_filled_form() {
+    use interweave_human_ui_model::AddFrom;
+    for way in ["arrow", "escape", "back"] {
+        let (mut view, mut model, mut root) = add_form(AddFrom::Identities, true, 1000.0);
+        type_text(&view, "Anna");
+        form_turn(&mut view, &mut model, &mut root);
+        let leave = |view: &View| match way {
+            "arrow" => press(view, text(UiText::BackToIdentities)),
+            "escape" => key(view, slint::platform::Key::Escape),
+            _ => assert!(view.window().invoke_handle_back()),
+        };
+        leave(&view);
+        form_turn(&mut view, &mut model, &mut root);
+        assert!(view.window().get_own_discard_open(), "{way}: asks");
+        settle();
+        assert_eq!(focus(&view), "discard-keep", "{way}: F26");
+        press(&view, text(UiText::KeepEditing));
+        form_turn(&mut view, &mut model, &mut root);
+        assert!(!view.window().get_own_discard_open());
+        assert!(root.form.is_some(), "{way}: kept");
+        assert_eq!(view.window().get_add_name(), "Anna");
+        // The arrow is pressed by its default action, which moves no
+        // focus: the field had it when the dialog opened.
+        assert_eq!(focus(&view), "add-name", "{way}: focus back");
+        leave(&view);
+        form_turn(&mut view, &mut model, &mut root);
+        press(&view, text(UiText::DiscardChanges));
+        form_turn(&mut view, &mut model, &mut root);
+        assert!(root.form.is_none(), "{way}: left");
+        assert_eq!(
+            view.window().get_cards_page(),
+            interweave_human_ui_slint::CardsPage::Identities,
+            "{way}: back on the list"
+        );
+    }
+    let (mut view, mut model, mut root) = add_form(AddFrom::Identities, true, 1000.0);
+    key(&view, slint::platform::Key::Escape);
+    form_turn(&mut view, &mut model, &mut root);
+    assert!(!view.window().get_own_discard_open(), "empty: no ask");
+    assert!(root.form.is_none(), "empty: left");
+}
+
+/// Identities §6.2 run (x): the form's back arrow is read as
+/// `BackToIdentities` when it was opened from Your identities and as
+/// `BackToCard` from the card editor, which Back returns to. Mutation:
+/// the arrow read as `BackToConversations`.
+#[test]
+fn the_back_arrow_reads_where_it_leads() {
+    use interweave_human_ui_model::AddFrom;
+    let (view, _, _) = add_form(AddFrom::Identities, true, 1000.0);
+    assert!(shows(&view, text(UiText::BackToIdentities)));
+    assert!(!shows(&view, text(UiText::BackToConversations)));
+    let (mut view, mut model, mut root) = add_form(AddFrom::Card, true, 1000.0);
+    assert!(shows(&view, text(UiText::BackToCard)));
+    press(&view, text(UiText::BackToCard));
+    form_turn(&mut view, &mut model, &mut root);
+    assert!(root.form.is_none());
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::OwnCard,
+        "back on the card editor"
+    );
+}
+
+/// Identities §12: at 360 px and 200 % text, with a long name whose
+/// lines carry it, every line of the form wraps inside the window.
+/// Mutation: the line above Create set not to wrap.
+#[test]
+fn a_long_name_and_200_percent_text_wrap_at_360_px() {
+    use interweave_human_ui_model::{AddEnding, AddFrom, AddValues};
+    let (mut view, mut model, mut root) = add_form(AddFrom::Identities, true, 360.0);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(360.0, 4000.0));
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(Some(i_slint_core::lengths::LogicalLength::new(28.0)));
+    let long = "Annamaria Benedetta Rossi-Bianchi-Esposito";
+    let form = root.form.as_mut().expect("open");
+    form.edit(AddValues {
+        name: long.to_owned(),
+        surname: String::new(),
+        photo: false,
+    });
+    assert!(form.create());
+    form.ended(AddEnding::Unknown);
+    let said = form.view(0).line_above.expect("a line").english();
+    form_turn(&mut view, &mut model, &mut root);
+    for label in [
+        said.as_str(),
+        text(UiText::IdentityNewNote),
+        text(UiText::AddIdentityTitle),
+    ] {
+        let found = labelled(&view, label);
+        assert!(!found.is_empty(), "{label:?} drawn");
+        for e in found {
+            let (at, size) = (e.absolute_position(), e.size());
+            assert!(
+                at.x >= 0.0 && at.x + size.width <= 360.0 + 0.5,
+                "{label:?} inside 360 px: {at:?} {size:?}"
+            );
+        }
+    }
+    let line = &labelled(&view, &said)[0];
+    let note = &labelled(&view, text(UiText::IdentityNewNote))[0];
+    assert!(
+        line.size().height > 3.0 * note.size().height / 2.0,
+        "the line wraps over more lines than the note: {} against {}",
+        line.size().height,
+        note.size().height
+    );
+    i_slint_core::window::WindowInner::from_pub(view.window().window())
+        .context()
+        .set_platform_default_font_size(None);
+}
+
+/// Cards §5.2 and identities F28: the card editor's overflow, named
+/// `IdentityOptions`, offers Add another identity with one identity held
+/// on a root that can add, which opens the form from the card; with two
+/// held, or on a root that cannot add, no overflow button is drawn; a
+/// second identity found while its menu is open closes the menu, focus
+/// on the page's title. Mutation: the button drawn whatever the model
+/// says.
+#[test]
+fn the_editors_overflow_offers_add_another_identity_with_one_held_alone() {
+    use interweave_human_ui_model::{FrontOutcome, IdentityIntent};
+    let mut view = view();
+    let mut model = held_model(1);
+    model.identity_shown(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    own_card(&mut view, &mut model);
+    assert!(shows(&view, text(UiText::IdentityOptions)));
+    press(&view, text(UiText::IdentityOptions));
+    settle();
+    press(&view, text(UiText::AddAnotherIdentity));
+    let intents = view.take_identity_intents();
+    assert_eq!(intents, [IdentityIntent::AddAnother]);
+    assert_eq!(
+        model
+            .identities_mut()
+            .act(IdentityIntent::AddAnother, false),
+        FrontOutcome::OpenAdd(interweave_human_ui_model::AddFrom::Card)
+    );
+
+    model.identities_mut().set_adds(false);
+    view.render(&model);
+    settle();
+    assert!(!shows(&view, text(UiText::IdentityOptions)), "cannot add");
+    model.identities_mut().set_adds(true);
+    view.render(&model);
+    settle();
+
+    // F28: the menu open, a second identity held.
+    press(&view, text(UiText::IdentityOptions));
+    settle();
+    assert!(view.window().get_own_menu_open());
+    let two = held_model(2);
+    model
+        .identities_mut()
+        .held_changed(two.identities().held().to_vec())
+        .expect("two held");
+    view.render(&model);
+    settle();
+    settle();
+    assert!(!view.window().get_own_menu_open(), "the menu closed");
+    assert!(!shows(&view, text(UiText::IdentityOptions)), "no button");
+    assert!(!shows(&view, text(UiText::AddAnotherIdentity)));
+    assert_eq!(focus(&view), "cards-title", "F28");
+}
