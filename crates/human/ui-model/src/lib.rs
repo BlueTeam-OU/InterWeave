@@ -44,8 +44,8 @@ pub use identities::{
     Switched, Switcher, SwitcherRow, Transition, TryAgainControl,
 };
 pub use identity_add::{
-    AddDone, AddEnding, AddFocus, AddForm, AddFormView, AddFrom, AddValues, CreateControl, InPlace,
-    Leave, PROGRESS_AFTER_MS,
+    AddDone, AddEnding, AddFocus, AddForm, AddFormView, AddFrom, AddIntent, AddValues,
+    CreateControl, InPlace, Leave, PROGRESS_AFTER_MS,
 };
 pub use identity_flow::{
     Effect, IdentityFlow, Notice, RecoveryReason, ScreenId, Start, StepFailed, UncheckedRefused,

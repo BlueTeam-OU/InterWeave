@@ -22,7 +22,7 @@
 
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::identity_add::AddValues;
+use crate::identity_add::{AddForm, AddFrom, AddValues};
 use crate::labels::{HostText, UiText, by_count, fill, isolated, placeholder_en};
 
 /// How many identities a profile holds at most: the profile's endpoint
@@ -303,9 +303,10 @@ pub enum FrontOutcome {
     /// A row of Your identities was chosen: that identity's page opens
     /// ([`Identities::identity_page`]), switching nothing (cards §5.1).
     OpenPage(IdentityKey),
-    /// Your identities' Add an identity: the root opens the add form,
-    /// whose back arrow returns to the list (identities §6.2).
-    OpenAdd,
+    /// Your identities' Add an identity, or the card editor's Add another
+    /// identity: the root opens the add form, whose back arrow returns to
+    /// where it was opened from (identities §6.2).
+    OpenAdd(AddFrom),
 }
 
 /// Which notification was opened (identities §9).
@@ -358,6 +359,8 @@ pub enum IdentityIntent {
     /// An identity's page was left by its back arrow, Escape or Back:
     /// Your identities shows again, on that identity's row.
     ClosePage,
+    /// The card editor's Add another identity, with one identity held.
+    AddAnother,
 }
 
 /// Where an act asks focus to go (identities §11's focus table).
@@ -667,6 +670,10 @@ pub struct Identities {
     cards_not_saved: Vec<(IdentityKey, AddValues)>,
     /// The identity whose page is shown, opened from its row.
     page: Option<IdentityKey>,
+    /// The add form open, as the root holds it.
+    form: Option<AddForm>,
+    /// `ConfirmIdentityAdded` while it is up, by its snackbar id.
+    confirm: Option<(u64, Said)>,
 }
 
 /// What Your identities' Add depends on besides the bound.
@@ -870,6 +877,8 @@ impl Identities {
     /// to the switch unless a notification's Chats takes it.
     fn shown(&mut self, switched: &Switched) {
         self.snackbar_seq = self.snackbar_seq.wrapping_add(1);
+        // One snackbar at a time: the switch's replaces Done's.
+        self.confirm = None;
         self.snackbar = Some(ShownSwitchSnackbar {
             id: self.snackbar_seq,
             snackbar: switched.snackbar.clone(),
@@ -939,7 +948,17 @@ impl Identities {
                 if self.snackbar.as_ref().map(|s| s.id) == Some(id) {
                     self.snackbar = None;
                 }
+                if self.confirm.as_ref().map(|(seq, _)| *seq) == Some(id) {
+                    self.confirm = None;
+                }
                 FrontOutcome::Unchanged
+            }
+            IdentityIntent::AddAnother => {
+                if self.editor_overflow().is_some() {
+                    FrontOutcome::OpenAdd(AddFrom::Card)
+                } else {
+                    FrontOutcome::Unchanged
+                }
             }
             IdentityIntent::OpenIdentities => {
                 self.switcher_open = false;
@@ -992,7 +1011,7 @@ impl Identities {
                 // `IdentityLimit` there in Create's place. No endpoint
                 // list is read here.
                 if self.can_add() {
-                    FrontOutcome::OpenAdd
+                    FrontOutcome::OpenAdd(AddFrom::Identities)
                 } else {
                     self.ask_focus(IdentityFocus::Limit);
                     FrontOutcome::Unchanged
@@ -1018,6 +1037,50 @@ impl Identities {
     /// (`add_is_disabled_while_the_store_is_degraded`).
     pub const fn set_store_degraded(&mut self, degraded: bool) {
         self.add_gate.store_degraded = degraded;
+    }
+
+    /// The add form as the root holds it now, which a view draws: the
+    /// root tells every identity's model the same form, so a switch does
+    /// not lose it.
+    pub fn set_form(&mut self, form: Option<AddForm>) {
+        self.form = form;
+    }
+
+    /// The add form open, if one is.
+    #[must_use]
+    pub const fn add_form(&self) -> Option<&AddForm> {
+        self.form.as_ref()
+    }
+
+    /// Done's `ConfirmIdentityAdded` (identities §6.2 step 4): it
+    /// replaces the switch's snackbar, and a view announces it once by
+    /// its id ([`Self::added_snackbar`]); `SnackbarClosed` with that id
+    /// closes it.
+    pub fn confirm_added(&mut self, said: Said) {
+        self.snackbar_seq = self.snackbar_seq.wrapping_add(1);
+        self.snackbar = None;
+        self.confirm = Some((self.snackbar_seq, said));
+    }
+
+    /// `ConfirmIdentityAdded`, while it is up, by its id.
+    #[must_use]
+    pub fn added_snackbar(&self) -> Option<(u64, &Said)> {
+        self.confirm.as_ref().map(|(id, said)| (*id, said))
+    }
+
+    /// The card editor's overflow item while one identity is held on a
+    /// root that can add: `AddAnotherIdentity` (cards §5.2). With two or
+    /// more held the editor is the first identity's page, whose overflow
+    /// holds nothing until Make default lands with Remove (Q-A1 (a)), so
+    /// no overflow is drawn (identities F28;
+    /// `the_editors_overflow_offers_add_another_with_one_held_alone`).
+    #[must_use]
+    pub const fn editor_overflow(&self) -> Option<UiText> {
+        if self.held.len() == 1 && self.add_gate.adds {
+            Some(UiText::AddAnotherIdentity)
+        } else {
+            None
+        }
     }
 
     /// A Create ended Done with `key` (identities §6.2 step 4): Your
@@ -2673,7 +2736,10 @@ mod tests {
                 disabled: None,
             })
         );
-        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::OpenAdd);
+        assert_eq!(
+            m.act(IdentityIntent::Add, false),
+            FrontOutcome::OpenAdd(AddFrom::Identities)
+        );
 
         m.set_adds(false);
         assert_eq!(page(&m).add, None);
@@ -2692,7 +2758,10 @@ mod tests {
         m.set_adds(true);
         m.act(IdentityIntent::OpenIdentities, false);
         assert_eq!(page(&m).add.and_then(|a| a.limit), None);
-        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::OpenAdd);
+        assert_eq!(
+            m.act(IdentityIntent::Add, false),
+            FrontOutcome::OpenAdd(AddFrom::Identities)
+        );
 
         m.held_changed(holding(&tags)).expect("64 held");
         assert_eq!(
@@ -2983,6 +3052,56 @@ mod tests {
 
         m.set_store_degraded(false);
         assert_eq!(page(&m).add.and_then(|a| a.disabled), None);
-        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::OpenAdd);
+        assert_eq!(
+            m.act(IdentityIntent::Add, false),
+            FrontOutcome::OpenAdd(AddFrom::Identities)
+        );
+    }
+
+    /// Cards §5.2 and identities F28: the card editor's overflow offers
+    /// Add another identity with one identity held on a root that can add,
+    /// and it opens the form from the card; with two or more held the
+    /// first identity's overflow holds nothing in this build (Q-A1 (a)),
+    /// so none is drawn and the act opens nothing. Mutation: the item
+    /// offered whatever the number held.
+    #[test]
+    fn the_editors_overflow_offers_add_another_with_one_held_alone() {
+        let mut m = model(&["a"]);
+        assert_eq!(m.editor_overflow(), None, "a root that cannot add");
+        m.set_adds(true);
+        assert_eq!(m.editor_overflow(), Some(UiText::AddAnotherIdentity));
+        assert_eq!(
+            m.act(IdentityIntent::AddAnother, false),
+            FrontOutcome::OpenAdd(AddFrom::Card)
+        );
+        m.held_changed(holding(&["a", "b"])).expect("held");
+        assert_eq!(m.editor_overflow(), None);
+        assert_eq!(
+            m.act(IdentityIntent::AddAnother, false),
+            FrontOutcome::Unchanged
+        );
+    }
+
+    /// Identities §6.2 step 4: Done's `ConfirmIdentityAdded` is the one
+    /// snackbar, replacing the switch's, and closes by its own id; a
+    /// switch's snackbar replaces it in turn. Mutation: the close taken
+    /// whatever its id.
+    #[test]
+    fn dones_snackbar_is_the_one_snackbar_and_closes_by_its_id() {
+        let mut m = model(&["a", "b"]);
+        switched(m.switch(&key("b"), false));
+        assert!(m.switch_snackbar().is_some());
+        m.confirm_added(Said::of(UiText::ConfirmIdentityAdded));
+        assert_eq!(m.switch_snackbar(), None, "replaced");
+        let (id, said) = m.added_snackbar().expect("up");
+        assert_eq!(said.text, UiText::ConfirmIdentityAdded);
+        m.act(IdentityIntent::SnackbarClosed(id.wrapping_add(1)), false);
+        assert!(m.added_snackbar().is_some(), "another id");
+        m.act(IdentityIntent::SnackbarClosed(id), false);
+        assert_eq!(m.added_snackbar(), None);
+
+        m.confirm_added(Said::of(UiText::ConfirmIdentityAdded));
+        switched(m.switch(&key("a"), false));
+        assert_eq!(m.added_snackbar(), None, "the switch's replaces it");
     }
 }

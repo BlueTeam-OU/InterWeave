@@ -10,6 +10,7 @@
 
 use crate::identities::{IdentityKey, Said, TryAgainControl};
 use crate::labels::{UiText, isolated};
+use crate::model::cards::{NameProblem, Photo, name_problem};
 
 /// How long Create, inert while the form asks the seed, waits before it
 /// shows its progress indicator (cards §7.2's threshold, which identities
@@ -56,6 +57,8 @@ pub enum AddEnding {
 pub enum AddFocus {
     /// The Name field.
     Name,
+    /// The Family name field.
+    Surname,
     /// Create.
     Create,
     /// The line above Create: `IdentityAddFailed`, `IdentityAddUnknown`
@@ -80,6 +83,49 @@ pub enum Leave {
     Ask,
     /// The form is left.
     Go,
+}
+
+/// A person's act on the add form, as a view returns it; the root
+/// carries it out on the one form open (app-core's model side).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AddIntent {
+    /// The Name or the Family name field changed: what both hold now.
+    Edited {
+        /// The Name field.
+        name: String,
+        /// The Family name field.
+        surname: String,
+    },
+    /// The view's focus moved to a control of the form.
+    Focused(AddFocus),
+    /// A photo was chosen: the file, as read.
+    ChoosePhoto(Vec<u8>),
+    /// The photo was removed.
+    RemovePhoto,
+    /// Create, or Enter in a field.
+    Create,
+    /// Try again under `IdentityAddWaitsSeed`.
+    TryAgain,
+    /// The back arrow, Escape or Back.
+    Leave,
+    /// `CardDiscardChanges` answered: Close without saving when `true`,
+    /// Continue editing when `false`.
+    Discard(bool),
+}
+
+/// The form's photo.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum FormPhoto {
+    None,
+    /// Chosen, its preparation numbered `seq` running.
+    Preparing(u64),
+    /// Prepared: the bytes a Create carries, and what is shown.
+    Prepared {
+        bytes: Vec<u8>,
+        shown: Photo,
+    },
+    /// The file chosen cannot go on a card.
+    Unusable,
 }
 
 /// Create as the form draws it.
@@ -116,6 +162,17 @@ pub struct AddFormView {
     pub note: UiText,
     /// The fields take no input: Create runs.
     pub fields_inert: bool,
+    /// The photo shown, prepared.
+    pub photo: Option<Photo>,
+    /// The photo's line: `CardPhotoPreparing` while it is prepared,
+    /// `PhotoUnusable` for a file a card cannot carry.
+    pub photo_line: Option<UiText>,
+    /// What the Name field says is wrong, after a Create on it.
+    pub name_problem: Option<UiText>,
+    /// What the Family name field says is wrong, after a Create on it.
+    pub surname_problem: Option<UiText>,
+    /// `CardDiscardChanges`, while a leaving asks it.
+    pub discard: Option<UiText>,
     /// The line above Create.
     pub line_above: Option<Said>,
     /// Create, or `None` when something stands in its place.
@@ -200,6 +257,13 @@ pub struct AddForm {
     /// Where the view's focus is, as it last said.
     focus_at: AddFocus,
     focus: Option<(u64, AddFocus)>,
+    photo: FormPhoto,
+    /// The last photo choice's number.
+    photo_seq: u64,
+    /// The fields' problems a Create found, until the field changes.
+    problems: (Option<UiText>, Option<UiText>),
+    /// `CardDiscardChanges` is asked.
+    asking: bool,
 }
 
 impl AddForm {
@@ -224,6 +288,10 @@ impl AddForm {
             closed: false,
             focus_at: AddFocus::Name,
             focus: None,
+            photo: FormPhoto::None,
+            photo_seq: 0,
+            problems: (None, None),
+            asking: false,
         };
         form.ask_focus(AddFocus::Name);
         form
@@ -277,8 +345,117 @@ impl AddForm {
         if self.running || self.closed {
             return false;
         }
+        // A field's problem stands until that field changes.
+        if values.name != self.values.name {
+            self.problems.0 = None;
+        }
+        if values.surname != self.values.surname {
+            self.problems.1 = None;
+        }
         self.values = values;
         true
+    }
+
+    /// Where the form was opened from.
+    #[must_use]
+    pub const fn from(&self) -> AddFrom {
+        self.from
+    }
+
+    /// A photo was chosen: its preparation's number, for the root to
+    /// prepare it by, or `None` while Create runs or once closed. A later
+    /// choice replaces an earlier one still being prepared.
+    pub fn photo_chosen(&mut self) -> Option<u64> {
+        if self.running || self.closed {
+            return None;
+        }
+        self.photo_seq += 1;
+        self.photo = FormPhoto::Preparing(self.photo_seq);
+        self.values.photo = true;
+        Some(self.photo_seq)
+    }
+
+    /// The preparation numbered `seq` ended: the bytes and what is shown,
+    /// or `None` for a file a card cannot carry. One a later choice
+    /// replaced, or a removal, changes nothing
+    /// (`a_photo_answer_for_a_replaced_choice_changes_nothing`).
+    pub fn photo_prepared(&mut self, seq: u64, prepared: Option<(Vec<u8>, Photo)>) {
+        if self.photo != FormPhoto::Preparing(seq) {
+            return;
+        }
+        self.photo = match prepared {
+            Some((bytes, shown)) => FormPhoto::Prepared { bytes, shown },
+            None => FormPhoto::Unusable,
+        };
+        self.values.photo = matches!(self.photo, FormPhoto::Prepared { .. });
+    }
+
+    /// The photo was removed, or a choice still prepared let go.
+    pub fn photo_removed(&mut self) -> bool {
+        if self.running || self.closed {
+            return false;
+        }
+        self.photo = FormPhoto::None;
+        self.values.photo = false;
+        true
+    }
+
+    /// Create was chosen: cards §5.2's input rules are checked first, as
+    /// on any card, and a field they refuse says why and takes focus
+    /// with nothing started; otherwise as [`Self::create`]. Inert too
+    /// while the photo is still prepared, so a Create never leaves a
+    /// chosen photo behind
+    /// (`a_create_refused_by_the_input_rules_names_the_field_and_starts_nothing`).
+    pub fn create_checked(&mut self) -> bool {
+        if self.closed || self.running || matches!(self.photo, FormPhoto::Preparing(_)) {
+            return false;
+        }
+        let name = name_problem(&self.values.name).map(NameProblem::text);
+        let surname = if self.values.surname.trim().is_empty() {
+            None
+        } else {
+            name_problem(&self.values.surname).map(NameProblem::text)
+        };
+        if name.is_some() || surname.is_some() {
+            self.problems = (name, surname);
+            self.ask_focus(if name.is_some() {
+                AddFocus::Name
+            } else {
+                AddFocus::Surname
+            });
+            return false;
+        }
+        self.create()
+    }
+
+    /// The card a Create carries: the name, the family name when one was
+    /// given, and the prepared photo's bytes.
+    #[must_use]
+    pub fn card(&self) -> (String, Option<String>, Option<Vec<u8>>) {
+        let surname = (!self.values.surname.trim().is_empty()).then(|| self.values.surname.clone());
+        let photo = match &self.photo {
+            FormPhoto::Prepared { bytes, .. } => Some(bytes.clone()),
+            FormPhoto::None | FormPhoto::Preparing(_) | FormPhoto::Unusable => None,
+        };
+        (self.values.name.clone(), surname, photo)
+    }
+
+    /// A way of leaving was chosen, as [`Self::leave`] decides it; when
+    /// that asks, `CardDiscardChanges` shows until it is answered.
+    pub fn ask_leave(&mut self) -> Leave {
+        let leave = self.leave();
+        self.asking = leave == Leave::Ask;
+        leave
+    }
+
+    /// `CardDiscardChanges` answered: whether the form is left -- Close
+    /// without saving -- or stays as it was. Nothing when it was not
+    /// asked.
+    pub fn discard_answered(&mut self, close: bool) -> bool {
+        if !std::mem::take(&mut self.asking) {
+            return false;
+        }
+        close
     }
 
     /// The seed's ask ended: `answered` when it was answered `seeded` or
@@ -321,9 +498,9 @@ impl AddForm {
         true
     }
 
-    /// Create was chosen on a valid form -- the root checks cards §5.2's
-    /// input rules first, as on any card: the root runs the add when
-    /// this answers
+    /// Create was chosen on a valid form -- [`Self::create_checked`]
+    /// checks cards §5.2's input rules first, as on any card: the root
+    /// runs the add when this answers
     /// `true`, once (`create_runs_once_and_back_and_escape_do_nothing_while_it_runs`).
     /// Inert while the seed is asked or unanswered, while one runs, and
     /// when something stands in its place.
@@ -455,6 +632,18 @@ impl AddForm {
             },
             note: UiText::IdentityNewNote,
             fields_inert: self.running,
+            photo: match &self.photo {
+                FormPhoto::Prepared { shown, .. } => Some(shown.clone()),
+                FormPhoto::None | FormPhoto::Preparing(_) | FormPhoto::Unusable => None,
+            },
+            photo_line: match self.photo {
+                FormPhoto::Preparing(_) => Some(UiText::CardPhotoPreparing),
+                FormPhoto::Unusable => Some(UiText::PhotoUnusable),
+                FormPhoto::None | FormPhoto::Prepared { .. } => None,
+            },
+            name_problem: self.problems.0,
+            surname_problem: self.problems.1,
+            discard: self.asking.then_some(UiText::CardDiscardChanges),
             line_above,
             create,
             in_place,
@@ -899,5 +1088,107 @@ mod tests {
             AddForm::open(AddFrom::Card, true, 0).view(0).back,
             UiText::BackToCard
         );
+    }
+
+    fn photo(side: u32) -> Photo {
+        Photo {
+            width: side,
+            height: side,
+            rgba: vec![0; 4],
+        }
+    }
+
+    /// Cards §5.2's input rules, on the form as on any card: an empty
+    /// name, or a family name the card refuses, says why under its field,
+    /// takes focus there and starts nothing; the field's change clears
+    /// it, and a valid form's Create runs. While the photo is still being
+    /// prepared Create starts nothing either, so no chosen photo is left
+    /// behind. Mutation: the check skipped -- an empty name runs.
+    #[test]
+    fn a_create_refused_by_the_input_rules_names_the_field_and_starts_nothing() {
+        let mut form = AddForm::open(AddFrom::Identities, true, 0);
+        assert!(!form.create_checked(), "an empty name");
+        assert!(!form.running());
+        assert_eq!(form.view(0).name_problem, Some(UiText::CardNameNeeded));
+        assert_eq!(focus(&form), Some(AddFocus::Name));
+
+        assert!(form.edit(AddValues {
+            name: "Ada".to_owned(),
+            surname: "Love\u{2028}lace".to_owned(),
+            photo: false,
+        }));
+        assert_eq!(form.view(0).name_problem, None, "its field changed");
+        assert!(!form.create_checked(), "a family name refused");
+        let view = form.view(0);
+        assert_eq!(view.name_problem, None);
+        assert_eq!(view.surname_problem, Some(UiText::CardNameBadCharacters));
+        assert_eq!(focus(&form), Some(AddFocus::Surname));
+
+        assert!(form.edit(ada()));
+        let seq = form.photo_chosen().expect("a choice");
+        assert!(!form.create_checked(), "the photo is being prepared");
+        assert!(!form.running());
+        form.photo_prepared(seq, None);
+        assert!(form.create_checked(), "a valid form");
+        assert!(form.running());
+        assert_eq!(
+            form.card(),
+            ("Ada".to_owned(), Some("Lovelace".to_owned()), None)
+        );
+    }
+
+    /// The form's photo (cards §5.2's editor): a choice shows
+    /// `CardPhotoPreparing` until its answer; prepared, the photo shows
+    /// and a Create carries its bytes; a file a card cannot carry shows
+    /// `PhotoUnusable` and carries none; an answer for a choice a later
+    /// one replaced, or after a removal, changes nothing. A photo is an
+    /// unsaved change. Mutation: the answer taken whatever its number.
+    #[test]
+    fn a_photo_answer_for_a_replaced_choice_changes_nothing() {
+        let mut form = AddForm::open(AddFrom::Identities, true, 0);
+        let first = form.photo_chosen().expect("a choice");
+        assert_eq!(form.view(0).photo_line, Some(UiText::CardPhotoPreparing));
+        assert!(form.values().changed(), "a photo is a change");
+        let second = form.photo_chosen().expect("another");
+        form.photo_prepared(first, Some((vec![1], photo(1))));
+        assert_eq!(form.view(0).photo, None, "the replaced choice's answer");
+        form.photo_prepared(second, Some((vec![2], photo(2))));
+        let view = form.view(0);
+        assert_eq!(view.photo, Some(photo(2)));
+        assert_eq!(view.photo_line, None);
+        assert_eq!(form.card().2, Some(vec![2]));
+
+        let third = form.photo_chosen().expect("a third");
+        form.photo_prepared(third, None);
+        assert_eq!(form.view(0).photo_line, Some(UiText::PhotoUnusable));
+        assert_eq!(form.card().2, None);
+        assert!(!form.values().changed(), "no photo held");
+
+        let fourth = form.photo_chosen().expect("a fourth");
+        assert!(form.photo_removed());
+        form.photo_prepared(fourth, Some((vec![4], photo(4))));
+        assert_eq!(form.view(0).photo, None, "removed before its answer");
+    }
+
+    /// Identities §6.2, "Leaving asks first", as the form holds it: a
+    /// leaving that asks shows `CardDiscardChanges` until it is answered;
+    /// Continue editing keeps the form, Close without saving leaves it,
+    /// and an answer with nothing asked does nothing. Mutation: the
+    /// question not held.
+    #[test]
+    fn a_leaving_that_asks_holds_the_question_until_it_is_answered() {
+        let mut form = ready();
+        assert_eq!(form.ask_leave(), Leave::Ask);
+        assert_eq!(form.view(0).discard, Some(UiText::CardDiscardChanges));
+        assert!(!form.discard_answered(false), "Continue editing");
+        assert_eq!(form.view(0).discard, None);
+        assert!(!form.discard_answered(true), "nothing asked now");
+        assert_eq!(form.ask_leave(), Leave::Ask);
+        assert!(form.discard_answered(true), "Close without saving");
+
+        let mut empty = AddForm::open(AddFrom::Card, true, 0);
+        assert_eq!(empty.ask_leave(), Leave::Go);
+        assert_eq!(empty.view(0).discard, None);
+        assert_eq!(empty.from(), AddFrom::Card);
     }
 }
