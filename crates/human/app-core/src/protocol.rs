@@ -263,6 +263,42 @@ pub enum AddTold {
     NotHeldUntilRestart(EndpointId),
 }
 
+impl AddTold {
+    /// What came of an add act or a settle, as a log names it: its class,
+    /// never the identity, its alias or anything its card says
+    /// (`every_told_class_names_no_id_alias_or_name`). Kept beside the
+    /// enum so that a variant added to it is named here, and no other
+    /// package matches it whole.
+    #[must_use]
+    pub const fn class(&self) -> &'static str {
+        use interweave_human_transport_client::AddOutcome;
+        match self {
+            Self::Offered => "create offered",
+            Self::WaitsSeed => "create waits for the first identity's seed",
+            Self::NoSeed => "the first identity's seed was not answered",
+            Self::OutOfBounds => "the card is outside a card's bounds",
+            Self::NotStarted => "create did not start",
+            Self::Ended { outcome, card } => match (outcome, card) {
+                (AddOutcome::Created { .. }, Some(CardSaved::Saved)) => "created, card saved",
+                (AddOutcome::Created { .. }, Some(CardSaved::NotSaved)) => {
+                    "created, card not saved"
+                }
+                (AddOutcome::Created { .. }, None) => "created",
+                (AddOutcome::NotFinished, _) => "created, not finished",
+                (AddOutcome::Failed, _) => "refused, nothing created",
+                (AddOutcome::Unknown, _) => "outcome unknown",
+                (AddOutcome::Limit, _) => "refused at the limit",
+                (AddOutcome::KeyGone, _) => "the form's key is gone",
+            },
+            Self::Held(_) => "an identity is held from now on",
+            Self::NotHeld(_) => "an identity is not held yet, tried again",
+            Self::NotHeldUntilRestart(_) => {
+                "an identity is not held, not tried again until restart"
+            }
+        }
+    }
+}
+
 /// Whether the card of a Create that made its identity was written.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CardSaved {
@@ -594,4 +630,73 @@ pub enum Failure {
     /// No facade took the command: the service was not running, or was
     /// stopping. Nothing was carried out (owner's finding P2-2).
     ServiceStopped,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{AddTold, CardSaved};
+    use interweave_human_transport_client::AddOutcome;
+    use interweave_transport_api::EndpointId;
+
+    /// TM-45's rule for the add: no class a told names holds the
+    /// identity's id, its alias or its card's name, for each variant built
+    /// with an id and the alias `anna-rossi`, so the log line that asks
+    /// for it carries nothing more; and each told names its own class.
+    /// Mutation: the alias written into Created's class.
+    #[test]
+    fn every_told_class_names_no_id_alias_or_name() {
+        let id = EndpointId::from_ed25519_public(&[7; 32]);
+        let alias = "anna-rossi";
+        let created = |card| AddTold::Ended {
+            outcome: AddOutcome::Created {
+                endpoint: id.clone(),
+                alias: Some(alias.to_owned()),
+            },
+            card,
+        };
+        let ended = |outcome| AddTold::Ended {
+            outcome,
+            card: None,
+        };
+        let every = [
+            AddTold::Offered,
+            AddTold::WaitsSeed,
+            AddTold::NoSeed,
+            AddTold::OutOfBounds,
+            AddTold::NotStarted,
+            created(Some(CardSaved::Saved)),
+            created(Some(CardSaved::NotSaved)),
+            created(None),
+            ended(AddOutcome::NotFinished),
+            ended(AddOutcome::Failed),
+            ended(AddOutcome::Unknown),
+            ended(AddOutcome::Limit),
+            ended(AddOutcome::KeyGone),
+            AddTold::Held(id.clone()),
+            AddTold::NotHeld(id.clone()),
+            AddTold::NotHeldUntilRestart(id.clone()),
+        ];
+        let planted = [
+            id.as_str().to_lowercase(),
+            alias.to_owned(),
+            "anna".to_owned(),
+            "rossi".to_owned(),
+        ];
+        let mut classes = Vec::new();
+        for told in &every {
+            let class = told.class();
+            assert!(!class.is_empty(), "{told:?} names no class");
+            for word in &planted {
+                assert!(
+                    !class.to_lowercase().contains(word.as_str()),
+                    "{told:?}'s class {class:?} names {word:?}"
+                );
+            }
+            classes.push(class);
+        }
+        let mut distinct = classes.clone();
+        distinct.sort_unstable();
+        distinct.dedup();
+        assert_eq!(distinct.len(), classes.len(), "{classes:?}");
+    }
 }
