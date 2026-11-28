@@ -236,18 +236,29 @@ impl DirectState {
         })
     }
 
-    /// End every lease `session` holds, closing each queue with it.
+    /// End every lease `session` holds and TAKE each queue with it.
     ///
-    /// The same one-fact rule as `revoke`: a lease that ends leaves no
-    /// queue behind. Returns the endpoints released.
-    pub(super) fn release(&mut self, session: &LocalSessionId) -> Vec<EndpointId> {
-        // A session that has gone reads no more notices.
-        self.lease_notices.remove(session);
-        let released = self.registry.release_session(session);
-        for endpoint in &released {
-            self.queues.close(endpoint);
+    /// The same one-fact rule as `revoke` -- a lease that ends leaves no
+    /// queue behind -- with one difference: a session's own end hands what
+    /// its queues held, and the notices it was still owed, to the session
+    /// that is leaving instead of dropping them, in this one step of the
+    /// Swarm task, so nothing is admitted between the take and the end
+    /// (`LOCAL-CLIENT.md`, A 2026-11-28;
+    /// `a_release_takes_the_sessions_queue_with_its_lease`).
+    pub(super) fn release(&mut self, session: &LocalSessionId) -> super::ReleasedSession {
+        // A session that has gone reads no more notices: what it was owed
+        // goes with it to the closer.
+        let notices = self.lease_notices.remove(session).unwrap_or_default();
+        let endpoints = self.registry.release_session(session);
+        let remainder = endpoints
+            .iter()
+            .flat_map(|endpoint| self.queues.take(endpoint))
+            .collect();
+        super::ReleasedSession {
+            endpoints,
+            notices,
+            remainder,
         }
-        released
     }
 
     /// Whether this profile answers directory queries.
@@ -1723,7 +1734,8 @@ mod admin_tests {
         assert!(state.take_owed_wakes().is_empty());
     }
 
-    /// A released session is owed nothing more: its entry goes with it.
+    /// A released session is owed nothing more: its entry goes with it,
+    /// handed to the closer.
     #[test]
     fn a_released_session_drops_its_notices() {
         let mut state = state();
@@ -1732,8 +1744,76 @@ mod admin_tests {
             .expect("claimed");
         state.revoke(&endpoint("human"));
         assert_eq!(state.lease_notices.len(), 1);
-        state.release(&session("a"));
+        let released = state.release(&session("a"));
         assert!(state.lease_notices.is_empty());
+        assert_eq!(released.notices.len(), 1, "the closer is handed it");
+    }
+
+    /// A session's own release takes its queue with its lease, in the one
+    /// step: what was admitted is handed back in order, the endpoint is
+    /// unleased and its queue gone -- a push after is `NotOpen`, the coarse
+    /// `no_route` -- and the next holder's queue starts empty. Another
+    /// session's lease and queue are untouched: the control.
+    #[test]
+    fn a_release_takes_the_sessions_queue_with_its_lease() {
+        use interweave_transport_api::{MessageId, Payload, TransportIdentity};
+        use interweave_transport_runtime::DirectEvent;
+        use interweave_transport_runtime::endpoint_queue::QueueRefusal;
+        let message = |to: &str, n: u8| DirectEvent {
+            source_peer: TransportIdentity::parse(
+                "12D3KooWD3eckifWpRn9wQpMG9R9hX3sD158z7EqHWmweQAJU5SA",
+            )
+            .expect("peer"),
+            source_endpoint: endpoint("human"),
+            destination_endpoint: endpoint(to),
+            message_id: MessageId::from_bytes([n; 16]),
+            payload: Payload::at_ceiling(None, b"hi".to_vec()).expect("payload"),
+            received_at: 0,
+        };
+        let mut state = state();
+        state.queue_bound = 4;
+        state
+            .claim(session("a"), &endpoint("human"), "k")
+            .expect("claimed");
+        let other = state
+            .claim(session("b"), &endpoint("claude"), "k")
+            .expect("claimed");
+        state.queues.push(message("human", 1)).expect("admitted");
+        state.queues.push(message("human", 2)).expect("admitted");
+        state.queues.push(message("claude", 3)).expect("admitted");
+
+        let released = state.release(&session("a"));
+        assert_eq!(released.endpoints, [endpoint("human")]);
+        assert_eq!(
+            released
+                .remainder
+                .iter()
+                .map(|e| e.message_id)
+                .collect::<Vec<_>>(),
+            [
+                MessageId::from_bytes([1; 16]),
+                MessageId::from_bytes([2; 16])
+            ],
+            "what was admitted goes to the closer, in order"
+        );
+        assert!(state.registry.lease(&endpoint("human")).is_none());
+        assert_eq!(
+            state.queues.push(message("human", 4)),
+            Err(QueueRefusal::NotOpen),
+            "nothing is admitted after the release"
+        );
+        let next = state
+            .claim(session("c"), &endpoint("human"), "k")
+            .expect("free again");
+        assert!(
+            state.drain_leased(&next, usize::MAX).is_empty(),
+            "the next holder inherits nothing"
+        );
+        assert_eq!(
+            state.drain_leased(&other, usize::MAX).len(),
+            1,
+            "another session's queue is untouched"
+        );
     }
 
     #[test]

@@ -170,9 +170,11 @@ async fn an_enabled_unleased_endpoint_is_no_route_until_claimed() {
 }
 
 /// A release frees the endpoint for the next session, takes the queue
-/// with it, and — the capability point — invalidates the released lease:
-/// the same `EndpointLease` value can no longer send, because the epoch it
-/// carries no longer matches any live lease.
+/// with it -- handing what it held to the session that released, in the
+/// same command (`LOCAL-CLIENT.md`, A 2026-11-28) -- and, the capability
+/// point, invalidates the released lease: the same `EndpointLease` value
+/// can no longer send, because the epoch it carries no longer matches any
+/// live lease.
 #[tokio::test]
 async fn release_frees_the_endpoint_and_invalidates_its_lease() {
     let (sender, receiver, peer, leases, _held) =
@@ -196,7 +198,16 @@ async fn release_frees_the_endpoint_and_invalidates_its_lease() {
         .expect("accepted");
 
     let released = receiver.release_session("s1").await.expect("command");
-    assert_eq!(released, vec![endpoint("claude")]);
+    assert_eq!(released.endpoints, vec![endpoint("claude")]);
+    assert_eq!(
+        released
+            .remainder
+            .iter()
+            .map(|e| e.payload.bytes().to_vec())
+            .collect::<Vec<_>>(),
+        [b"for s1".to_vec()],
+        "the message admitted for s1 is handed to s1's release"
+    );
     // Read through the revoke's discard count, not a drain: the only
     // drain is lease-checked, and s1's lease is dead, so a drain would
     // answer empty whether or not the queue survived. A revoke of an
@@ -218,7 +229,7 @@ async fn release_frees_the_endpoint_and_invalidates_its_lease() {
         .expect("command")
         .expect("released, so free");
     let released = sender.release_session("human").await.expect("command");
-    assert_eq!(released, vec![endpoint("human")]);
+    assert_eq!(released.endpoints, vec![endpoint("human")]);
     let error = sender
         .send_direct(&human, peer, frame("human", Some("claude"), b"after", 7))
         .await

@@ -135,7 +135,7 @@ pub use runtime::{
     BackendRefusal, BroadcastChannels, DEFAULT_COMMAND_CAPACITY, DEFAULT_EVENT_CAPACITY,
     DialFailureClass, DialRefusal, HolePunchOutcome, MAX_CONFIGURED_CAPACITY, NetworkMonitor,
     NetworkView, PathChange, PeerGate, PeerPath, RelayReservationOutcome, RelayServerOutcome,
-    ShutdownReport, SubstrateConfig, SubstrateError, SwarmCommand, SwarmCommander, SwarmEvent,
-    SwarmRuntime,
+    ReleasedSession, ShutdownReport, SubstrateConfig, SubstrateError, SwarmCommand, SwarmCommander,
+    SwarmEvent, SwarmRuntime,
 };
 pub use runtime::{DialGateStatus, IngressStatus, PreAuthStatus, ResolverSource, RuntimeStatus};
