@@ -798,10 +798,9 @@ jobs:
           # — but scan_semantic_collisions.sh is about what a merge
           # produced, so the merge commit the queue builds must be the
           # tree under test. validate_adr_index.sh reads both: its
-          # AMENDED phase compares against the merge-base with
-          # origin/main, and exits 2 when that does not resolve. On a
-          # push to main the merge-base is HEAD itself, so that run
-          # compares nothing and passes; the queue run is the check.
+          # AMENDED phase compares against the event's base commit (the
+          # step says why not the merge-base with origin/main), and exits
+          # 2 when that is not in the clone.
           #
           # FULL HISTORY, because check_spike_locks.sh's provenance phase
           # asks where each spike pin came from: whether it is an
@@ -856,8 +855,17 @@ jobs:
           # a merge-group job past its timeout (pip_install.sh --help).
           bash tools/ci/pip_install.sh tools/requirements.txt
 
+      # AMENDED's base is the event's base commit, not the merge-base
+      # with origin/main: on a push origin/main IS the pushed head, so that
+      # default compares an empty range and passes with every commit
+      # unread. On a push whose `before` is all zeros (main recreated) or
+      # no longer in the clone (a force push) the script refuses the base
+      # and exits 2, and an empty one stops the step here: either way the
+      # job goes red rather than reporting a check that read nothing.
       - name: ADR index, template, and amendment record
-        run: bash tools/checks/validate_adr_index.sh
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha || github.event.before }}
+        run: bash tools/checks/validate_adr_index.sh --base "${BASE:?the ${{ github.event_name }} event names no base commit for AMENDED}"
 
       - name: Semantic collisions between parallel branches
         run: bash tools/checks/scan_semantic_collisions.sh
