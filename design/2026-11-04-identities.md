@@ -621,11 +621,13 @@ Details' Copy PeerId does: its visible label is `CopyAlias` ("Copy"),
 since the line beside it says what is copied; its accessible name is
 `CopyAliasName` ("Copy the name to use on the command line"), which
 begins with the visible label (WCAG 2.5.3) and says what is copied when
-the button is reached alone, by Tab or by a screen reader's next item.
+the button is reached without the line beside it, by Tab or by a
+screen reader's next item.
 It puts the alias alone on the clipboard, without the line's words.
 What is said once copied is Copy PeerId's rule: where the platform
 confirms nothing itself (below Android 13, and the desktop), the
-snackbar `AliasCopied` ("Name to use on the command line copied"), with
+snackbar `AliasCopied` ("The name to use on the command line was
+copied."), with
 no action; where the platform confirms a copy itself, nothing more.
 Focus stays on Copy. A copy that fails is not told, as Copy PeerId's
 is not today: this note adds no text for it (§15). Editing the card's
@@ -1203,23 +1205,25 @@ where focus lands — with its dialog changed for ADR-0067:
   moment it is chosen. Remove cannot be stopped halfway: its first step
   takes the key path, after which no one can use the identity again,
   as the dialog said. So Cancel is shown disabled, and Escape, Back and
-  a tap outside the dialog do nothing, until Remove ends. Remove's own
-  press does nothing more. Focus stays on Remove, the control the person
-  pressed. While Remove runs, its accessible name is `IdentityRemoving`
-  ("Removing {identity}"), with `{identity}` the name the dialog shows,
-  so a screen reader that reads it says that the identity is being
-  removed, not that a button waits to be pressed; nothing is announced
-  when it starts. Each call that Remove sends to the device, the remove
-  and the list read back after a lost answer (below), waits at most the
-  add's wait (§6.2) for its answer, so Remove ends: a call with no
-  answer in that time is handled as a lost answer. When Remove ends,
+  a tap outside the dialog do nothing, until Remove ends. A second
+  press of Remove does nothing either. Focus stays on Remove, the
+  control the person pressed. While Remove runs, its accessible name is
+  `IdentityRemoving` ("Removing {identity}"), with `{identity}` the name
+  the dialog shows, so a screen reader that reads it says that the
+  identity is being removed, not that a button waits to be pressed;
+  nothing is announced when it starts. Remove sends the device the
+  remove call and, after a lost answer, a call that reads the list back
+  (below). Each of these calls waits at most the add's wait (§6.2) for
+  its answer, so Remove ends: a call with no answer in that time is
+  handled as a lost answer. When Remove ends,
   the dialog closes, and where the app lands and where focus goes are
   what the end gives: cards §5.2's "Where it lands" when Remove is
   done (§11 F11), and the overflow button of the identity's page after
   `IdentityChangeFailed`, `IdentityRemoveUnfinished` or
-  `IdentityRemoveUnfinishedRows` (below; §11 F29). An identity that
-  leaves by this section's last item while its Remove runs is left to
-  that Remove, which ends as done when its list shows the id absent.
+  `IdentityRemoveUnfinishedRows` (below; §11 F29). When an identity
+  leaves by the rule "An identity that cannot come back leaves with
+  nothing of it left" (below) while its Remove runs, that Remove handles
+  its leaving, and ends as done when its list shows the id absent.
   **Alternative named:** close the dialog at once and show progress on
   the identity's page. Rejected: the page would stay open on an
   identity whose key is already gone, with controls the person could
@@ -1533,7 +1537,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | Peers | back arrow, title and subtitle, Show my address, Add an address, `PeersShared`, `PeersNoTrust`, the rows as today |
 | a contact | as cards §6.3; on each route row, Open conversation, then the route menu button |
 | route menu | Move, Remove |
-| Remove dialog (identity) | title, the list of what goes, Cancel, Remove; while Remove runs, Cancel is no stop (F29) |
+| Remove dialog (identity) | title, the list of what goes, Cancel, Remove; while Remove runs, Cancel is not in the order (F29) |
 
 **Focus table.** One row per case; prose elsewhere points here.
 
@@ -1699,7 +1703,7 @@ front.
 | `IdentityAlias` | Name to use on the command line: {alias} | an identity's page | the name used in commands, with the alias; the alias last, nothing touching it |
 | `CopyAlias` | Copy | the button beside `IdentityAlias` (§6.2) | new text, proposal; copy, the line beside it saying what |
 | `CopyAliasName` | Copy the name to use on the command line | that button's accessible name (§6.2); never visible text | new text, proposal; begins with `CopyAlias`'s visible text (WCAG 2.5.3) and says what is copied |
-| `AliasCopied` | Name to use on the command line copied | snackbar after that Copy where the platform confirms nothing itself (below Android 13, and the desktop), no action | new text, proposal; the command-line name was copied, named as `IdentityAlias` names it |
+| `AliasCopied` | The name to use on the command line was copied. | snackbar after that Copy where the platform confirms nothing itself (below Android 13, and the desktop), no action | new text, proposal; the command-line name was copied, named as `IdentityAlias` names it |
 | `ConfirmIdentityAdded` | {name} was created. It does not trust any peer yet. | snackbar | {name} added; it trusts no one yet |
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityAddNotFinished` | {name} was created, but InterWeave could not finish setting it up. Choose Create to finish. Create does not create a second one. | the add form, above Create | it exists, but is not ready yet; Create finishes it and makes nothing new |
@@ -1783,9 +1787,9 @@ the same text, and so do `ContactRouteTrustedAs` and
 | `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
 | `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button; shown only where the client knows that nothing was created (§6.2, "Refused, with nothing created"), never on `Internal`, which shows `IdentityAddUnknown` |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
-| `IdentityDefaultHelp` | People who write only to your PeerId reach your default identity. | for ADR-0067: an identity is reached by its own EndpointId, no label exists any more, and a message that names no identity reaches the default. Proposal for language-culture (rust-ui-dev-02's QUESTION 01a21fa9, T2); must say who reaches the default: people who write to the PeerId without naming one of the identities; never "label" |
-| `ConfirmDefaultSetOne` | People who write only to your PeerId now reach you. | the same, with one identity held; proposal (T2); must not use the word "identity" (cards §10), nor "label" |
-| `IdentityNoDefault` | One identity: People who write only to your PeerId do not reach you. To let them reach you, choose Make default in the menu on this page. Two or more identities: You have no default identity. People who write only to your PeerId do not reach any of your identities. To set a default, open an identity that is turned on and choose Make default. | the same, both forms; proposal (T2); must say who is not reached, without "label", and, as before, what fixes it |
+| `IdentityDefaultHelp` | People who write to your PeerId without saying which identity the message is for reach your default identity. | for ADR-0067: an identity is reached by its own EndpointId, no label exists any more, and a message that names no identity reaches the default. Proposal for language-culture (rust-ui-dev-02's QUESTION 01a21fa9, T2); must say who reaches the default: people who write to the PeerId without naming one of the identities; never "label" |
+| `ConfirmDefaultSetOne` | People who write to your PeerId without saying who the message is for now reach you. | the same, with one identity held; proposal (T2); must not use the word "identity" (cards §10), nor "label" |
+| `IdentityNoDefault` | One identity: People who write to your PeerId without saying who the message is for do not reach you. To let them reach you, choose Make default in the menu on this page. Two or more identities: You have no default identity. People who write to your PeerId without saying which identity the message is for do not reach any of your identities. To set a default, open an identity that is turned on and choose Make default. | the same, both forms; proposal (T2); must say who is not reached, without "label", and, as before, what fixes it |
 | `TrustExplanation` | The peers listed here can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
 | `ConfirmRevoke` | Do you want to stop trusting {peer}? Messages that this peer sends to you are then refused, until you trust it again. | from the Stage 22 release: it states the route's refusal only, no claim that connections close or about channels (§5.1, §16 Q9, Q10); `{peer}` the exact PeerId, whole, as today |
 
