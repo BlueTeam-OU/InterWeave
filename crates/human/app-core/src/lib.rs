@@ -45,7 +45,7 @@ pub use profile::{
     identity_key_under, leasable_endpoints, resolve_identity,
 };
 pub use protocol::{
-    AddAct, AddTold, CardSaved, Command, Crossing, Failure, Start, Update, WindowCommand,
+    AddAct, AddTold, CardSaved, Command, Crossing, Failure, FormPhoto, Start, Update, WindowCommand,
 };
 pub use roster::{
     AddFactory, Bindings, HoldRefused, Roster, RosterConfig, RosterError, Routed, SwitchOutcome,

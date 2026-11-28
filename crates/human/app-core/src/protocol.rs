@@ -217,6 +217,27 @@ pub enum AddAct {
     Left,
     /// The list of identities opened: a settle moment.
     ListOpened,
+    /// A photo was chosen on the add form: re-encode it for a card
+    /// ([`crate::card_photo::prepare_photo`]), off the turn, and tell it
+    /// [`AddTold::PhotoPrepared`] by `seq`. It belongs to no identity:
+    /// nothing is written, and no held identity's photo changes. The form
+    /// holds what comes back, and its Create carries the bytes.
+    PreparePhoto {
+        /// The file the person chose, as read.
+        chosen: Vec<u8>,
+        /// The choice's number, the form's: a later choice replaces it.
+        seq: u64,
+    },
+}
+
+/// A photo prepared for the add form's card: what Create carries, and
+/// what the form shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FormPhoto {
+    /// The re-encoded bytes, `image/jpeg`, within a card's bound.
+    pub bytes: Vec<u8>,
+    /// Those bytes decoded for display.
+    pub shown: Photo,
 }
 
 /// What became of an [`AddAct`], or of a settle, for the form and the
@@ -263,6 +284,14 @@ pub enum AddTold {
     /// identities waiting to be held is full. Told apart so that no retry
     /// is promised that will not happen; only a restart can hold it.
     NotHeldUntilRestart(EndpointId),
+    /// The add form's [`AddAct::PreparePhoto`] numbered `seq` ended:
+    /// `None` when the file cannot be used on a card (`PhotoUnusable`).
+    PhotoPrepared {
+        /// The choice's number, as the act carried it.
+        seq: u64,
+        /// The photo, prepared and decoded.
+        photo: Option<FormPhoto>,
+    },
 }
 
 impl AddTold {
@@ -297,6 +326,8 @@ impl AddTold {
             Self::NotHeldUntilRestart(_) => {
                 "an identity is not held, not tried again until restart"
             }
+            Self::PhotoPrepared { photo: Some(_), .. } => "the form's photo was prepared",
+            Self::PhotoPrepared { photo: None, .. } => "the form's photo cannot be used",
         }
     }
 }
@@ -677,6 +708,21 @@ mod tests {
             AddTold::Held(id.clone()),
             AddTold::NotHeld(id.clone()),
             AddTold::NotHeldUntilRestart(id.clone()),
+            AddTold::PhotoPrepared {
+                seq: 1,
+                photo: Some(super::FormPhoto {
+                    bytes: vec![0xFF, 0xD8],
+                    shown: interweave_human_ui_model::Photo {
+                        width: 1,
+                        height: 1,
+                        rgba: vec![0; 4],
+                    },
+                }),
+            },
+            AddTold::PhotoPrepared {
+                seq: 2,
+                photo: None,
+            },
         ];
         let planted = [
             id.as_str().to_lowercase(),

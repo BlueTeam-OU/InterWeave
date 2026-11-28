@@ -989,3 +989,123 @@ async fn done_closes_the_form_and_the_next_opens_a_new_one() {
     assert_eq!(device.log.count(|s| matches!(s, Step::Added { .. })), 2);
     assert_eq!(roster.held().len(), 3);
 }
+
+/// A PNG of `w` × `h`, as a person's file might hold one.
+fn png(w: u32, h: u32) -> Vec<u8> {
+    let image = image::RgbImage::from_fn(w, h, |x, y| {
+        image::Rgb([
+            u8::try_from(x % 256).unwrap_or(0),
+            u8::try_from(y % 256).unwrap_or(0),
+            90,
+        ])
+    });
+    let mut out = Vec::new();
+    image::DynamicImage::ImageRgb8(image)
+        .write_to(&mut std::io::Cursor::new(&mut out), image::ImageFormat::Png)
+        .expect("a PNG");
+    out
+}
+
+/// Turns until the form's photo is told, every update they routed kept.
+async fn photo_told(roster: &mut Roster<Data, Admins>, from: u64) -> (Vec<AddTold>, Vec<Update>) {
+    let mut routed = Vec::new();
+    for now in from..from + 500 {
+        for (_, updates) in roster.turn(now).await {
+            routed.extend(updates);
+        }
+        let told = roster.take_add_told();
+        if told
+            .iter()
+            .any(|t| matches!(t, AddTold::PhotoPrepared { .. }))
+        {
+            return (told, routed);
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    panic!("the photo was never told");
+}
+
+/// The add form's photo is the roster's to prepare, for no identity
+/// (identities §6.2; cards §5.2's photo rules): told by its number with
+/// the re-encoded bytes and their decoded square, while no update reaches
+/// any held identity -- no own photo prepared -- and the first identity's
+/// own card is as it was. A Create then carries those bytes, and they are
+/// the new identity's card's photo. Mutations: the photo written to the
+/// first identity's own card; the photo told to the front as its own
+/// photo's update.
+#[tokio::test]
+async fn a_forms_photo_is_prepared_and_touches_no_identitys_card() {
+    let mut device = Device::new();
+    let mut roster = device.roster(memory(), Vec::new());
+    started(&mut roster).await;
+    let before = device.card(&human()).expect("the card reads");
+    roster.add(
+        AddAct::PreparePhoto {
+            chosen: png(40, 30),
+            seq: 7,
+        },
+        5,
+    );
+    let (told, routed) = photo_told(&mut roster, 6).await;
+    let photo = match told.as_slice() {
+        [
+            AddTold::PhotoPrepared {
+                seq: 7,
+                photo: Some(photo),
+            },
+        ] => photo.clone(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!((photo.shown.width, photo.shown.height), (30, 30), "square");
+    assert_eq!(&photo.bytes[..2], &[0xFF, 0xD8], "re-encoded as JPEG");
+    assert!(
+        !routed
+            .iter()
+            .any(|u| matches!(u, Update::OwnPhotoPrepared { .. })),
+        "{routed:?}"
+    );
+    assert_eq!(device.card(&human()).expect("the card reads"), before);
+
+    offered(&mut roster, 2_000);
+    roster.add(
+        AddAct::Create {
+            name: "Anna".to_owned(),
+            surname: None,
+            photo: Some(photo.bytes.clone()),
+        },
+        2_000,
+    );
+    let (endpoint, _, card) = created(&roster.take_add_told());
+    assert_eq!(card, Some(CardSaved::Saved));
+    let card = device
+        .card(&endpoint)
+        .expect("the card reads")
+        .expect("a card");
+    assert_eq!(card.photo, Some(photo.bytes));
+    assert_eq!(device.card(&human()).expect("the card reads"), before);
+}
+
+/// A file that is no image a card can carry is told so -- the form shows
+/// `PhotoUnusable` -- by its own number, and nothing else is told.
+/// Mutation: an unusable file told as prepared.
+#[tokio::test]
+async fn a_photo_that_cannot_be_used_is_told_so() {
+    let mut device = Device::new();
+    let mut roster = device.roster(memory(), Vec::new());
+    started(&mut roster).await;
+    roster.add(
+        AddAct::PreparePhoto {
+            chosen: b"not an image".to_vec(),
+            seq: 3,
+        },
+        5,
+    );
+    let (told, _) = photo_told(&mut roster, 6).await;
+    assert_eq!(
+        told,
+        [AddTold::PhotoPrepared {
+            seq: 3,
+            photo: None
+        }]
+    );
+}

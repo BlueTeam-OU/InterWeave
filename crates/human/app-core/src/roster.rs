@@ -260,6 +260,10 @@ struct Adding<A> {
     /// refused after their record was deleted, with their alias: held
     /// at a later poll. At most [`IDENTITY_CAP`]: no more can be held.
     unheld: Vec<(EndpointId, Option<String>)>,
+    /// The add form's photo being prepared, by its choice's number: one
+    /// at a time, a later choice replacing it, so that its thread runs
+    /// out and its answer goes nowhere.
+    photo: Option<(u64, std::sync::mpsc::Receiver<Option<Vec<u8>>>)>,
     told: Vec<AddTold>,
 }
 
@@ -271,8 +275,29 @@ impl<A> Adding<A> {
             owed: false,
             started: false,
             unheld: Vec::new(),
+            photo: None,
             told: Vec::new(),
         }
+    }
+
+    /// The photo's answer, once its thread gave one: told, and the
+    /// preparation done. A thread that ended with no answer is a photo
+    /// that cannot be used.
+    fn poll_photo(&mut self) {
+        let Some((seq, done)) = &self.photo else {
+            return;
+        };
+        let prepared = match done.try_recv() {
+            Ok(prepared) => prepared,
+            Err(std::sync::mpsc::TryRecvError::Empty) => return,
+            Err(std::sync::mpsc::TryRecvError::Disconnected) => None,
+        };
+        let seq = *seq;
+        self.photo = None;
+        let photo = prepared.and_then(|bytes| {
+            crate::cards::shown(&bytes).map(|shown| crate::protocol::FormPhoto { bytes, shown })
+        });
+        self.told.push(AddTold::PhotoPrepared { seq, photo });
     }
 
     /// Queue `endpoint` for a later hold. Whether it is queued: an id
@@ -743,6 +768,12 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     ///   (`a_forms_closing_settles_its_own_record_with_one_identity_held`),
     ///   and an identity it finds is held at once
     ///   (`an_identity_the_start_settle_finds_is_held_without_a_restart`).
+    /// - [`AddAct::PreparePhoto`] re-encodes the form's photo on a thread
+    ///   of its own, polled at each turn, and tells it by its number; it
+    ///   writes nothing and reaches no held identity
+    ///   (`a_forms_photo_is_prepared_and_touches_no_identitys_card`,
+    ///   `a_photo_that_cannot_be_used_is_told_so`). The form keeps the
+    ///   bytes, and its Create carries them.
     pub fn add(&mut self, act: AddAct, now: u64)
     where
         A: AssertingBinding,
@@ -823,6 +854,28 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 self.adding.owed = true;
             }
             AddAct::ListOpened => self.adding.owed = true,
+            AddAct::PreparePhoto { chosen, seq } => {
+                // Off the turn, as the own card's photo is: a large file
+                // takes its decode's time, and no identity's turn waits
+                // for it. Nothing here touches a held identity's card or
+                // photo (`a_forms_photo_is_prepared_and_touches_no_identitys_card`).
+                let (answer, done) = std::sync::mpsc::channel();
+                let spawned = std::thread::Builder::new()
+                    .name("form-photo".to_owned())
+                    .spawn(move || {
+                        let prepared = crate::card_photo::prepare_photo(&chosen).ok();
+                        let _ = answer.send(prepared.map(|p| p.bytes));
+                    });
+                if spawned.is_ok() {
+                    self.adding.photo = Some((seq, done));
+                } else {
+                    // No thread: as a file that could not be prepared.
+                    self.adding.photo = None;
+                    self.adding
+                        .told
+                        .push(AddTold::PhotoPrepared { seq, photo: None });
+                }
+            }
         }
         self.poll_adding(now);
     }
@@ -842,6 +895,7 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
         if self.factory.is_none() {
             return;
         }
+        self.adding.poll_photo();
         for (endpoint, alias) in std::mem::take(&mut self.adding.unheld) {
             self.hold_again(endpoint, alias);
         }
