@@ -2363,7 +2363,16 @@ pass before it lands.
     the key). In one more run a command is held ahead of the rows'
     deletion on the facade's task for longer than 5 seconds: Remove
     ends unfinished with `IdentityRemoveUnfinished`, the rows kept, the
-    device's remove not sent. Focus at each end is F29's.
+    device's remove not sent. In two more runs, on an identity with a
+    conversation, a contact, a card and a replaces record naming it, a
+    seam acts after the deletion's first statement: (a) it refuses the
+    deletion's last statement, and Remove ends unfinished with
+    `IdentityRemoveUnfinished`, the device's remove not sent; (b) it
+    ends the app's process, and after the app starts again the identity
+    is listed with `KeyMissing`. In both, the conversation, the
+    contact, the card and the replaces record are all still there, and
+    a message sent to the identity afterwards is shown in its
+    conversation. Focus at each end is F29's.
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
