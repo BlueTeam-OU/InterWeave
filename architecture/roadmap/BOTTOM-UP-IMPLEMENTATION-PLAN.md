@@ -8731,8 +8731,23 @@ read at `main` 2c0e5d9b4, where no program under `crates/human` or
   The second change builds, with the form, the page of an identity
   that is not in front (`design/2026-11-04-identities.md` §6.2,
   step 4: a new identity's row always opens a page), without its
-  Remove. Carried by name past the second change: the command-line
+  Remove and its Make default (ruled 2026-11-28: a new identity is
+  not the default and not in front, and the default binds no act
+  but Remove's, so Make default lands with Remove and is owed with
+  it). Carried by name past the second change: the command-line
   client's create verb, and Android's Add.
+- **The bound, between the screens and Remove** (ruled 2026-11-28).
+  The second change's list counts the identities it holds and reads
+  no endpoint list for the count, so on a profile whose 64 endpoints
+  are not all held identities Add opens the form, and
+  `IdentityLimit` shows from the add's `bound` refusal, which
+  `human-client-ui.md` §13's bullet has as its second clause; the
+  form left after that refusal deletes its key and its record and
+  sends no remove, `bound` being a known refusal. The first clause,
+  Add not offered at the profile's bound with authored and agent
+  endpoints counted, is owed with Remove's change, whose list read
+  gives the count, and the design's acceptance 9 is not claimed
+  before it.
 - **Not built as this note is written:** the form, the record, the
   refusal of a named id and `human-client-ui.md` §13's criteria for
   the unknown outcome and the record, which rust-ui-dev-02 proposes
