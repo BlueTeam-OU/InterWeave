@@ -134,14 +134,14 @@ pub struct Said {
 }
 
 impl Said {
-    const fn of(text: UiText) -> Self {
+    pub(crate) const fn of(text: UiText) -> Self {
         Self {
             text,
             values: Vec::new(),
         }
     }
 
-    fn with(mut self, name: &'static str, value: String) -> Self {
+    pub(crate) fn with(mut self, name: &'static str, value: String) -> Self {
         self.values.push((name, value));
         self
     }
