@@ -2372,7 +2372,12 @@ pass before it lands.
     is listed with `KeyMissing`. In both, the conversation, the
     contact, the card and the replaces record are all still there, and
     a message sent to the identity afterwards is shown in its
-    conversation. Focus at each end is F29's.
+    conversation. The replaces record's part needs the replacement's
+    store change (STATE.md's replaces record; no store holds one at
+    this note's head); before it, these runs check the conversation,
+    the contact and the card alone. Focus at each end of Remove is
+    F29's; run (b), whose Remove never ends, checks no focus after the
+    restart.
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
