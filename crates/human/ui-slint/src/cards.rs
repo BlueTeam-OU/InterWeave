@@ -19,10 +19,10 @@ use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 use interweave_human_ui_model::{
-    AcceptLine, AddFrom, AddIntent, Avatar, AvatarHue, CardAnswer, ContactView, ContactsState,
-    ConversationKey, FocusTarget, IdentityIntent, Intent, KeyProblem, KeyStep, KeyView,
-    OwnPhotoStep, Photo, PhotoChange, PhotoEdit, PhotoState, ProposalItem, ProposalNote, RowId,
-    UiModel, UiText, fill, isolated, name_problem, placeholder_en, short_peer,
+    AcceptLine, AddFrom, AddIntent, AddValues, Avatar, AvatarHue, CardAnswer, ContactView,
+    ContactsState, ConversationKey, FocusTarget, IdentityIntent, Intent, KeyProblem, KeyStep,
+    KeyView, OwnPhotoStep, Photo, PhotoChange, PhotoEdit, PhotoState, ProposalItem, ProposalNote,
+    RowId, UiModel, UiText, ViewEvent, fill, isolated, name_problem, placeholder_en, short_peer,
 };
 
 use interweave_transport_api::EndpointId;
@@ -84,6 +84,8 @@ pub(crate) enum CardsInput {
     KeyTryAgain,
     /// The share sheet's Open your card, while the key cannot be used.
     OpenCardFromShare,
+    /// An identity's page's Copy beside its alias.
+    CopyAlias,
 }
 
 /// One opening of the photo picker, minted by the editor before the
@@ -205,6 +207,7 @@ pub(crate) fn wire(window: &AppWindow, shared: &Rc<RefCell<Shared>>) {
     window.on_own_card_choose_photo(on(shared, CardsInput::ChoosePhoto));
     // The add form's Add a photo opens the same picker, for the form.
     window.on_add_choose_photo(on(shared, CardsInput::ChoosePhoto));
+    window.on_page_alias_copy(on(shared, CardsInput::CopyAlias));
     // Unsaved, as Save would write it: names trimmed, an empty surname
     // none, and the photo as the model judges it (design 5.2).
     let s = Rc::clone(shared);
@@ -575,6 +578,9 @@ impl Entry {
     }
 }
 
+/// A clipboard that copies a text and says whether the platform took it.
+pub(crate) type AliasBoard = Rc<dyn Fn(&str) -> bool>;
+
 /// The view's card state: the page open and what was last drawn, so a
 /// list is replaced only when what it shows changed (a fresh model would
 /// rebuild a focused button and drop its focus).
@@ -655,6 +661,22 @@ pub(crate) struct CardScreens {
     /// the pane -- and its close was asked of the model, which has not
     /// applied it yet: it is not opened again meanwhile.
     model_leaving: bool,
+    /// The page shown is an identity's behind the front: its editor is
+    /// drawn from that identity's model ([`View::render_page`]), and what
+    /// the person does on it waits for [`View::take_page_events`].
+    pub(crate) behind: bool,
+    /// What the person did on that page, held for its own model.
+    pub(crate) page_inputs: std::collections::VecDeque<CardsInput>,
+    /// The add form's values a page opens holding, its card not saved
+    /// (F9): put in the fields once they are drawn.
+    page_unsaved: Option<AddValues>,
+    /// The alias the page's Copy copies, as drawn.
+    page_alias: Option<String>,
+    /// The platform's clipboard for that Copy, when the root gives one
+    /// that says whether it took the copy; else the window's field.
+    pub(crate) alias_board: Option<AliasBoard>,
+    /// The Copy's snackbar's time.
+    page_snack_timer: Option<slint::Timer>,
 }
 
 /// A card page the identities' model opens and closes, rather than the
@@ -665,6 +687,9 @@ pub(crate) enum ModelPage {
     Identities,
     /// The add form (identities §6.2), by where it was opened from.
     AddForm(AddFrom),
+    /// An identity's page, opened from its row (identities §6.2 step 4):
+    /// the card editor, for that identity.
+    Page,
 }
 
 /// What tells the model the person left a page it shows.
@@ -684,6 +709,9 @@ impl ModelPage {
         if let Some(form) = ids.add_form() {
             return Some(Self::AddForm(form.from()));
         }
+        if ids.identity_page().is_some() {
+            return Some(Self::Page);
+        }
         ids.your_identities().map(|_| Self::Identities)
     }
 
@@ -691,6 +719,7 @@ impl ModelPage {
         match self {
             Self::Identities => CardsPage::Identities,
             Self::AddForm(_) => CardsPage::AddIdentity,
+            Self::Page => CardsPage::OwnCard,
         }
     }
 
@@ -699,6 +728,7 @@ impl ModelPage {
         match self {
             Self::Identities => Leaving::Identity(IdentityIntent::CloseIdentities),
             Self::AddForm(_) => Leaving::Add(AddIntent::Leave),
+            Self::Page => Leaving::Identity(IdentityIntent::ClosePage),
         }
     }
 }
@@ -791,6 +821,7 @@ impl View {
                 self.cards.retrying = model.key_problem().cloned();
                 return model.retry_key().into_iter().collect();
             }
+            CardsInput::CopyAlias => self.copy_alias(),
             CardsInput::OpenCardFromShare => {
                 let raised = self.take_cards(model, CardsInput::Open(Opened::OwnCard));
                 // After the open, which forgets every earlier way back.
@@ -1275,8 +1306,139 @@ impl View {
                 window.set_list_shown(false);
                 self.cards.model_shown = Some(page);
                 self.cards.model_leaving = false;
+                if page == ModelPage::Page {
+                    // The page opens on its title, as Your card does, and
+                    // with the form's values Done did not save (F9).
+                    self.cards.own_errors = (String::new(), String::new());
+                    self.cards.page_unsaved =
+                        model.identities().identity_page().and_then(|p| p.unsaved);
+                    self.focus_key_after_draw(CARDS_TITLE_FOCUS.to_owned());
+                }
             }
         }
+    }
+
+    /// What an identity's page shows over the editor (identities §6.2
+    /// step 4): whose it is, its back arrow's name, its alias and Copy.
+    /// Whether the page is of an identity behind the front, whose editor
+    /// [`View::render_page`] draws from its own model.
+    fn render_page_extras(&mut self, model: &UiModel, window: &AppWindow) {
+        let page = model
+            .identities()
+            .identity_page()
+            .filter(|_| self.cards.page == Some(CardsPage::OwnCard));
+        self.cards.behind = page.as_ref().is_some_and(|p| p.not_in_front.is_some());
+        self.cards.page_alias = page
+            .as_ref()
+            .and_then(|p| p.alias.as_ref().map(|a| a.alias.clone()));
+        let said = |s: Option<&interweave_human_ui_model::Said>| {
+            s.map(interweave_human_ui_model::Said::english)
+                .unwrap_or_default()
+        };
+        window.set_page_back(page.as_ref().map_or("", |p| text(p.back)).into());
+        window.set_page_subtitle(page.as_ref().map_or("", |p| p.subtitle.as_str()).into());
+        window.set_page_not_in_front(
+            said(page.as_ref().and_then(|p| p.not_in_front.as_ref())).into(),
+        );
+        let alias = page.as_ref().and_then(|p| p.alias.as_ref());
+        window.set_page_alias_line(said(alias.map(|a| &a.said)).into());
+        window.set_page_copy(alias.map_or("", |a| text(a.copy)).into());
+        window.set_page_copy_name(alias.map_or("", |a| text(a.copy_name)).into());
+    }
+
+    /// The form's values a page opens holding, put in the fields once the
+    /// card's own are drawn: unsaved changes, which Back asks about.
+    fn apply_page_unsaved(&mut self, window: &AppWindow) {
+        if self.cards.own_drawn.is_none() {
+            return;
+        }
+        if let Some(values) = self.cards.page_unsaved.take() {
+            window.set_own_given(values.name.into());
+            window.set_own_surname(values.surname.into());
+        }
+    }
+
+    /// The page's Copy (identities §6.2, "Its Copy"): the alias alone to
+    /// the clipboard; `AliasCopied` where the platform confirms nothing
+    /// itself, `AliasNotCopied` when the copy is refused. Focus stays on
+    /// Copy: nothing here moves it.
+    fn copy_alias(&mut self) {
+        let Some(alias) = self.cards.page_alias.clone() else {
+            return;
+        };
+        let copied = if let Some(board) = self.cards.alias_board.as_ref() {
+            board(&alias)
+        } else {
+            self.window.invoke_copy_alias(alias.into());
+            true
+        };
+        let said = if !copied {
+            Some(UiText::AliasNotCopied)
+        } else if self.copy_feedback.get() == crate::CopyFeedback::Snackbar {
+            Some(UiText::AliasCopied)
+        } else {
+            None
+        };
+        let Some(said) = said else {
+            return;
+        };
+        self.window.set_page_snack(text(said).into());
+        self.announce(text(said).to_owned());
+        let timer = slint::Timer::default();
+        let weak = slint::ComponentHandle::as_weak(&self.window);
+        let ms = self.shared.borrow().touch.snackbar_ms;
+        timer.start(
+            slint::TimerMode::SingleShot,
+            std::time::Duration::from_millis(ms),
+            move || {
+                if let Some(w) = weak.upgrade() {
+                    w.set_page_snack(SharedString::new());
+                }
+            },
+        );
+        self.cards.page_snack_timer = Some(timer);
+    }
+
+    /// The root's clipboard for an identity's page's Copy, which says
+    /// whether the platform took the copy: a refusal shows
+    /// `AliasNotCopied`. Without one the window's field copies, and no
+    /// refusal can be seen.
+    pub fn set_alias_clipboard(&mut self, board: AliasBoard) {
+        self.cards.alias_board = Some(board);
+    }
+
+    /// Draw the page of an identity behind the front from `model`, THAT
+    /// identity's (app-core's `ModelSide::page_turn`): its card in the
+    /// editor, its photo and its key. Nothing when no such page shows.
+    pub fn render_page(&mut self, model: &UiModel) {
+        if !self.cards.behind || self.cards.page != Some(CardsPage::OwnCard) {
+            return;
+        }
+        let window = self.window.clone_strong();
+        self.render_own(model, &window);
+        let said = self.render_own_photo(model, &window);
+        self.render_key(model, &window);
+        self.apply_page_unsaved(&window);
+        if let Some(said) = said {
+            self.announce(said);
+        }
+    }
+
+    /// What the person did on the page of an identity behind the front
+    /// since the last take, resolved against `model`, that identity's:
+    /// its Save, its photo, its key, its closing. Held from the front's
+    /// own take, so no act of it is made as the identity in front
+    /// (`save_on_a_page_behind_waits_for_its_own_model`).
+    pub fn take_page_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
+        let mut out = Vec::new();
+        while let Some(input) = self.cards.page_inputs.pop_front() {
+            out.extend(
+                self.take_cards(model, input)
+                    .into_iter()
+                    .map(ViewEvent::Intent),
+            );
+        }
+        out
     }
 
     /// Draw the card screens from `model`.
@@ -1328,9 +1490,20 @@ impl View {
         }
         let contacts_said = self.render_contacts(model, &window);
         self.render_contact(model, &window);
-        self.render_own(model, &window);
-        let photo_said = self.render_own_photo(model, &window);
-        self.render_key(model, &window);
+        self.render_page_extras(model, &window);
+        // The page of an identity behind the front edits THAT identity's
+        // card: its editor is drawn from its own model (`render_page`),
+        // never from the front's, which would write the front's card into
+        // the fields.
+        let photo_said = if self.cards.behind {
+            None
+        } else {
+            self.render_own(model, &window);
+            let said = self.render_own_photo(model, &window);
+            self.render_key(model, &window);
+            self.apply_page_unsaved(&window);
+            said
+        };
         let said = photo_said.or(contacts_said);
         self.render_share(model, &window);
         said

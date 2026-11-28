@@ -2752,6 +2752,24 @@ impl View {
         input: cards::CardsInput,
         out: &mut Vec<ViewEvent>,
     ) -> bool {
+        // On the page of an identity behind the front, the editor's acts
+        // are that identity's: held for `take_page_events`, which resolves
+        // them against its own model, never taken as the front's.
+        if self.cards.behind
+            && matches!(
+                input,
+                cards::CardsInput::Close
+                    | cards::CardsInput::CloseOnward
+                    | cards::CardsInput::SaveOwn(..)
+                    | cards::CardsInput::ChoosePhoto
+                    | cards::CardsInput::PhotoPicked(..)
+                    | cards::CardsInput::RemoveOwnPhoto
+                    | cards::CardsInput::KeyTryAgain
+            )
+        {
+            self.cards.page_inputs.push_back(input);
+            return false;
+        }
         let opens = matches!(input, cards::CardsInput::Open(_));
         let leaving = self.page == Page::Trust;
         let leaving_peers = self.page == Page::Peers;

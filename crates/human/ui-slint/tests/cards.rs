@@ -5473,3 +5473,205 @@ fn the_editors_overflow_offers_add_another_identity_with_one_held_alone() {
     assert!(!shows(&view, text(UiText::AddAnotherIdentity)));
     assert_eq!(focus(&view), "cards-title", "F28");
 }
+
+// The page of an identity not in front (identities §6.2 step 4, plan §30
+// PR 3 commit 13): the card editor drawn from THAT identity's model, as
+// app-core's `ModelSide::page_turn` hands it to the view.
+
+/// The second identity's own model, its card "Bruno".
+fn behind_model() -> UiModel {
+    let mut behind = held_model(2);
+    behind.identity_shown(IdentityView {
+        endpoint: endpoint_id("id1"),
+        name: "Bruno".to_owned(),
+        given: "Bruno".to_owned(),
+        surname: None,
+        has_photo: false,
+        photo: None,
+        key: interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "fedcba9876543210".to_owned(),
+        },
+        peer: Some(peer(Q)),
+    });
+    behind
+}
+
+/// One turn as a root drives a page behind the front: the front's acts
+/// taken and applied, the page's taken against its own model; then the
+/// front drawn, and the page drawn from its own. Returns the page's
+/// intents and the front's.
+fn page_turn(view: &mut View, model: &mut UiModel, behind: &UiModel) -> (Vec<Intent>, Vec<Intent>) {
+    let (mut page, mut front) = (Vec::new(), Vec::new());
+    for _ in 0..4 {
+        for event in view.take_events(model) {
+            if let ViewEvent::Intent(intent) = event {
+                front.push(intent);
+            }
+        }
+        for intent in view.take_identity_intents() {
+            model.identities_mut().act(intent, false);
+        }
+        for event in view.take_page_events(behind) {
+            if let ViewEvent::Intent(intent) = event {
+                page.push(intent);
+            }
+        }
+        view.render(model);
+        view.render_page(behind);
+        settle();
+    }
+    (page, front)
+}
+
+/// Two held, "Ada" in front, the page of the second identity opened from
+/// its row of Your identities.
+fn behind_page() -> (View, UiModel, UiModel) {
+    use interweave_human_ui_model::{IdentityIntent, IdentityKey};
+    let mut view = second_view();
+    record_picks(&mut view);
+    view.window()
+        .window()
+        .set_size(slint::LogicalSize::new(1000.0, 1600.0));
+    let mut model = held_model(2);
+    model.identity_shown(ada(
+        false,
+        interweave_human_ui_model::OwnKey::Ready {
+            fingerprint: "0123456789abcdef".to_owned(),
+        },
+    ));
+    let behind = behind_model();
+    model
+        .identities_mut()
+        .act(IdentityIntent::OpenIdentities, false);
+    model.identities_mut().act(
+        IdentityIntent::OpenRow(IdentityKey::new(endpoint_id("id1").as_str())),
+        false,
+    );
+    page_turn(&mut view, &mut model, &behind);
+    (view, model, behind)
+}
+
+/// Identities §11's reading order of an identity's page: as the card
+/// editor's (cards §5.2), here after `IdentityNotInFront` under the app
+/// bar, then `IdentityAlias` and its Copy, with no overflow button while
+/// two are held (Q-A1 (a)). Mutation: the alias line keyed as an editor
+/// stop.
+#[test]
+fn the_page_tab_order_is_the_editors_then_the_alias_and_its_copy() {
+    let (view, _model, _behind) = behind_page();
+    assert_eq!(focus(&view), "cards-title", "the page opens on its title");
+    let mut stops = Vec::new();
+    for _ in 0..20 {
+        let on = tab_stops(&view, 1).remove(0);
+        stops.push(on.clone());
+        if on == "page-alias-copy" {
+            break;
+        }
+    }
+    assert_eq!(stops.first().map(String::as_str), Some("page-not-in-front"));
+    let n = stops.len();
+    assert!(n >= 4, "{stops:?}");
+    assert_eq!(
+        stops[n - 2..],
+        ["page-alias-line", "page-alias-copy"],
+        "{stops:?}"
+    );
+    assert!(
+        stops[1..n - 2].iter().all(|s| s.starts_with("own-")),
+        "the editor's own stops between: {stops:?}"
+    );
+    assert!(stops.contains(&"own-save".to_owned()), "{stops:?}");
+    assert!(!shows(&view, text(UiText::IdentityOptions)), "no overflow");
+}
+
+/// Identities §6.2 step 4 and run (x): the page names its identity under
+/// the title, says with `IdentityNotInFront` that it is not the one in
+/// front, draws THAT identity's card in the editor, not the front's, and
+/// its back arrow reads `BackToIdentities`, returning to the list.
+/// Mutation: the page's editor not drawn from its own model.
+#[test]
+fn the_page_reads_whose_it_is_and_its_back_arrow_reads_back_to_your_identities() {
+    let (mut view, mut model, behind) = behind_page();
+    assert_eq!(view.window().get_own_given(), "Bruno", "its own card");
+    assert_eq!(view.window().get_page_subtitle(), "Name 1");
+    let line = fill(
+        text(UiText::IdentityNotInFront),
+        &[
+            ("front", &isolated("Name 0")),
+            ("identity", &isolated("Name 1")),
+        ],
+    );
+    assert!(shows(&view, &line), "{line:?}");
+    assert!(shows(&view, text(UiText::BackToIdentities)));
+    assert!(!shows(&view, text(UiText::BackToConversations)));
+    press(&view, text(UiText::BackToIdentities));
+    page_turn(&mut view, &mut model, &behind);
+    assert_eq!(
+        view.window().get_cards_page(),
+        interweave_human_ui_slint::CardsPage::Identities,
+        "back on the list"
+    );
+    assert!(model.identities().identity_page().is_none());
+}
+
+/// A Save on the page of an identity behind the front is that identity's:
+/// the view holds it from the front's take and gives it, resolved against
+/// that identity's model, to `take_page_events`. Mutation: the page's
+/// acts taken as the front's.
+#[test]
+fn save_on_a_page_behind_waits_for_its_own_model() {
+    let (mut view, mut model, behind) = behind_page();
+    view.window().set_own_given("Bruna".into());
+    press(&view, text(UiText::Save));
+    let (page, front) = page_turn(&mut view, &mut model, &behind);
+    assert!(
+        page.iter().any(|i| matches!(
+            i,
+            Intent::SetOwnCard { name, .. } if name == "Bruna"
+        )),
+        "{page:?}"
+    );
+    assert!(
+        !front.iter().any(|i| matches!(i, Intent::SetOwnCard { .. })),
+        "{front:?}"
+    );
+}
+
+/// Identities §6.2 "Its Copy" and acceptance 8: Copy, named
+/// `CopyAliasName`, puts the alias alone on the clipboard and says
+/// `AliasCopied`, focus staying on Copy; a copy the platform refuses says
+/// `AliasNotCopied`, focus staying on Copy. Mutations: the line's words
+/// copied with the alias; the refusal said as a copy.
+#[test]
+fn copy_puts_the_alias_on_the_clipboard() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let (mut view, mut model, behind) = behind_page();
+    let copied: Rc<RefCell<Vec<String>>> = Rc::default();
+    let takes = Rc::new(std::cell::Cell::new(true));
+    let (c, t) = (Rc::clone(&copied), Rc::clone(&takes));
+    view.set_alias_clipboard(Rc::new(move |alias: &str| {
+        c.borrow_mut().push(alias.to_owned());
+        t.get()
+    }));
+    assert!(shows(&view, text(UiText::CopyAliasName)));
+    for _ in 0..20 {
+        if tab_stops(&view, 1)[0] == "page-alias-copy" {
+            break;
+        }
+    }
+    assert_eq!(focus(&view), "page-alias-copy");
+    key(&view, slint::platform::Key::Return);
+    page_turn(&mut view, &mut model, &behind);
+    assert_eq!(*copied.borrow(), ["alias-1"], "the alias alone");
+    assert_eq!(view.window().get_page_snack(), text(UiText::AliasCopied));
+    assert_eq!(focus(&view), "page-alias-copy", "focus stays");
+
+    takes.set(false);
+    key(&view, slint::platform::Key::Return);
+    page_turn(&mut view, &mut model, &behind);
+    assert_eq!(copied.borrow().len(), 2);
+    assert_eq!(view.window().get_page_snack(), text(UiText::AliasNotCopied));
+    assert!(shows(&view, text(UiText::AliasNotCopied)));
+    assert_eq!(focus(&view), "page-alias-copy", "focus stays");
+}

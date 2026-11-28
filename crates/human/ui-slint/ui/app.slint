@@ -940,6 +940,9 @@ component ActionButton inherits FocusScope {
         if (reason == FocusReason.pointer-click) { FocusMode.keyboard = false; }
     }
     in property <string> text;
+    // Its accessible name, when it differs from what it shows: one that
+    // begins with the visible text (WCAG 2.5.3), the alias Copy's.
+    in property <string> name;
     in property <string> focus-key;
     // The least touch target: 48 on a message row and the snackbar,
     // Android's and WCAG 2.5.8's (swipe spec section 7).
@@ -965,7 +968,7 @@ component ActionButton inherits FocusScope {
     // as typing, and a press by Enter or Space as navigating.
     out property <bool> by-tap;
     accessible-role: button;
-    accessible-label: Drawn.spoken(text);
+    accessible-label: Drawn.spoken(root.name != "" ? root.name : root.text);
     accessible-description: Drawn.spoken(detail);
     accessible-enabled: root.enabled-action;
     accessible-action-default => {
@@ -5189,7 +5192,32 @@ export component AppWindow inherits Window {
     // The card pages' back arrow's name: where it leads (identities
     // section 6.2, WCAG 2.4.6).
     out property <string> cards-back: root.cards-page == CardsPage.add-identity
-        ? root.add-form.back : root.back-label;
+        ? root.add-form.back
+        : root.cards-page == CardsPage.own-card && root.page-back != "" ? root.page-back
+        : root.back-label;
+    // The page of an identity opened from its row of Your identities
+    // (identities section 6.2 step 4), over the card editor: whose it is
+    // (the subtitle, and IdentityNotInFront when it is not in front), the
+    // back arrow's name, and the alias line with its Copy. Empty when the
+    // editor is the card's alone.
+    in property <string> page-back;
+    in property <string> page-subtitle;
+    in property <string> page-not-in-front;
+    in property <string> page-alias-line;
+    in property <string> page-copy;
+    in property <string> page-copy-name;
+    // AliasCopied or AliasNotCopied, while it shows; no action.
+    in property <string> page-snack;
+    callback page-alias-copy();
+    // The alias alone to the clipboard, through the field Peers' Copy
+    // uses.
+    public function copy-alias(alias: string) {
+        root.copy-text = alias;
+        peers-copy.select-all();
+        peers-copy.copy();
+        peers-copy.clear-selection();
+        root.copy-text = "";
+    }
     in-out property <bool> own-menu-open;
     callback id-add-another();
     function close-own-menu() {
@@ -7870,6 +7898,8 @@ export component AppWindow inherits Window {
                                 : root.own-card-title;
                             wraps: root.cards-page == CardsPage.identities
                                 || root.cards-page == CardsPage.add-identity;
+                            // An identity's page names whose it is.
+                            description: root.cards-page == CardsPage.own-card ? root.page-subtitle : "";
                             font-size: Type.title-large;
                             font-weight: 400;
                             rtl: root.rtl;
@@ -7877,6 +7907,17 @@ export component AppWindow inherits Window {
                             focus-seq: root.focus-seq;
                             focus-wanted: root.focus-target == "cards-title";
                             focused(k) => { root.focus-id = k; }
+                        }
+                        // An identity's page: its name under the title (N10).
+                        if root.cards-page == CardsPage.own-card && root.page-subtitle != "": Text {
+                            text: root.page-subtitle;
+                            font-size: Type.body-medium;
+                            color: Palette.on-surface-variant;
+                            wrap: word-wrap;
+                            min-width: 0px;
+                            min-height: self.preferred-height;
+                            horizontal-alignment: root.rtl ? TextHorizontalAlignment.right : TextHorizontalAlignment.left;
+                            accessible-role: none;
                         }
                     }
                     // The card editor's overflow, drawn only while it
@@ -8393,6 +8434,17 @@ export component AppWindow inherits Window {
                         // The own card: what a share sends, edited here.
                         if root.cards-page == CardsPage.own-card: VerticalLayout {
                             spacing: 12px;
+                            // The page of an identity not in front says so
+                            // under the app bar (cards section 5.7.2), a
+                            // stop read before the editor.
+                            if root.page-not-in-front != "": FocusNote {
+                                text: root.page-not-in-front;
+                                rtl: root.rtl;
+                                focus-key: "page-not-in-front";
+                                focus-seq: root.focus-seq;
+                                focus-wanted: root.focus-target == "page-not-in-front";
+                                focused(k) => { root.focus-id = k; }
+                            }
                             // Field 1 (design 5.2): the circle, and under it its
                             // buttons, one a line, then what could not be used.
                             VerticalLayout {
@@ -8662,6 +8714,35 @@ export component AppWindow inherits Window {
                                     accessible-label: Drawn.spoken(self.text);
                                 }
                             }
+                            // An identity's alias, read-only, with its Copy,
+                            // after the card's fields (identities section
+                            // 6.2, "The alias"): the line, then Copy, each a
+                            // stop; the alias is the line's last word.
+                            if root.page-alias-line != "": VerticalLayout {
+                                spacing: FocusMode.ring-reach;
+                                FocusNote {
+                                    text: root.page-alias-line;
+                                    rtl: root.rtl;
+                                    focus-key: "page-alias-line";
+                                    focus-seq: root.focus-seq;
+                                    focus-wanted: root.focus-target == "page-alias-line";
+                                    focused(k) => { root.focus-id = k; }
+                                }
+                                HorizontalLayout {
+                                    alignment: start;
+                                    ActionButton {
+                                        text: root.page-copy;
+                                        name: root.page-copy-name;
+                                        text-button: true;
+                                        target: 48px;
+                                        focus-key: "page-alias-copy";
+                                        focus-seq: root.focus-seq;
+                                        focus-wanted: root.focus-target == "page-alias-copy";
+                                        pressed => { root.page-alias-copy(); }
+                                        focused(k) => { root.focus-id = k; }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -8676,6 +8757,12 @@ export component AppWindow inherits Window {
                     undo-pressed(id) => { root.undo(id); }
                     dismissed(id) => { root.snack-closed(id); }
                     focused(k) => { root.focus-id = k; }
+                }
+                // The alias Copy's AliasCopied or AliasNotCopied, no action.
+                if root.page-snack != "": Snackbar {
+                    text: root.page-snack;
+                    undo: false;
+                    rtl: root.rtl;
                 }
             }
             }
