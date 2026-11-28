@@ -325,7 +325,10 @@ pub trait DataSessionPort {
     /// # Errors
     /// A [`CloseError`], whose `remainder` is every event this close had
     /// already been handed when it failed -- so an error never drops one
-    /// -- and whose `code` is: `BackendUnavailable` once the runtime has
+    /// (over IPC `ipc-client`'s `a_close_ended_another_way_carries_what_it_read`,
+    /// `a_close_that_times_out_carries_what_it_read` and
+    /// `closing_an_ended_connection_hands_back_its_buffer`; in process the
+    /// close fails only before it has taken anything) -- and whose `code` is: `BackendUnavailable` once the runtime has
     /// stopped. A binding over a connection (IPC) answers with the code
     /// the connection ended with when it had already ended or when the
     /// server ended it some other way (`ShuttingDown` for a stop racing
