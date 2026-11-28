@@ -782,8 +782,15 @@ when to ask again.
    `ConfirmIdentityAdded` ("{name} was created. It does not trust any peer
    yet.") with
    no Undo; Remove is the way back, and it confirms (§7). Until Remove
-   is built, the identity's page has no Remove. The plan's §30 note of
-   2026-11-27 records that interim, and says that Remove is owed
+   is built, the identity's page has neither Remove nor Make default:
+   Make default lands with Remove, in the same change, and is owed
+   with it (architect-cto's ruling of 2026-11-28, REPLY 01a21fb7: a new
+   identity is neither the default nor in front). In that interim no
+   page offers Make default, since the first identity stays the
+   default and its page offers Make default only when it is not (the
+   settle, below), and acceptance 14a is not claimed before Remove's
+   change. The plan's §30 note of 2026-11-27, restated 2026-11-28,
+   records that interim, and says that Remove is owed
    before Stage 22 closes and before any release from a tree where a
    client offers Create, including the Stage 22 release. The new
    identity is **not** put in front: switching is the person's act
@@ -1296,7 +1303,36 @@ where focus lands — with its dialog changed for ADR-0067:
     with no card (§6.2). From the deletion of its rows it receives
     nothing (no message to it is kept or shown) until Remove finishes,
     until a list that answered does not hold its id, or until the app's
-    process ends (ADR-0061 decision 7). If Remove failed before its rows
+    process ends (ADR-0061 decision 7): the client closes its session
+    once the deletion succeeded, and people who write to it are
+    answered `no_route` (architect-cto's ruling of 2026-11-28, REPLY
+    01a21fb7). Through that span its row in Your identities, its row
+    in the switcher and its composer line read
+    `IdentityRemoveNotFinished` ("{identity} was not fully removed. It
+    cannot send or receive."), as §5.2's states are shown, the send
+    control disabled with that as its reason, and its page shows
+    `KeyMissing` and offers Remove. These words take the place of every
+    other state of §5.2 for that identity, `IdentityUnavailable`
+    included while the device cannot store new messages (whose notice
+    still shows): the closed session, not the device, is why it cannot
+    send. They are never shown after the process ends, when the
+    identity receives again (the next item). The line appears while
+    Remove's dialog holds focus, so no send control has focus then,
+    and focus is F29's.
+    **Alternative named:** `IdentityUnavailable`, as a refused lease
+    reads. Rejected: its "right now" says that the state passes by
+    itself, and it shares its words with states that the person waits
+    out, while this one is ended by the person's Remove again (Nielsen's
+    heuristics 1, visibility of system status, and 9, help users
+    recognise and recover from errors). Hypothesis: a person who meets
+    this row, after the snackbar has gone, opens the identity and
+    chooses Remove again; falsified if, in a test, a person who meets
+    it waits for it to clear or reports it as a fault. **Composer:**
+    Send stays disabled through the span, as in every state of §5.2,
+    so the person writes no message as that identity that Remove would
+    then delete unsent; the field stays, as in §5.2's states. If Remove's change builds Send enabled
+    there instead, that is a deviation from this item, not an
+    alternative to it. If Remove failed before its rows
     were deleted, the rows stay, and the identity still receives messages,
     like any other identity whose key is missing (identity-key §1).
   - After a restart of the app, the list and its page show the same as
@@ -1747,6 +1783,7 @@ front.
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
 | `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before its rows were deleted (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
 | `IdentityRemoveUnfinishedRows` | Could not finish removing {identity}. Its key, conversations, contacts and card were removed. If this identity is still listed, choose Remove again. | snackbar after a Remove that failed after its rows were deleted, or whose answer from the device was lost, and before the device was known to have removed the endpoint (§7) | the key, conversations, contacts and card are gone; the identity may still be listed, or may leave the list a moment later or at the device's next start, so the text never says it is still here or that Remove again will finish it; while it is listed, Remove again is the way on |
+| `IdentityRemoveNotFinished` | {identity} was not fully removed. It cannot send or receive. | the identity's row in Your identities and in the switcher, and its composer line in place of `ComposerAs`, from the deletion of its rows by a Remove that did not finish until the identity leaves or the app's process ends (§7) | new text, proposal; Remove of this identity was begun and did not end; it sends and receives nothing now; never "right now" or "try again later", since waiting does not end it; never that Remove again will finish it (`IdentityRemoveUnfinishedRows`'s reason) |
 | `IdentityRemoveOthersKeep` | People who saved {identity} as a contact still have its name and photo. Their messages to it reach no one. To them, an identity that you add later is a different one. | Remove dialog | others keep its name and photo, their messages reach no one, a new identity is a different one to them |
 | `MessagesWaitingLocked` | New messages | lock screen | new messages, no count, no name; the same text as `MessagesChannel`, so the key may be that one |
 | `NotificationIdentityLine` | {identity}: 1 new message / {identity}: {count} new messages | the group summary's lines (§9), one an identity; the first for a count of one, the second for any other | the identity and its count; plural forms language-culture's |
@@ -2177,7 +2214,12 @@ pass before it lands.
     app is restarted; in the run at the administrative remove, its
     conversations, contacts and card are gone and it is named by its
     alias, its trusted set is unchanged (D2), and a message sent to it
-    before the restart is not shown;
+    before the restart is not shown, its sender answered `no_route`;
+    before the restart its row in Your identities and in the switcher
+    reads `IdentityRemoveNotFinished`, with the app's storage made
+    degraded too in one more run, and, with it brought in front, its
+    composer line reads the same with Send disabled; after the restart
+    neither shows it;
     Remove chosen again completes as above, with no snackbar of
     failure. With a seam that drops the connection after the device has
     removed the endpoint and before the device's answer arrives: the
