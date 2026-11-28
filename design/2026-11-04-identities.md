@@ -2205,8 +2205,9 @@ pass before it lands.
     writes), with two identities held: Your identities' Add an identity
     and the added identity's Remove are disabled, with the degraded
     notice above them; an identity's Save stays enabled, and a Save
-    chosen there leaves the editor open with its fields as they were and
-    shows nothing that says the card was saved (§15).
+    chosen there leaves the editor open with its fields as they were,
+    shows nothing that says the card was saved, and shows
+    `CardNotSaved`, focused (cards §5.2, its acceptance 28 (a)).
 12. Add offers no configured endpoint that is not an identity (an
     agent's), and lists none as an identity. *(`human-client-ui.md` §13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
@@ -2494,16 +2495,13 @@ pass before it lands.
 - **A card's Save while the store is degraded** (rust-ui-dev-02's
   QUESTION 01a21fa9, U6). Cards §5.1's store-degraded state disables
   Your identities' Add an identity and an identity's Remove, with the
-  degraded notice above them; Save stays as the build has it on main,
-  enabled, since cards §5.2 says that Save is never disabled, and the
-  degraded notice (`StorageDegraded`) speaks of messages, not of
-  cards, so a Save shown disabled beside it would not say why. What a
-  Save that the store refuses then shows is not designed by this note;
-  it is owed by ux-designer as its own item, with the card editor's
-  other failed writes. Until it is designed, one thing holds: a Save
-  that wrote nothing never closes the editor or shows anything that
-  says the card was saved; the editor stays open with its fields as
-  they were.
+  degraded notice above them; Save stays enabled, since cards §5.2
+  says that Save is never disabled, and the degraded notice
+  (`StorageDegraded`) speaks of messages, not of cards, so a Save shown
+  disabled beside it would not say why. What a Save that the store
+  refuses shows is not this note's: cards §5.2 designs it ("While Save
+  runs, and a Save that writes nothing", j207, 2026-11-28), with the
+  editor's other failed writes, and its acceptance 28 checks it.
 - **Trusting a peer for several identities at once.** Each identity
   trusts as itself; a "trust for all" control would be the cross-
   identity act the owner's rule forbids.

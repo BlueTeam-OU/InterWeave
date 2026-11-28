@@ -229,9 +229,9 @@ States:
 - **Store degraded** (`StorageDegraded` already shown by the app): the
   list shows what it read; Add and Remove are disabled, with the
   existing degraded notice above them. Save is not disabled (§5.2:
-  Save is never disabled); what a Save the store refuses shows is
-  identities §15's open item (identities' answer to rust-ui-dev-02's U6,
-  2026-11-28).
+  Save is never disabled); a Save the store refuses shows
+  `CardNotSaved` and leaves the editor open with its changes (§5.2,
+  "While Save runs, and a Save that writes nothing").
 - **At the bound**: when the profile holds 64 endpoints, the
   configuration's bound (ENDPOINTS.md), authored and added counted
   together, agent endpoints included (§12 Q7–Q10), Add an identity opens
@@ -328,6 +328,61 @@ screen, or the share sheet, §5.3), and focus goes to the identity's row
 in the list, else to the control that opened the page. No snackbar: the
 row, or the sheet's preview, is the confirmation. A card has no Delete
 of its own: it is the identity's, and goes only with the identity.
+
+**While Save runs, and a Save that writes nothing** (j207, 2026-11-28;
+rust-ui-dev-02's QUESTION 01a21fa9, U6, which `design/2026-11-04-identities.md`
+§15 left to this item). The editor's writes are Save and the overflow's
+actions; the overflow's keep "When the device refuses" (below), and
+this item is Save's. The rule it keeps: the editor closes, and says
+the card was saved, only once the store has written it, so a person
+who sees the editor close never has to check that their change
+was kept (heuristic 1, visibility of system status; heuristic 9,
+recovery, which needs the changes still there to retry with).
+
+- **While Save runs.** A valid Save writes the identity's `own_cards`
+  row once the photo, if one is being prepared, is ready (the photo
+  step, below). Until the store answers, the editor stays open: Save
+  shows a progress indicator in place of its label, its accessible
+  name `CardSaving`, and focus stays on it; a second activation does
+  nothing. The fields, the photo's buttons and the overflow button stay
+  shown as they are and are not operable, so what is written is what
+  the person saw when they chose Save. The store answers a write with
+  done or refused: unlike an identity's Create, a Save has no unknown
+  outcome, and so no third case here.
+- **A way of leaving chosen while Save runs** (any of the list under
+  "Leaving with unsaved changes", above) is not lost: the editor holds
+  the last one chosen, and it acts when Save ends, as it would act
+  then. After a Save that wrote, there is no unsaved change, so it acts
+  at once and takes the place of Save's own closing, focus going where
+  that action puts it; after a Save that wrote nothing, the changes
+  are still unsaved, so `CardDiscardChanges` opens over the editor and
+  its line below, and Continue editing puts focus on that line.
+- **A Save that wrote.** As "On a valid Save", above.
+- **A Save that wrote nothing**, for any reason the store gives,
+  the degraded store included (§5.1 "Store degraded", where Save stays
+  enabled): nothing says the card was saved, and the editor stays
+  open with its fields, its photo and the overflow as they were before
+  Save, so its changes are still unsaved changes (the dialog above
+  still asks when the person leaves). `CardNotSaved` shows above Save,
+  in `error`, and focus moves to it, so the desktop screen reader reads
+  it there; no live announcement is added. It is one text whatever the
+  cause: while the store is degraded, the app's `StorageDegraded`
+  notice already names the cause, once, as everywhere
+  (`design/2026-11-04-identities.md` §5.2).
+  The line stays until the next Save starts or the editor closes. Save
+  stays offered, as it always is (above).
+- **A photo that cannot be used, found while Save waits for it**:
+  nothing is written, the name included, since the person chose Save
+  for a card that had the new photo. The circle and the photo's buttons
+  are as the photo step says for a picture that cannot be used
+  (`PhotoUnusable` under the circle, the card's photo as it was),
+  `CardNotSaved` shows above Save as above, and focus goes to the
+  photo's button (Add a photo, or Change photo), the way on: choose
+  another picture, or choose Save again to save without it.
+- **A kill while Save runs** leaves the card as the store has it: the
+  write is one transaction, so either the card as before or as saved,
+  and the editor, showing only progress, has said neither. What
+  happens to unsaved changes after a kill is §11's.
 
 **Leaving with unsaved changes.** While the editor holds unsaved
 changes, every way of leaving it opens one dialog first,
@@ -611,7 +666,8 @@ client prepares what will be sent from the picked image:
 
 Preparing can take a moment on a phone: the circle shows a progress
 indicator, and Save waits for the preparation to end, unless Remove
-photo cancels the preparation (below). Choosing the crop is deliberately left
+photo cancels the preparation (below); a Save chosen while it runs is
+as "While Save runs" says, above. Choosing the crop is deliberately left
 out (§11).
 
 **Focus and speech in the photo step** (rust-ui-dev-02's QUESTION
@@ -1816,6 +1872,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
    | a conversation opened by Close without saving in the card editor's unsaved-changes dialog: a row picked in the list, or a notification of the identity in front (§5.2) | the conversation's header title, never the composer (the reason message-swipe §7 gives); a conversation opened any other way is outside this spec (§11) | keyboard: on a wide window, with a name changed in the card editor, pick a conversation row, then Close without saving: focus on the header title, the on-screen keyboard closed; with a name changed, open a notification of the identity in front by keyboard, then Close without saving: the same |
    | a card saved | the identity's row in the list, else the control that opened the page (the sheet's Edit your card or Add your name) | keyboard |
    | a card's Save with an invalid field | the first invalid field | keyboard |
+   | a card's valid Save while it runs (§5.2, "While Save runs") | stays on Save, its accessible name `CardSaving`; the fields, the photo's buttons and the overflow button are not reached | keyboard, with item 28's held preparation; desktop screen reader: Save read as `CardSaving` |
+   | a card's Save that wrote nothing (§5.2) | `CardNotSaved` above Save; when the cause was a photo that cannot be used, the photo's button (Add a photo, or Change photo) | keyboard, with item 28's runs; desktop screen reader: `CardNotSaved` read when focus reaches it |
+   | a way of leaving chosen while Save runs (§5.2) | after a Save that wrote: where that way of leaving puts focus with no unsaved change; after one that wrote nothing: Continue editing in `CardDiscardChanges`, then, on Continue editing, `CardNotSaved` | keyboard, with item 28's held runs |
    | the editor's Photo Picker or file dialog closes, a picture chosen or cancelled (§5.2) | the button that opened it (Add a photo, or Change photo) | keyboard on desktop: open the file dialog from Add a photo, cancel it, focus on Add a photo; choose a picture, focus on the same button. Keyboard on Android: open the Photo Picker from Add a photo, press Back (`adb shell input keyevent KEYCODE_BACK`), focus on Add a photo; choose a picture, focus on the same button |
    | the editor's photo prepared | stays on that button, which now reads Change photo; `PhotoAdded` announced once | keyboard; desktop screen reader: `PhotoAdded` heard once, and the circle reads `CardPhotoPreparing` while the picture is being prepared, then `CardPhotoLabel`; TalkBack blocked (§8) |
    | the editor's picture unusable | stays on that button; `PhotoUnusable` announced once | keyboard, choosing a file named `.png` that holds no image; desktop screen reader: heard once; TalkBack blocked (§8) |
@@ -2157,6 +2216,33 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     desktop screen reader reads the row as §8 says, with
     `CardSentPhoto` for a card sent with a photo, on a Sending, a Not
     sent and an Accepted row, and without it for one sent with none.
+28. **A card's Save closes the editor only once it is written** (§5.2,
+    "While Save runs, and a Save that writes nothing"). Each run starts
+    from a saved card "Anna Rossi" with a photo, and changes the name
+    to "Anna Bianchi". (a) The store made to refuse writes, once with
+    `StorageDegraded` shown (as the identities note's acceptance 11d)
+    and once without it: Save leaves the editor open with
+    "Anna Bianchi" in the field, `CardNotSaved` above Save, focused, no
+    snackbar and nothing that says saved; the card read back is "Anna
+    Rossi"; Back then opens `CardDiscardChanges`; once the store accepts
+    writes, Save closes the editor and the card read back is "Anna
+    Bianchi". (b) A picture chosen and its preparation held (a test
+    hook, or a large picture), then Save: Save shows `CardSaving` and
+    keeps focus, the fields and photo buttons are not operable, and a
+    second Save writes nothing more; when the preparation ends, the
+    card is written once, with the new photo, and the editor closes.
+    (c) As (b), with Back pressed while Save runs: nothing happens
+    until Save ends, then the editor closes as after a valid Save, with
+    no `CardDiscardChanges`; the same with the store refusing: the
+    dialog opens, and Continue editing puts focus on `CardNotSaved`.
+    (d) As (b), with the held picture one that cannot be prepared (a
+    file named `.png` that holds no image): nothing is written (the
+    card read back is "Anna Rossi" with its old photo), `PhotoUnusable`
+    and `CardNotSaved` show, focus is on Change photo, and Save then
+    writes "Anna Bianchi" with the old photo. (e) A kill while (b)'s
+    Save waits leaves the card "Anna Rossi"; a kill after it wrote
+    leaves "Anna Bianchi". Desktop screen reader: `CardSaving` and
+    `CardNotSaved` read as item 1's table says; TalkBack blocked (§8).
 
 ### 9.1 `human-client-ui.md` §13 criteria
 
@@ -2220,6 +2306,8 @@ and are for them to write.
 | `CardDiscardChanges` | Close without saving your changes? | unsaved-changes dialog |
 | `KeepEditing` / `DiscardChanges` | Continue editing / Close without saving | its actions; stacked, Close without saving above (§5.2) |
 | `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle; announced once (§5.2) |
+| `CardSaving` | Saving your card | new text, proposal (j207); the accessible name of Save while it runs (§5.2, "While Save runs"); says the save is under way, never that it is done |
+| `CardNotSaved` | Your card was not saved. Your changes are still here. Choose Save to try again. | new text, proposal (j207); the line above Save after a Save that wrote nothing, whatever the cause (§5.2); must say nothing was saved, that the edits are still in the editor, and that Save is the way on; must not name a cause, since the degraded store's notice names its own, once |
 | `CardPhotoPreparing` | Preparing the photo… | new text, proposal; the editor's photo circle, accessible label while a chosen picture is being prepared (§5.2); must say the photo is not ready yet |
 | `PhotoAdded` | Photo ready | new text, proposal; announced once in the editor when a chosen picture has been prepared (§5.2); must not say it is saved or sent, since that happens only on Save and Share |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
