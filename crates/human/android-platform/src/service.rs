@@ -374,8 +374,11 @@ impl ServiceHost {
             let mut other_problems = Vec::new();
             for source in sources {
                 let endpoint = source.endpoint().clone();
-                // Every source names a held identity: the roster holds
-                // what the sources were made from.
+                // A source the roster holds no side for is passed by: the
+                // profile names an identity a pending-add record still
+                // names, which the roster does not hold (app-core's
+                // `an_id_a_pending_add_record_names_is_not_held_and_opens_no_session`)
+                // and the start's settle takes up.
                 let problem = roster.side_mut(&endpoint).and_then(|side| {
                     side.set_key_source(source);
                     side.key_problem().cloned()
