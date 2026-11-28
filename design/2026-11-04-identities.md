@@ -801,7 +801,8 @@ when to ask again.
    change (14a's Needs line). The plan's §30 note of 2026-11-27
    records the interim for Remove; plan commit 488027544
    (architect-cto's, not on this branch as this is written) restates
-   it for Make default. The note says that Remove is owed
+   it for Make default, and rules that the bound's first clause waits
+   for Remove's change (acceptance 9's Needs line). The note says that Remove is owed
    before Stage 22 closes and before any release from a tree where a
    client offers Create, including the Stage 22 release. The new
    identity is **not** put in front: switching is the person's act
@@ -1146,7 +1147,13 @@ Outcomes other than Done, each with nothing half-made shown as made:
   held, on an identity that was not the default) takes its button
   away, and focus then goes to the page's title, overriding cards §8's
   "stays on the overflow button" for that case; its Undo brings the
-  button back, and focus is then as cards §8 gives it (§11 F31). When focus was on an item of the editor's
+  button back, and focus is then as cards §8 gives it (§11 F31). An
+  Undo that the device refuses changes nothing (cards §5.2, "When the
+  device refuses"): the identity stays the default, its overflow keeps
+  no item and no button is drawn, so focus goes to the page's title,
+  not to the overflow button that paragraph names, and the snackbar is
+  `IdentityChangeFailed`'s Make default text naming the identity the
+  Undo would have made the default again (§11 F31). When focus was on an item of the editor's
   overflow menu, the menu closes and focus goes to the overflow button,
   or to the page's title when no button is drawn (§11 F28); otherwise
   focus stays where it was.
@@ -1322,7 +1329,16 @@ where focus lands — with its dialog changed for ADR-0067:
     `IdentityPartlyRemoved` ("{identity} was only partly removed. It
     cannot send or receive."), as §5.2's states are shown, the send
     control disabled with that as its reason, and its page shows
-    `KeyMissing` and offers Remove. These words take the place of every
+    `KeyMissing`, the alias line with its Copy (§6.2), and Remove in
+    its overflow, and nothing else. It shows no card field, photo
+    control or Save: a Save writes a card row for the identity, and the
+    client admits nothing to its store for it (ADR-0061 decision 7).
+    It offers no Make default: Remove is not offered on the default
+    (cards §5.2, `IdentityRemoveDefault`), so a Make default would take
+    away the person's way to end the span. Share is not reached: its
+    entries are in a direct conversation (cards §5.3), and the identity
+    has none in the span (below). `IdentityPartlyRemoved` takes the
+    place of every
     other state of §5.2 for that identity, `IdentityUnavailable`
     included while the device cannot store new messages (whose notice
     still shows): the closed session, not the device, is why it cannot
@@ -1659,7 +1675,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; when the overflow then holds no item (Make default and Turn off not offered there, cards §5.2), no overflow button is drawn, and focus goes to the page's title (rust-ui-dev-02's QUESTION 01a21fa9, U2); otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant, once with the first identity not the default (the overflow keeps an item) and once with it the default (it keeps none) |
 | F29 | Remove chosen in the identity Remove dialog (§7, "While Remove runs") | stays on Remove, its accessible name `IdentityRemoving`, while it runs; Tab and Shift+Tab do not reach the disabled Cancel; when it ends done, F11; when it ends with `IdentityChangeFailed`, `IdentityRemoveUnfinished` or `IdentityRemoveUnfinishedRows`, the overflow button of the identity's page | keyboard, with acceptance 13's refusal run, its run with the unlink made to fail, and a run whose remove answer is held past the add's wait; desktop screen reader: Remove read as "Removing {identity}" while it runs |
 | F30 | Create ends Done with the identity made and not held yet (§6.2) | the title of the screen Done lands on: Your identities with two or more held before, the card editor with one; when the identity is held later, F28 in the card editor, and otherwise focus stays where it was | keyboard, with acceptance 11b's runs |
-| F31 | Make default leaves the identity page's overflow with no item (§6.2's settle, the overflow button's rule) | the page's title; on its Undo, as cards §8 gives it (the overflow button, back with Make default) | keyboard, with acceptance 14a |
+| F31 | Make default leaves the identity page's overflow with no item (§6.2's settle, the overflow button's rule) | the page's title; on its Undo, as cards §8 gives it (the overflow button, back with Make default); on an Undo the device refuses, the page's title, with no button drawn | keyboard, with acceptance 14a and its refused-Undo run |
 
 ## 12. Accessibility beyond focus
 
@@ -1937,8 +1953,13 @@ pass before it lands.
    stays on Copy.
 9. Add at the bound: with 64 endpoints, Create is not offered and
    `IdentityLimit` is focused; the daemon's refusal by name shows the
-   same if the list was stale. Needs D1. *(Exit gate, "the add refused
-   at the profile's 64-endpoint bound".)*
+   same if the list was stale. Needs D1. Create not offered at the
+   bound needs Remove's change, whose list read gives the count (plan
+   commit 488027544: until it, the list counts only held identities,
+   Add opens the form on a profile whose 64 endpoints are not all held
+   identities, and `IdentityLimit` shows from the add's `bound`
+   refusal, which the second part of this item checks). *(Exit gate,
+   "the add refused at the profile's 64-endpoint bound".)*
 10. Add's lost answer, two runs, each ending with exactly one identity
     for the form's key: (a) the daemon stopped after it has written the
     add and before it answers, then started again: `IdentityAddUnknown`
@@ -2248,7 +2269,11 @@ pass before it lands.
     unfinished, and the row still reads `IdentityPartlyRemoved`, with
     `StorageDegraded` shown, and, once the store accepts writes again,
     no lease is taken for it; brought in front before the restart, it
-    shows no conversation in Chats and no way to start one as it;
+    shows no conversation in Chats and no way to start one as it
+    (needs plan §18 carry 11's new-conversation flow: no client builds
+    one at this note's head, so before it the check holds by absence),
+    and its page shows `KeyMissing`, the alias with its Copy and Remove,
+    with no card field, photo control or Save and no Make default;
     after the restart neither row shows it;
     Remove chosen again completes as above, with no snackbar of
     failure. With a seam that drops the connection after the device has
@@ -2295,8 +2320,11 @@ pass before it lands.
     on the added identity's page, Make default from the overflow; the
     overflow button is gone and focus is on the page's title; Undo on
     the snackbar brings Make default and the button back, and focus is
-    on the overflow button. Needs Remove's change (§6.2 step 4: Make
-    default lands with it). *(§6.2, F31.)*
+    on the overflow button. In a second run the Undo's write is made to
+    fail: `IdentityChangeFailed` shows, naming the first identity, the
+    added identity stays the default, no overflow button is drawn, and
+    focus is on the page's title. Needs Remove's change (§6.2 step 4:
+    Make default lands with it). *(§6.2, F31.)*
 15. Advertise: no screen offers a control for it; with `advertise: true`
     authored and the assertion made to fail, the identity shows
     `IdentityNotHidden` with Try again and no lease is granted; made to
