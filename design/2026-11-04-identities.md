@@ -629,8 +629,11 @@ confirms nothing itself (below Android 13, and the desktop), the
 snackbar `AliasCopied` ("The name to use on the command line was
 copied."), with
 no action; where the platform confirms a copy itself, nothing more.
-Focus stays on Copy. A copy that fails is not told, as Copy PeerId's
-is not today: this note adds no text for it (§15). Editing the card's
+Focus stays on Copy. A copy that the platform refuses is told as
+Copy message source's is (long-message §5.3): the snackbar
+`AliasNotCopied` ("Could not copy the name to use on the command line.
+Choose Copy to try again."), with no action, and focus stays on Copy.
+Editing the card's
 name later does not change it, since a script may use it; the command
 line renames it (ADR-0061 d. 7), and a rename it refuses is its own
 (`AliasInvalid`, `AliasTaken`). **Alternative named:** an alias field
@@ -1117,9 +1120,13 @@ Outcomes other than Done, each with nothing half-made shown as made:
   card (cards §4); on Chats, the switch and the "as" lines, which a
   wide layout shows beside the editor. The card editor shows the first
   identity's page because, when one identity is held, that identity is
-  always the first. When focus was on an item of the editor's overflow
-  menu, the menu closes and focus goes to the overflow button (§11
-  F28); otherwise focus stays where it was.
+  always the first. The overflow button is drawn only while the
+  overflow holds an item: with the first identity the default, cards
+  §5.2 offers neither Make default nor Turn off on it, and the editor
+  shows no overflow button. When focus was on an item of the editor's
+  overflow menu, the menu closes and focus goes to the overflow button,
+  or to the page's title when no button is drawn (§11 F28); otherwise
+  focus stays where it was.
   One case of discard leaves something that the person can see
   (ADR-0061 decision 7, A 2026-11-26 (ii)). When an earlier remove of
   the id was left ahead of the running device (answered `Internal`,
@@ -1160,15 +1167,25 @@ Outcomes other than Done, each with nothing half-made shown as made:
   identity, but the client could not take it into the identities it
   holds yet (the store could not be read, or the client holds as many
   as it can), and Your identities lists only identities the client
-  holds. Your identities opens with no row for it, focus on the title
-  (F4), and `ConfirmIdentityAdded` shows, whether or not the card was
+  holds. Done lands where it would have, with no row for the new
+  identity and focus on that screen's title (§11 F30): Your identities
+  when two or more identities were held before; with one held before,
+  the card editor that the form was opened from, as after Back (cards
+  §5.1: Your identities is shown only while two or more are held), so
+  that nothing about the screens changes yet. In both,
+  `ConfirmIdentityAdded` shows, whether or not the card was
   written, since no row can say that the identity was made: with
   `IdentityCardNotSaved` owed, the snackbar's `{name}` is the name the
   form held. When the client holds the identity later (it tries again
   at each poll, or, when its queue of identities waiting to be held is
-  full, at the next start), its row appears in the list's order, with
-  `IdentityCardNotSaved` under it if its card was not written, and
-  focus does not move; nothing is announced. Hypothesis: a person who
+  full, at the next start), it appears as an identity that a settle
+  finds does (the settle, above): with two or more held before, its row
+  appears in the list's order, with `IdentityCardNotSaved` under it if
+  its card was not written; with one held before, it is the second
+  identity added, and the card editor, the app options and Chats change
+  as the settle's paragraph on a second identity says. Focus is F28's
+  in the card editor and otherwise does not move; nothing is announced.
+  Hypothesis: a person who
   reads `ConfirmIdentityAdded` and sees no row waits, or opens the list
   again, rather than choosing Add again; falsified if a person in a
   test adds a second identity for the same name in this state. That
@@ -1518,6 +1535,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
   dialog with nothing changed, and focus returns to its opener; with
   none open, they leave the page as its back arrow does, through the
   unsaved-changes dialog when cards §5.2 asks for it.
+  The one exception: while Remove runs in the identity Remove dialog,
+  Escape and Back do nothing and the dialog stays (§7, "While Remove
+  runs"; F29).
 - **No shortcut switches identity.** Switching is reached by Tab to the
   switch and Enter. **Alternative named:** Ctrl+1…9 to switch. Rejected:
   a switch made without the switcher in view is the act the owner's rule
@@ -1532,7 +1552,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | switcher (sheet or dialog) | its title (a focus stop, so the reading starts there), the identity rows, Your identities |
 | Your identities | back arrow, title, the shared-device statement, `IdentitiesUnlisted`, the rows in order (a row is one stop; its Try again, when shown, the next), Add an identity or `IdentityLimit` |
 | add form | back arrow, title, photo buttons, Name, Family name, `IdentityNewNote`, the line above Create when one shows, then Create or, in its place, `IdentityLimit`, `IdentityAddKeyGone`, or `IdentityAddWaitsSeed` and its Try again |
-| an identity's page | as cards §5.2, then `IdentityAlias` and its Copy, then the overflow |
+| an identity's page | as cards §5.2, then `IdentityAlias` and its Copy, then the overflow button when it is drawn (it is drawn only while the overflow holds an item, §6.2's settle) |
 | Trust | back arrow, title and subtitle, `TrustScope`, then as today |
 | Peers | back arrow, title and subtitle, Show my address, Add an address, `PeersShared`, `PeersNoTrust`, the rows as today |
 | a contact | as cards §6.3; on each route row, Open conversation, then the route menu button |
@@ -1570,8 +1590,9 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F25 | the form's seed is not answered while focus is on the inert Create; or a seed is answered while `IdentityAddWaitsSeed` shows (§6.2) | in the first case, `IdentityAddWaitsSeed`; in the second, if focus was on the line or its Try again, Create, which takes their place; with focus elsewhere, focus stays where it was | keyboard, with acceptance 10 (u) |
 | F26 | `CardDiscardChanges` opens on the add form, and closes (§6.2, "Leaving asks first") | as cards §5.2 gives it: Continue editing on opening; on Continue editing, the control that had focus when the dialog opened, or, if that control no longer exists, the control that cards §5.2's rule gives for that case; on Close without saving, where the leaving puts it | keyboard, with acceptance 10 (w) |
 | F27 | Try again under `IdentityAddWaitsSeed` (§6.2) | stays on Try again, inert, while the seed is asked; on a seed not answered, stays on Try again, enabled again; on a seed answered, as F25 | keyboard, with acceptance 10 (u) |
-| F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; when the overflow then holds no item (Make default and Turn off not offered there, cards §5.2), no overflow button is drawn, and focus goes to the page's title (rust-ui-dev-02's QUESTION 01a21fa9, U2); otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant, once on a build whose overflow keeps an item and once on one where it keeps none |
+| F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; when the overflow then holds no item (Make default and Turn off not offered there, cards §5.2), no overflow button is drawn, and focus goes to the page's title (rust-ui-dev-02's QUESTION 01a21fa9, U2); otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant, once with the first identity not the default (the overflow keeps an item) and once with it the default (it keeps none) |
 | F29 | Remove chosen in the identity Remove dialog (§7, "While Remove runs") | stays on Remove, its accessible name `IdentityRemoving`, while it runs; Tab and Shift+Tab do not reach the disabled Cancel; when it ends done, F11; when it ends with `IdentityChangeFailed`, `IdentityRemoveUnfinished` or `IdentityRemoveUnfinishedRows`, the overflow button of the identity's page | keyboard, with acceptance 13's refusal run, its run with the unlink made to fail, and a run whose remove answer is held past the add's wait; desktop screen reader: Remove read as "Removing {identity}" while it runs |
+| F30 | Create ends Done with the identity made and not held yet (§6.2) | the title of the screen Done lands on: Your identities with two or more held before, the card editor with one; when the identity is held later, F28 in the card editor, and otherwise focus stays where it was | keyboard, with acceptance 11b's runs |
 
 ## 12. Accessibility beyond focus
 
@@ -1704,6 +1725,7 @@ front.
 | `CopyAlias` | Copy | the button beside `IdentityAlias` (§6.2) | new text, proposal; copy, the line beside it saying what |
 | `CopyAliasName` | Copy the name to use on the command line | that button's accessible name (§6.2); never visible text | new text, proposal; begins with `CopyAlias`'s visible text (WCAG 2.5.3) and says what is copied |
 | `AliasCopied` | The name to use on the command line was copied. | snackbar after that Copy where the platform confirms nothing itself (below Android 13, and the desktop), no action | new text, proposal; the command-line name was copied, named as `IdentityAlias` names it |
+| `AliasNotCopied` | Could not copy the name to use on the command line. Choose Copy to try again. | snackbar when the platform refuses that Copy (§6.2), no action | new text, proposal, after `MessageNotCopied`; the copy failed, and Copy again is the way on |
 | `ConfirmIdentityAdded` | {name} was created. It does not trust any peer yet. | snackbar | {name} added; it trusts no one yet |
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityAddNotFinished` | {name} was created, but InterWeave could not finish setting it up. Choose Create to finish. Create does not create a second one. | the add form, above Create | it exists, but is not ready yet; Create finishes it and makes nothing new |
@@ -1842,7 +1864,9 @@ pass before it lands.
    On an identity's page, Copy beside `IdentityAlias` is read as "Copy
    the name to use on the command line", puts the alias alone on the
    clipboard, and keeps focus; `AliasCopied` shows on the desktop and
-   below Android 13, and nothing shows on Android 13 or later.
+   below Android 13, and nothing shows on Android 13 or later. With
+   the clipboard write made to fail, `AliasNotCopied` shows and focus
+   stays on Copy.
 9. Add at the bound: with 64 endpoints, Create is not offered and
    `IdentityLimit` is focused; the daemon's refusal by name shows the
    same if the list was stale. Needs D1. *(Exit gate, "the add refused
@@ -1997,16 +2021,19 @@ pass before it lands.
     identity held, then Back and Close without saving: the closing's
     settle finds the id listed with its key file at its key path and
     deletes the record; the card editor then shows the identity's name
-    as its subtitle and an overflow with the items that cards §5.2
-    lists for the first identity's page, which include neither Add
-    another identity nor Remove this identity; the app options show
+    as its subtitle and, when the first identity is not the default,
+    an overflow with the items that cards §5.2 lists for the first
+    identity's page, which include neither Add another identity nor
+    Remove this identity, or, when it is the default, no overflow
+    button; the app options show
     Your identities, nothing is switched, and focus stays where Back
     put it; on a wide layout the switch shows on the
     Chats bar beside the editor. In a second variant, for §11 F28, a
     seam holds back the closing settle's list answer for some seconds,
     less than the add's wait, and the editor's overflow menu is opened
     meanwhile: when the settle finds the id, the menu closes and focus
-    is on the overflow button.
+    is on the overflow button, in a run where the first identity is not
+    the default, and on the editor's title, in a run where it is.
     Needs ADR-0061 decision 7 as amended A 2026-11-27.
     (u) A run in which no seed was answered (a seam makes
     `admin.trust.seed` fail), in four variants. The first opens the
@@ -2093,13 +2120,25 @@ pass before it lands.
     waiting to be held made full, the same, and the row appears only
     after the app is restarted. In each run, with the card write also
     made to fail, `ConfirmIdentityAdded` still shows, and the row, when
-    it appears, carries `IdentityCardNotSaved`.
+    it appears, carries `IdentityCardNotSaved`. A third run starts with
+    one identity held and the form opened from the card editor's Add
+    another identity, the hold refused once: Done lands on the card
+    editor, focus on its title, `ConfirmIdentityAdded` shows, and the
+    editor, the app options and Chats are unchanged; at the next poll
+    they change as for a second identity that a settle finds (10 (t)'s
+    first variant), and focus is F28's.
 11c. Add with no daemon running (desktop) on a form whose seed was
     answered earlier in the run, and no earlier add of its key ended
     unknown: Create ends with `IdentityAddFailed` focused, and the key
     file and the record are deleted when the form is left. On a form where an
     earlier add of its key ended unknown, the same stop ends with
     `IdentityAddUnknown`. Needs D1.
+11d. Store degraded (`StorageDegraded` shown, the store made to refuse
+    writes), with two identities held: Your identities' Add an identity
+    and the added identity's Remove are disabled, with the degraded
+    notice above them; an identity's Save stays enabled, and a Save
+    chosen there leaves the editor open with its fields as they were and
+    shows nothing that says the card was saved (§15).
 12. Add offers no configured endpoint that is not an identity (an
     agent's), and lists none as an identity. *(`human-client-ui.md` §13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
@@ -2217,8 +2256,9 @@ pass before it lands.
 20. Keyboard: every control of §11's reading-order table is reached by
     Tab in that order on the desktop, and by a hardware keyboard on the
     Pixel; Escape and Back close each menu, sheet and dialog with
-    focus on the opener; no key switches identity without the switcher.
-21. Focus table: each row F1–F29 holds, checked as its row says.
+    focus on the opener, except the identity Remove dialog while Remove
+    runs, which they leave open (13a); no key switches identity without the switcher.
+21. Focus table: each row F1–F30 holds, checked as its row says.
 22. Contrast: one row per mark and surface named in §12, each measured
     at or above its ratio, light and dark.
 23. TalkBack: each "as" line is read with its control, and each
@@ -2363,20 +2403,23 @@ pass before it lands.
 - **A desktop system notification** (§9; its rule ruled, §16 Q6).
 - **Editing the alias in the graphical clients** (§6.2): the command
   line's.
-- **A Copy of the alias that fails** (§6.2): told nowhere, as a Copy
-  PeerId that fails is told nowhere today. A clipboard that refuses a
-  write is not a state this note has seen on either platform; if a run
-  shows one, both Copies get their text together.
+- **A Copy PeerId that fails** (Details' Copy, cards §6.4): it is told
+  nowhere today, while Copy message source (long-message §5.3) and the
+  alias's Copy (§6.2) tell theirs. Bringing Details' Copy to the same
+  rule is not this note's change.
 - **A card's Save while the store is degraded** (rust-ui-dev-02's
   QUESTION 01a21fa9, U6). Cards §5.1's store-degraded state disables
-  Add and Remove (Add an identity, and Add another identity in the card
-  editor's overflow); Save stays as the build has it on main, enabled,
-  since cards §5.2 says that Save is never disabled, and the degraded
-  notice (`StorageDegraded`) speaks of messages, not of cards, so a
-  Save shown disabled beside it would not say why. What a Save that
-  the store refuses then shows is not designed by this note; it is
-  owed by ux-designer as its own item, with the card editor's other
-  failed writes.
+  Your identities' Add an identity and an identity's Remove, with the
+  degraded notice above them; Save stays as the build has it on main,
+  enabled, since cards §5.2 says that Save is never disabled, and the
+  degraded notice (`StorageDegraded`) speaks of messages, not of
+  cards, so a Save shown disabled beside it would not say why. What a
+  Save that the store refuses then shows is not designed by this note;
+  it is owed by ux-designer as its own item, with the card editor's
+  other failed writes. Until it is designed, one thing holds: a Save
+  that wrote nothing never closes the editor or shows anything that
+  says the card was saved; the editor stays open with its fields as
+  they were.
 - **Trusting a peer for several identities at once.** Each identity
   trusts as itself; a "trust for all" control would be the cross-
   identity act the owner's rule forbids.

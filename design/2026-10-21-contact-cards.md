@@ -228,8 +228,7 @@ States:
   it answers.
 - **Store degraded** (`StorageDegraded` already shown by the app): the
   list shows what it read; Add and Remove are disabled, with the
-  existing degraded notice above them, and Add another identity in the
-  card editor's overflow is disabled too. Save is not disabled (§5.2:
+  existing degraded notice above them. Save is not disabled (§5.2:
   Save is never disabled); what a Save the store refuses shows is
   identities §15's open item (identities' answer to rust-ui-dev-02's U6,
   2026-11-28).
