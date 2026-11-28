@@ -366,7 +366,9 @@ recovery, which needs the changes still there to retry with).
   the queue before its first statement and ends as a Save that wrote
   nothing (`CardNotSaved`), so that outcome is definite. The bound is
   kept where the queue is, never by a timer in the editor, which could
-  fire while the write still lands. Once started, the write's waits
+  fire while the write still lands: the queued Save is decided once,
+  started or dropped, whichever of its turn and the deadline comes
+  first, even while a command ahead of it is still running. Once started, the write's waits
   are SQLite's file lock, which the store's `BUSY_TIMEOUT` (5 s)
   bounds for each statement, one or two, each ending in a refusal,
   and the device's write itself, which no software bound can cut
@@ -386,7 +388,8 @@ recovery, which needs the changes still there to retry with).
   Save's ending puts it (the items below): the line above Save, or the
   photo's button after a photo that cannot be used.
 - **A Save that wrote.** As "On a valid Save", above.
-- **A Save that wrote nothing**, for any reason the store gives,
+- **A Save that wrote nothing**, for any reason the store gives, or
+  dropped by the queue's 5 s bound (above),
   the degraded store included (§5.1 "Store degraded", where Save stays
   enabled): nothing says the card was saved, and the editor stays
   open with its fields, its photo and the overflow as they were before
@@ -434,11 +437,15 @@ recovery, which needs the changes still there to retry with).
   `CardNotSaved` (nothing was saved, the changes are in the editor,
   and Save is the way on); a picture found unusable makes it
   `CardNotSavedPhoto`, since the editor is then in that item's state
-  (the new photo gone, Save saving the card without it), whichever
-  line showed before. The line stays where it is, so focus on it stays
+  (the new photo gone, Save saving the card without it), but only
+  when the photo stopped the Save that left the line (the line showed
+  `CardNotSavedPhoto` or `CardNotSavedPhotoSlow`, or the `CardNotSaved`
+  one of them became). A line left by the store's refusal or the
+  queue's bound never names the photo: it stays `CardNotSaved`, and
+  the photo step announces `PhotoUnusable` as usual. The line stays where it is, so focus on it stays
   there. The change of text is not announced, except that a picture
-  found unusable announces `CardNotSavedPhoto` in place of
-  `PhotoUnusable`, as in the item above; otherwise the photo step's
+  found unusable that makes the line `CardNotSavedPhoto` announces it
+  in place of `PhotoUnusable`, as in the item above; otherwise the photo step's
   own announcement (`PhotoAdded`, or none for a choice or a removal)
   says what changed, and nothing is read twice.
 - **A kill while Save runs** leaves the card as the store has it: the
@@ -761,8 +768,9 @@ out (§11).
   the page that does not have focus (WCAG 2.2 SC 4.1.3, status messages).
 - When the picture cannot be used, `PhotoUnusable` shows under the
   circle and is announced once through the live region (found while
-  Save waits for it, `CardNotSavedPhoto` is announced in its place,
-  "While Save runs", above); focus stays
+  Save waits for it, or while a line above Save names the photo as
+  the cause, `CardNotSavedPhoto` is announced in its place, "While
+  Save runs", above); focus stays
   on the button, so the person can choose another at once. The line
   is read after the circle in the reading order and is not a stop of
   its own. It goes when another picture is chosen or the photo is
@@ -1856,8 +1864,10 @@ contact deleted, a Move, Make default and a switch announce their
 snackbar text (the photo removed snackbar shows on the contact page only, §6.3; the
 editor's Remove photo announces nothing, §5.2); in the card editor,
 a prepared photo announces `PhotoAdded` and an unusable one
-`PhotoUnusable`, except one found while Save waits for it, which
-announces `CardNotSavedPhoto` in its place (§5.2), and the start of preparing announces nothing (§5.2); Accept announces nothing of its own. Focus moves to the confirmation
+`PhotoUnusable`, except one found while Save waits for it, or while
+a line above Save names the photo as the cause, which announces
+`CardNotSavedPhoto` in its place (§5.2, "The line above Save"), and
+the start of preparing announces nothing (§5.2); Accept announces nothing of its own. Focus moves to the confirmation
 row (§9 item 1's focus table), and the screen reader reads that row:
 `CardAccepted` or `CardUpdated`, and `CardPhotoNotUsed` or
 `CardPhotoNotUsedRemoved` when one shows. So the person hears the result once, and does not hear it again
@@ -2291,7 +2301,10 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     snackbar and nothing that says saved; the card read back is "Anna
     Rossi"; Back then opens `CardDiscardChanges`; once the store accepts
     writes, Save closes the editor and the card read back is "Anna
-    Bianchi". (b) A picture chosen and its preparation held (a test
+    Bianchi". In a second run of (a), with `CardNotSaved` shown, a
+    picture is chosen that cannot be used (a file named `.png` that
+    holds no image): the line stays `CardNotSaved`, and `PhotoUnusable`
+    is heard once, `CardNotSavedPhoto` never. (b) A picture chosen and its preparation held (a test
     hook, or a large picture), then Save: Save shows `CardSaving` and
     keeps focus, the fields and photo buttons are not operable, and a
     second Save writes nothing more; when the preparation ends, the
