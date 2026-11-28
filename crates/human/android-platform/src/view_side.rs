@@ -28,9 +28,8 @@
 //! none (`an_update_reaches_the_model_of_the_identity_it_names`).
 
 use interweave_human_app_core::{
-    AddAct, AddTold, CardSaved, Command, Crossing, Failure, ModelSide, Opener, Surface, Update,
+    AddAct, Command, Crossing, Failure, ModelSide, Opener, Surface, Update,
 };
-use interweave_human_transport_client::AddOutcome;
 use interweave_human_ui_model::{ConnectPhase, HeldIdentity, HeldProblem, StartBusy};
 use interweave_transport_api::EndpointId;
 
@@ -44,35 +43,6 @@ pub struct ListingFailed;
 /// How many add classes wait for [`ViewSide::take_add_classes`] at most;
 /// past it the oldest goes (`add_classes_name_no_id_alias_or_card`).
 const ADD_CLASS_CAP: usize = 32;
-
-/// What came of an add act or a settle, as the platform log names it: its
-/// class, never the identity, its alias or anything its card says. The
-/// match has no wildcard, so an [`AddTold`] given a variant does not
-/// build until it is classed here, and no class is a format of the
-/// variant's fields (`add_classes_name_no_id_alias_or_card`).
-#[must_use]
-pub const fn add_class(told: &AddTold) -> &'static str {
-    match told {
-        AddTold::Offered => "create offered",
-        AddTold::WaitsSeed => "create waits for the first identity's seed",
-        AddTold::NoSeed => "the first identity's seed was not answered",
-        AddTold::OutOfBounds => "the card is outside a card's bounds",
-        AddTold::NotStarted => "create did not start",
-        AddTold::Ended { outcome, card } => match (outcome, card) {
-            (AddOutcome::Created { .. }, Some(CardSaved::Saved)) => "created, card saved",
-            (AddOutcome::Created { .. }, Some(CardSaved::NotSaved)) => "created, card not saved",
-            (AddOutcome::Created { .. }, None) => "created",
-            (AddOutcome::NotFinished, _) => "created, not finished",
-            (AddOutcome::Failed, _) => "refused, nothing created",
-            (AddOutcome::Unknown, _) => "outcome unknown",
-            (AddOutcome::Limit, _) => "refused at the limit",
-            (AddOutcome::KeyGone, _) => "the form's key is gone",
-        },
-        AddTold::Held(_) => "an identity is held from now on",
-        AddTold::NotHeld(_) => "an identity is not held yet, tried again",
-        AddTold::NotHeldUntilRestart(_) => "an identity is not held, not tried again until restart",
-    }
-}
 
 /// The model side a view attached to the hub drives.
 pub struct ViewSide<S: Surface, O: Opener> {
@@ -244,7 +214,10 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
                 if self.add_classes.len() == ADD_CLASS_CAP {
                     self.add_classes.remove(0);
                 }
-                self.add_classes.push(add_class(&told));
+                // The told names its own class, never the identity, its
+                // alias or its card (app-core's
+                // `every_told_class_names_no_id_alias_or_name`).
+                self.add_classes.push(told.class());
             }
             ToView::Identities(identities) => {
                 if let Err(problem) = self.side.held_changed(&identities) {
@@ -528,7 +501,7 @@ impl<S: Surface, O: Opener> ViewSide<S, O> {
 
 #[cfg(test)]
 mod tests {
-    use interweave_human_app_core::Update;
+    use interweave_human_app_core::{AddTold, Update};
     use interweave_human_chat_protocol::{HumanChatV2, MessageKind};
     use interweave_human_client_api::{ClientEvent, Origin, Received, SessionState};
     use interweave_human_core::RowId;
