@@ -1155,3 +1155,89 @@ async fn a_message_admitted_before_the_stop_is_read_before_the_close() {
     let mut daemon = profiles[1].daemon.take().expect("running");
     assert!(daemon.exit().await.success(), "{}", daemon.log());
 }
+
+/// A client's close hands over what was admitted (`LOCAL-IPC.md`
+/// §Disconnect/reconnect, A 2026-11-28): B's client reads nothing before
+/// it closes, so every message B answered `AcceptedV2` is still in B's
+/// endpoint queue, its lane, the socket or the client's buffer when it
+/// closes, and every one is in what the close hands it. A message A sends
+/// after the close is refused -- B's endpoint is unleased, `no_route`,
+/// which A's runtime names `RemoteEndpointUnavailable` -- and a later
+/// client of B's endpoint reads neither the remainder nor the refused one,
+/// while a message sent to it then, the control, is read. As the gap was
+/// found, B's daemon dropped the session's queue at the close, and the
+/// client dropped its own buffer before it, so what B had accepted
+/// reached no one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_message_admitted_before_a_clients_close_is_in_what_the_closer_reads() {
+    let (_base, mut profiles) = stop_order_deployment().await;
+    let mut from = profiles[0].client().await;
+    let mut to = profiles[1].client().await;
+    let a_peer = profiles[0].peer.clone();
+    let b_peer = profiles[1].peer.clone();
+    let accepted = stuff(&mut from, &b_peer).await;
+    assert!(
+        direct_from(&to.received.inbound, &a_peer).is_empty(),
+        "B's client has read nothing before its close"
+    );
+    to.close().await.expect("B's client closes in order");
+    let ids = |client: &Client| -> Vec<MessageId> {
+        direct_from(&client.received.inbound, &a_peer)
+            .iter()
+            .map(|m| m.message_id)
+            .collect()
+    };
+    let got = ids(&to);
+    let lost: Vec<_> = accepted.iter().filter(|id| !got.contains(id)).collect();
+    assert!(
+        lost.is_empty(),
+        "{} of {} accepted were not handed to B's closing client\nB's log:\n{}",
+        lost.len(),
+        accepted.len(),
+        profiles[1].log()
+    );
+    // A's bucket at B may still refuse with `Overloaded` after the fill;
+    // the first other answer is the endpoint's.
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let after = loop {
+        match from.send_once(&b_peer, id(201), "after the close").await {
+            Err(TransportError::Overloaded) if tokio::time::Instant::now() < deadline => {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+            answer => break answer,
+        }
+    };
+    assert_eq!(
+        after,
+        Err(TransportError::RemoteEndpointUnavailable),
+        "after the close B's endpoint is unleased"
+    );
+    let mut later = profiles[1].client().await;
+    let control = from
+        .send(&b_peer, id(202), "to the later client", PATIENCE)
+        .await;
+    assert!(
+        control.outcome.is_ok(),
+        "the later lease takes it: {:?}",
+        control.retried
+    );
+    assert!(
+        later
+            .pump_until(PATIENCE, |r| r
+                .inbound
+                .iter()
+                .any(|m| m.message_id == id(202)))
+            .await,
+        "the control reaches the later client"
+    );
+    let _ = later.pump(Duration::from_millis(500)).await;
+    assert_eq!(
+        ids(&later),
+        [id(202)],
+        "the later client reads neither the remainder nor the refused one"
+    );
+    later.close().await.expect("closes");
+    for profile in &mut profiles {
+        profile.stop().await;
+    }
+}

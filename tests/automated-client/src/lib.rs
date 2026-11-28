@@ -247,6 +247,29 @@ impl Client {
             self.session = None;
             return self.connect(patience).await;
         };
+        self.record(events);
+        Ok(())
+    }
+
+    /// Close the session as a client that leaves in order does, taking
+    /// what the close hands over -- what the daemon had admitted and the
+    /// client had not yet read -- into the record (`LOCAL-CLIENT.md`, A
+    /// 2026-11-28).
+    ///
+    /// # Errors
+    /// The close's own refusal; `EndpointNotRegistered` with no session.
+    pub async fn close(&mut self) -> Result<(), TransportError> {
+        let session = self
+            .session
+            .take()
+            .ok_or(TransportError::EndpointNotRegistered)?;
+        let remainder = session.close().await?;
+        self.record(remainder);
+        Ok(())
+    }
+
+    /// Take `events` into the record.
+    fn record(&mut self, events: Vec<SessionEvent>) {
         for event in events {
             match event {
                 SessionEvent::Direct(m) => self.received.append(Inbound {
@@ -264,7 +287,6 @@ impl Client {
                 SessionEvent::Local(_) => {}
             }
         }
-        Ok(())
     }
 
     /// Pump until `done` holds of the record or `patience` runs out;
