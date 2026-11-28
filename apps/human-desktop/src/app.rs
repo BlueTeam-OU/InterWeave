@@ -5,10 +5,8 @@
 //! takes what the person did -- draining the view's queue, which its bound
 //! depends on -- and hands the commands over.
 
-use interweave_human_app_core::{
-    AddAct, AddTold, CardSaved, ModelSide, Opener, Problem, Surface, Update,
-};
-use interweave_human_transport_client::{AddOutcome, ClientEvent, SessionState};
+use interweave_human_app_core::{AddAct, ModelSide, Opener, Problem, Surface, Update};
+use interweave_human_transport_client::{ClientEvent, SessionState};
 use interweave_human_ui_model::{IdentityIntent, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::View;
 use interweave_transport_api::EndpointId;
@@ -220,7 +218,7 @@ impl<S: Surface, O: Opener> App<S, O> {
                 }
                 // No screen shows it yet: the class goes to the log, never
                 // the identity, its alias or the card's name.
-                FromFacade::Add(told) => log(&format!("add: {}", add_class(&told))),
+                FromFacade::Add(told) => log(&format!("add: {}", told.class())),
                 FromFacade::ListingFailed => {
                     self.listing_failed = true;
                     log("the message store could not be listed");
@@ -374,31 +372,6 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
         Command::UndoContact { .. } => "undo contact",
         Command::DeleteRoute { .. } => "delete route",
         Command::SetContactPhoto { .. } => "set contact photo",
-    }
-}
-
-/// What came of an add act or a settle, as the log names it: its class,
-/// never the identity, its alias or anything its card says.
-const fn add_class(told: &AddTold) -> &'static str {
-    match told {
-        AddTold::Offered => "create offered",
-        AddTold::WaitsSeed => "create waits for the first identity's seed",
-        AddTold::NoSeed => "the first identity's seed was not answered",
-        AddTold::OutOfBounds => "the card is outside a card's bounds",
-        AddTold::NotStarted => "create did not start",
-        AddTold::Ended { outcome, card } => match (outcome, card) {
-            (AddOutcome::Created { .. }, Some(CardSaved::Saved)) => "created, card saved",
-            (AddOutcome::Created { .. }, Some(CardSaved::NotSaved)) => "created, card not saved",
-            (AddOutcome::Created { .. }, None) => "created",
-            (AddOutcome::NotFinished, _) => "created, not finished",
-            (AddOutcome::Failed, _) => "refused, nothing created",
-            (AddOutcome::Unknown, _) => "outcome unknown",
-            (AddOutcome::Limit, _) => "refused at the limit",
-            (AddOutcome::KeyGone, _) => "the form's key is gone",
-        },
-        AddTold::Held(_) => "an identity is held from now on",
-        AddTold::NotHeld(_) => "an identity is not held yet, tried again",
-        AddTold::NotHeldUntilRestart(_) => "an identity is not held, not tried again until restart",
     }
 }
 
