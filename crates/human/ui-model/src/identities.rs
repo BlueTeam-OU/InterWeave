@@ -22,7 +22,7 @@
 
 use unicode_segmentation::UnicodeSegmentation as _;
 
-use crate::labels::{UiText, by_count, fill, isolated, placeholder_en};
+use crate::labels::{HostText, UiText, by_count, fill, isolated, placeholder_en};
 
 /// How many identities a profile holds at most: the profile's endpoint
 /// bound (`interweave-profile-config`'s `MAX_ENDPOINTS`), which this crate
@@ -299,6 +299,12 @@ pub enum FrontOutcome {
     /// it, switching nothing (identities §9, §16 Q7 a;
     /// `a_notification_of_no_one_identity_switches_only_to_the_one_with_news`).
     OpenSwitcher,
+    /// A row of Your identities was chosen: the root opens that
+    /// identity's page, switching nothing (cards §5.1).
+    OpenPage(IdentityKey),
+    /// Your identities' Add an identity: the root opens the add form,
+    /// whose back arrow returns to the list (identities §6.2).
+    OpenAdd,
 }
 
 /// Which notification was opened (identities §9).
@@ -334,13 +340,20 @@ pub enum IdentityIntent {
     /// The switch's snackbar closed without its action: its time, a
     /// swipe, or another snackbar taking its place.
     SnackbarClosed(u64),
-    /// Your identities at the switcher's bottom: the switcher closes and
-    /// the root opens the page, switching nothing.
+    /// Your identities at the switcher's bottom, or in the app options:
+    /// the switcher closes and, with two or more held, the list opens,
+    /// switching nothing.
     OpenIdentities,
     /// Try again on a Could not start identity (identities §5.2): the
     /// root runs the assertion and the lease again; the model waits for
     /// the state the root reads back.
     TryAgain(IdentityKey),
+    /// Your identities was left by its back arrow, Escape or Back.
+    CloseIdentities,
+    /// A row of Your identities was chosen, by the identity it showed.
+    OpenRow(IdentityKey),
+    /// Your identities' Add an identity.
+    Add,
 }
 
 /// Where an act asks focus to go (identities §11's focus table).
@@ -351,6 +364,14 @@ pub enum IdentityFocus {
     Switch,
     /// The switcher's title: it opened (F1).
     SwitcherTitle,
+    /// Your identities' title: it opened (F4), or Done named a row that
+    /// is not held yet (the plan's answer to Q-U5).
+    IdentitiesTitle,
+    /// A row of Your identities, the one [`Identities::focus_row`]
+    /// names: Create ended Done (F6), with its card not saved too (F9).
+    Row,
+    /// `IdentityLimit` under Add: Add was chosen at the bound (F8).
+    Limit,
 }
 
 /// The switch's snackbar while it is up, by its id: a Switch back or a
@@ -489,6 +510,57 @@ pub struct ComposerLine {
     pub try_again: Option<TryAgainControl>,
 }
 
+/// One row of Your identities (cards §5.1, identities §6.1).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityRow {
+    /// The identity whose page it opens.
+    pub key: IdentityKey,
+    /// Its name: its card's, else its alias.
+    pub name: String,
+    /// Its second line, the short `EndpointId`.
+    pub second_line: String,
+    /// That line's accessible name, `IdentityIdLabel`.
+    pub second_line_label: Said,
+    /// `IdentityDefault`, on the default identity's row alone.
+    pub default: Option<UiText>,
+    /// It is the identity in front: the check mark.
+    pub in_front: bool,
+    /// `IdentityInFront` in its accessible description, with the check
+    /// mark.
+    pub description: Option<UiText>,
+    /// Its state's line, when it cannot act now, where the switcher's row
+    /// shows it.
+    pub state: Option<Said>,
+    /// Try again, on a Could not start identity.
+    pub try_again: Option<TryAgainControl>,
+    /// `IdentityCardNotSaved`: Done made it and did not write its card.
+    pub card_not_saved: Option<UiText>,
+}
+
+/// Your identities' primary and what stands under it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AddControl {
+    /// `AddIdentity`.
+    pub text: UiText,
+    /// `IdentityLimit` under it, at the bound: Add then opens nothing.
+    pub limit: Option<UiText>,
+}
+
+/// Your identities (cards §5.1, identities §6.1), top to bottom.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentitiesPage {
+    /// `IdentitiesTitle`.
+    pub title: UiText,
+    /// The shared-device statement, in the root's host's words.
+    pub statement: HostText,
+    /// `IdentitiesUnlisted`.
+    pub unlisted: UiText,
+    /// Every held identity, in the order held.
+    pub rows: Vec<IdentityRow>,
+    /// Add an identity, on a root that can add.
+    pub add: Option<AddControl>,
+}
+
 /// The lock screen's one entry (identities §9): the app's name and
 /// `MessagesChannel` ("New messages", the text `MessagesWaitingLocked`
 /// asks for). It has no field for a name or a count, whatever the number
@@ -531,6 +603,15 @@ pub struct Identities {
     snackbar_seq: u64,
     /// The newest focus request, by its own count.
     focus: Option<(u64, IdentityFocus)>,
+    /// The row the newest [`IdentityFocus::Row`] request names.
+    focus_row: Option<IdentityKey>,
+    /// Your identities is shown.
+    list_open: bool,
+    /// The root can add an identity: false until it says so.
+    adds: bool,
+    /// The identities whose card Done did not write, until a held list
+    /// gives each a card's name: kept for the session.
+    cards_not_saved: Vec<IdentityKey>,
 }
 
 impl Identities {
@@ -606,7 +687,15 @@ impl Identities {
         let was_sending = self
             .front_held()
             .map(|h| (h.key.clone(), h.state == IdentityState::Ready));
+        let was_named = self.shows_identity();
         self.held = held;
+        // A card saved since: its row no longer says that it was not.
+        let held = &self.held;
+        self.cards_not_saved.retain(|key| {
+            !held
+                .iter()
+                .any(|h| &h.key == key && h.card_name.as_deref().is_some_and(|n| !n.is_empty()))
+        });
         let mut change = HeldChange::default();
         if self.front_held().is_none() {
             self.front = self.fallback();
@@ -642,6 +731,12 @@ impl Identities {
         // (`going_back_to_one_closes_the_switcher_and_its_snackbar`).
         if !self.shows_identity() {
             self.switcher_open = false;
+        }
+        // Back to one, there is no list. Only on the way down: Done may
+        // open it before the new identity is held, which then shows it
+        // (`done_before_the_new_identity_is_held_shows_the_list_when_it_is`).
+        if was_named && !self.shows_identity() {
+            self.list_open = false;
         }
         if !self.shows_identity() || self.previous.is_none() {
             self.snackbar = None;
@@ -725,8 +820,11 @@ impl Identities {
     /// (`a_choice_is_taken_from_the_open_switcher_alone`); choosing the
     /// row in front closes it with nothing changed
     /// (`choosing_the_chosen_row_closes_the_switcher_with_nothing_changed`).
-    /// Your identities and Try again change nothing here: the root opens
-    /// the page or runs the retry.
+    /// Your identities, its rows and Add, and Try again switch nothing:
+    /// the list opens and closes here
+    /// (`your_identities_opens_from_the_switcher_and_focuses_its_title`),
+    /// and the root opens a row's page or the add form, or runs the
+    /// retry.
     pub fn act(&mut self, intent: IdentityIntent, unsaved_edit: bool) -> FrontOutcome {
         match intent {
             IdentityIntent::OpenSwitcher => {
@@ -771,10 +869,120 @@ impl Identities {
             }
             IdentityIntent::OpenIdentities => {
                 self.switcher_open = false;
+                // With one identity there is no list: the root opens that
+                // identity's card (cards §5.1).
+                if self.shows_identity() {
+                    self.list_open = true;
+                    self.ask_focus(IdentityFocus::IdentitiesTitle);
+                }
                 FrontOutcome::Unchanged
             }
             IdentityIntent::TryAgain(_) => FrontOutcome::Unchanged,
+            IdentityIntent::CloseIdentities => {
+                self.list_open = false;
+                FrontOutcome::Unchanged
+            }
+            IdentityIntent::OpenRow(key) => {
+                if self.identities_open() && self.get(&key).is_some() {
+                    FrontOutcome::OpenPage(key)
+                } else {
+                    FrontOutcome::Unchanged
+                }
+            }
+            IdentityIntent::Add => {
+                if !self.identities_open() || !self.adds {
+                    return FrontOutcome::Unchanged;
+                }
+                // Interim, Q-A2 (a), until the endpoint list's read lands
+                // (the plan's PR 4): the list knows no bound but the
+                // identities it holds, so below 64 held Add always opens
+                // the form, and an add refused `bound` shows
+                // `IdentityLimit` there in Create's place. No endpoint
+                // list is read here.
+                if self.can_add() {
+                    FrontOutcome::OpenAdd
+                } else {
+                    self.ask_focus(IdentityFocus::Limit);
+                    FrontOutcome::Unchanged
+                }
+            }
         }
+    }
+
+    /// Whether Your identities is shown: opened, and two or more held.
+    #[must_use]
+    pub const fn identities_open(&self) -> bool {
+        self.list_open && self.shows_identity()
+    }
+
+    /// The root says whether it can add an identity: Add is drawn only
+    /// where it can (`add_is_drawn_only_on_a_root_that_can_add`).
+    pub const fn set_adds(&mut self, adds: bool) {
+        self.adds = adds;
+    }
+
+    /// A Create ended Done with `key` (identities §6.2 step 4): Your
+    /// identities opens on its row (F6), which says that its card was
+    /// not saved when `card_saved` is false (F9) until a held list gives
+    /// it a card's name. A row not held yet is not waited for: the title
+    /// takes focus.
+    pub fn added(&mut self, key: &IdentityKey, card_saved: bool) {
+        self.switcher_open = false;
+        self.list_open = true;
+        if !card_saved && !self.cards_not_saved.contains(key) {
+            // As many as a profile holds; a mark past that is dropped, the
+            // oldest first, so the list stays bounded.
+            if self.cards_not_saved.len() >= IDENTITY_CAP {
+                self.cards_not_saved.remove(0);
+            }
+            self.cards_not_saved.push(key.clone());
+        }
+        if self.get(key).is_some() {
+            self.focus_row = Some(key.clone());
+            self.ask_focus(IdentityFocus::Row);
+        } else {
+            self.ask_focus(IdentityFocus::IdentitiesTitle);
+        }
+    }
+
+    /// Your identities, while it is shown.
+    #[must_use]
+    pub fn your_identities(&self) -> Option<IdentitiesPage> {
+        if !self.identities_open() {
+            return None;
+        }
+        let rows = self
+            .held
+            .iter()
+            .map(|h| {
+                let in_front = self.front.as_ref() == Some(&h.key);
+                IdentityRow {
+                    key: h.key.clone(),
+                    name: h.name().into_owned(),
+                    second_line: h.key.short(),
+                    second_line_label: Self::id_label_of(&h.key),
+                    default: h.is_default.then_some(UiText::IdentityDefault),
+                    in_front,
+                    description: in_front.then_some(UiText::IdentityInFront),
+                    state: self.state_line(h),
+                    try_again: try_again(h.state),
+                    card_not_saved: self
+                        .cards_not_saved
+                        .contains(&h.key)
+                        .then_some(UiText::IdentityCardNotSaved),
+                }
+            })
+            .collect();
+        Some(IdentitiesPage {
+            title: UiText::IdentitiesTitle,
+            statement: HostText::IdentitiesShareDevice,
+            unlisted: UiText::IdentitiesUnlisted,
+            rows,
+            add: self.adds.then(|| AddControl {
+                text: UiText::AddIdentity,
+                limit: (!self.can_add()).then_some(UiText::IdentityLimit),
+            }),
+        })
     }
 
     /// Whether the switcher is open: with two or more held alone.
@@ -794,6 +1002,12 @@ impl Identities {
     #[must_use]
     pub const fn focus_request(&self) -> Option<(u64, IdentityFocus)> {
         self.focus
+    }
+
+    /// The row an [`IdentityFocus::Row`] request names.
+    #[must_use]
+    pub const fn focus_row(&self) -> Option<&IdentityKey> {
+        self.focus_row.as_ref()
     }
 
     fn switched(
@@ -1162,7 +1376,10 @@ impl Identities {
         })
     }
 
-    /// Whether Add is offered: below [`IDENTITY_CAP`].
+    /// Whether Add opens the form: below [`IDENTITY_CAP`] held. Interim,
+    /// Q-A2 (a): the identities held are the one count the list has until
+    /// the endpoint list's read lands, which counts every endpoint of the
+    /// profile (cards §5.1, "At the bound").
     #[must_use]
     pub const fn can_add(&self) -> bool {
         self.held.len() < IDENTITY_CAP
@@ -2174,5 +2391,262 @@ mod tests {
         let after = m.switch_view().expect("two or more held");
         assert_eq!(after.least, "Wol", "the premise: another in front");
         assert_eq!(after.leasts, every, "the same, whoever is in front");
+    }
+
+    fn page(m: &Identities) -> IdentitiesPage {
+        m.your_identities().expect("Your identities shown")
+    }
+
+    fn row<'a>(page: &'a IdentitiesPage, tag: &str) -> &'a IdentityRow {
+        page.rows
+            .iter()
+            .find(|r| r.key == key(tag))
+            .expect("the row")
+    }
+
+    /// F4: Your identities at the switcher's bottom closes the switcher,
+    /// opens the list -- it opened nothing before (identities §6.1, U3)
+    /// -- and its title takes focus; nothing switches. Mutation: the
+    /// act left as it was, closing the switcher alone.
+    #[test]
+    fn your_identities_opens_from_the_switcher_and_focuses_its_title() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenSwitcher, false);
+        assert_eq!(
+            m.act(IdentityIntent::OpenIdentities, false),
+            FrontOutcome::Unchanged
+        );
+        assert!(!m.switcher_open());
+        assert!(m.identities_open());
+        assert_eq!(focus(&m), Some(IdentityFocus::IdentitiesTitle));
+        assert_eq!(m.front(), Some(&key("a")), "nothing switched");
+        let p = page(&m);
+        assert_eq!(p.title, UiText::IdentitiesTitle);
+        assert_eq!(p.statement, HostText::IdentitiesShareDevice);
+        assert_eq!(p.unlisted, UiText::IdentitiesUnlisted);
+
+        assert_eq!(
+            m.act(IdentityIntent::CloseIdentities, false),
+            FrontOutcome::Unchanged
+        );
+        assert!(m.your_identities().is_none(), "closed");
+    }
+
+    /// Cards §5.1: the list is shown while two or more are held; with
+    /// one, the root opens that identity's card and the list opens
+    /// nothing, then or when a second identity arrives unasked. Back to
+    /// one, an open list closes. Mutation: the list opened whatever is
+    /// held.
+    #[test]
+    fn with_one_identity_there_is_no_list() {
+        let mut m = model(&["a"]);
+        m.act(IdentityIntent::OpenIdentities, false);
+        assert!(m.your_identities().is_none());
+        assert_eq!(focus(&m), None, "no title to focus");
+        m.held_changed(holding(&["a", "b"])).expect("held");
+        assert!(m.your_identities().is_none(), "not opened by the arrival");
+
+        m.act(IdentityIntent::OpenIdentities, false);
+        assert!(m.your_identities().is_some());
+        m.held_changed(holding(&["a"])).expect("held");
+        assert!(m.your_identities().is_none());
+        m.held_changed(holding(&["a", "b"])).expect("held");
+        assert!(m.your_identities().is_none(), "closed on the way to one");
+    }
+
+    /// Cards §5.1 and identities §6.1: each row, in the order held,
+    /// reads its name -- the card's, else the alias -- its short
+    /// `EndpointId` with `IdentityIdLabel`, `IdentityDefault` on the
+    /// default's row alone, and the check mark with `IdentityInFront` on
+    /// the identity in front alone; a row that cannot act shows its
+    /// state and Try again as the switcher's does. A row opens its page
+    /// and switches nothing. Mutation: every row marked in use.
+    #[test]
+    fn a_row_reads_its_name_its_short_id_default_and_in_use() {
+        let mut m = Identities::new();
+        let mut held = holding(&["a", "b", "c"]);
+        held[1].card_name = None;
+        held[2].state = IdentityState::NotHidden;
+        m.held_changed(held).expect("held");
+        m.start(Some(key("c")));
+        m.act(IdentityIntent::OpenIdentities, false);
+        let p = page(&m);
+        let keys: Vec<_> = p.rows.iter().map(|r| r.key.clone()).collect();
+        assert_eq!(keys, [key("a"), key("b"), key("c")], "the held order");
+
+        let first = row(&p, "a");
+        assert_eq!(first.name, "Name a");
+        assert_eq!(first.second_line, key("a").short());
+        assert_eq!(first.second_line_label.text, UiText::IdentityIdLabel);
+        assert_eq!(
+            first.second_line_label.values,
+            [("short", key("a").short())]
+        );
+        assert_eq!(first.default, Some(UiText::IdentityDefault));
+        assert!(!first.in_front);
+        assert_eq!(first.description, None);
+        assert_eq!(first.state, None);
+
+        let second = row(&p, "b");
+        assert_eq!(second.name, "alias-b", "no card: the alias");
+        assert_eq!(second.default, None);
+        assert!(!second.in_front);
+
+        let third = row(&p, "c");
+        assert!(third.in_front);
+        assert_eq!(third.description, Some(UiText::IdentityInFront));
+        assert_eq!(
+            third.state.as_ref().map(|s| s.text),
+            Some(UiText::IdentityNotHidden)
+        );
+        assert_eq!(third.try_again.map(|t| t.enabled), Some(true));
+        assert_eq!(p.rows.iter().filter(|r| r.in_front).count(), 1);
+
+        assert_eq!(
+            m.act(IdentityIntent::OpenRow(key("b")), false),
+            FrontOutcome::OpenPage(key("b"))
+        );
+        assert_eq!(m.front(), Some(&key("c")), "opening switched nothing");
+        assert_eq!(
+            m.act(IdentityIntent::OpenRow(key("z")), false),
+            FrontOutcome::Unchanged,
+            "not held"
+        );
+    }
+
+    /// Android composes its roster with no add (plan §1.1, "Root can
+    /// add"): Add is drawn only where the root said it can add, and is
+    /// not drawn until it says so. Mutation: a root that can add by
+    /// default.
+    #[test]
+    fn add_is_drawn_only_on_a_root_that_can_add() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenIdentities, false);
+        assert_eq!(page(&m).add, None);
+        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::Unchanged);
+
+        m.set_adds(true);
+        assert_eq!(
+            page(&m).add,
+            Some(AddControl {
+                text: UiText::AddIdentity,
+                limit: None,
+            })
+        );
+        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::OpenAdd);
+
+        m.set_adds(false);
+        assert_eq!(page(&m).add, None);
+    }
+
+    /// F8 and cards §5.1, "At the bound", in the interim of Q-A2 (a): the
+    /// list counts the identities held, so with 63 held Add opens the
+    /// form, and with 64 -- `IDENTITY_CAP`, the profile's bound -- it
+    /// opens nothing, `IdentityLimit` stands under it and takes focus.
+    /// Mutation: `<=` for `<` in `can_add`.
+    #[test]
+    fn at_the_bound_add_opens_nothing_and_the_limit_takes_focus() {
+        let tags: Vec<String> = (0..IDENTITY_CAP).map(|n| format!("i{n}")).collect();
+        let tags: Vec<&str> = tags.iter().map(String::as_str).collect();
+        let mut m = model(&tags[..IDENTITY_CAP - 1]);
+        m.set_adds(true);
+        m.act(IdentityIntent::OpenIdentities, false);
+        assert_eq!(page(&m).add.and_then(|a| a.limit), None);
+        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::OpenAdd);
+
+        m.held_changed(holding(&tags)).expect("64 held");
+        assert_eq!(
+            page(&m).add.and_then(|a| a.limit),
+            Some(UiText::IdentityLimit)
+        );
+        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::Unchanged);
+        assert_eq!(focus(&m), Some(IdentityFocus::Limit));
+    }
+
+    /// F6 and F9, identities §6.2's last outcome: Done opens the list on
+    /// the new row; with its card not saved the row is named by its
+    /// alias and says `IdentityCardNotSaved` until a held list gives it a
+    /// card's name, whatever else that list changes. A row not held yet
+    /// sends focus to the title (Q-U5). The marks are as many as a
+    /// profile holds. Mutation: the mark kept when the card is saved.
+    #[test]
+    fn a_row_whose_card_was_not_saved_says_so_until_its_card_is_saved() {
+        let mut m = model(&["a", "b"]);
+        let mut held = holding(&["a", "b", "c"]);
+        held[2].card_name = None;
+        m.held_changed(held.clone()).expect("held");
+        m.added(&key("c"), false);
+        assert_eq!(focus(&m), Some(IdentityFocus::Row));
+        assert_eq!(m.focus_row(), Some(&key("c")));
+        let p = page(&m);
+        let c = row(&p, "c");
+        assert_eq!(c.name, "alias-c");
+        assert_eq!(c.card_not_saved, Some(UiText::IdentityCardNotSaved));
+        assert_eq!(row(&p, "b").card_not_saved, None);
+
+        held[2].unread = 3;
+        m.held_changed(held.clone()).expect("held");
+        assert_eq!(
+            row(&page(&m), "c").card_not_saved,
+            Some(UiText::IdentityCardNotSaved),
+            "still no card"
+        );
+        held[2].card_name = Some("Name c".to_owned());
+        m.held_changed(held).expect("held");
+        assert_eq!(row(&page(&m), "c").card_not_saved, None, "saved");
+
+        m.added(&key("b"), true);
+        assert_eq!(row(&page(&m), "b").card_not_saved, None);
+        assert_eq!(focus(&m), Some(IdentityFocus::Row));
+        assert_eq!(m.focus_row(), Some(&key("b")));
+        m.added(&key("not-held"), true);
+        assert_eq!(focus(&m), Some(IdentityFocus::IdentitiesTitle));
+
+        for n in 0..=IDENTITY_CAP {
+            m.added(&key(&format!("x{n}")), false);
+        }
+        assert_eq!(m.cards_not_saved.len(), IDENTITY_CAP);
+        assert!(!m.cards_not_saved.contains(&key("x0")), "the oldest went");
+    }
+
+    /// With one identity held before, Done may come before the new
+    /// identity is held: the list it opened shows once that identity is,
+    /// a held list of one in between closing nothing (identities §6.2
+    /// step 4, Q-U5). Mutation: any held list of one closing the list.
+    #[test]
+    fn done_before_the_new_identity_is_held_shows_the_list_when_it_is() {
+        let mut m = model(&["a"]);
+        m.added(&key("c"), false);
+        assert!(m.your_identities().is_none(), "one held: no list yet");
+        assert_eq!(focus(&m), Some(IdentityFocus::IdentitiesTitle));
+        let mut one = holding(&["a"]);
+        one[0].unread = 1;
+        m.held_changed(one).expect("held");
+        let mut held = holding(&["a", "c"]);
+        held[1].card_name = None;
+        m.held_changed(held).expect("held");
+        let p = page(&m);
+        assert_eq!(
+            row(&p, "c").card_not_saved,
+            Some(UiText::IdentityCardNotSaved)
+        );
+    }
+
+    /// Cards §5.7.3 and `Pane::YourIdentities`: Your identities belongs
+    /// to no identity, so a switch leaves it open and its check mark
+    /// moves to the new identity in front. Mutation: a switch closing
+    /// the list.
+    #[test]
+    fn the_list_stays_across_a_switch_and_its_check_mark_moves() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenIdentities, false);
+        assert!(row(&page(&m), "a").in_front);
+        assert!(!Pane::YourIdentities.closes_on_switch());
+
+        switched(m.switch(&key("b"), false));
+        let p = page(&m);
+        assert!(!row(&p, "a").in_front);
+        assert!(row(&p, "b").in_front);
+        assert_eq!(row(&p, "b").description, Some(UiText::IdentityInFront));
     }
 }
