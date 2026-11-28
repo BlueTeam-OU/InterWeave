@@ -36,7 +36,9 @@
 //! its session's close returned, written after the release and before
 //! the stream ends, under the same bounds, and what it did not take is
 //! counted apart ([`Counters::events_dropped_at_close`]; `LOCAL-IPC.md`
-//! §Disconnect/reconnect, A 2026-11-28). A connection lost any other way
+//! §Disconnect/reconnect, A 2026-11-28): a hand-over its bounds cut short
+//! ends with `close{Timeout}`, a complete one with no `close` at all. A
+//! connection lost any other way
 //! -- a stream cut inside a frame, a read error, a violation, a stall --
 //! is handed nothing.
 
@@ -103,7 +105,8 @@ enum End {
     Gone,
     /// The client left: a clean end of stream between frames, its write
     /// half shut. The session is closed first, then what its close
-    /// returned is written, and the stream ends with no `close` frame.
+    /// returned is written, and the stream ends with no `close` frame --
+    /// or with `close{Timeout}` when the hand-over's bounds cut it short.
     Left,
     /// Close with this code.
     Close(TransportError),
@@ -263,46 +266,71 @@ fn numbered(sequence: &mut u64, version: IpcVersion, event: SessionEvent) -> Opt
     Some(Frame::Event(event.into_frame(at)))
 }
 
+/// How a client's close handed its remainder over ([`hand_remainder`]).
+struct Handed {
+    /// The events the connection would have written and never put in the
+    /// lane: `run` counts them with what the writer left in it.
+    left: usize,
+    /// Whether the writer took every event within the bounds. One that
+    /// did not is told so with `close{Timeout}` ([`Connection::end`]).
+    complete: bool,
+}
+
 /// A client's close (`LOCAL-IPC.md` §Disconnect/reconnect, A 2026-11-28):
 /// `remainder`, what the session's close returned, written into the event
 /// lane numbered as the pump numbers events, a slot at a time, and then
 /// waited on until the writer has taken every event, so the stream the
 /// writer ends after carries all of it. Bounded by `until`, the grace from
 /// the end of stream, and by the writer, which closes the lane when it
-/// gives up on a client that does not read (`write_stall`). Answers how
-/// many of the remainder were never put in the lane -- the writer counts
-/// what the lane still holds (`run`). Pinned by
-/// `a_clients_close_is_written_what_the_session_held_before_the_stream_ends`
-/// and `a_clients_close_counts_what_a_client_that_does_not_read_left`.
+/// gives up on a client that does not read (`write_stall`). Pinned by
+/// `a_clients_close_is_written_what_the_session_held_before_the_stream_ends`,
+/// `a_clients_close_counts_what_a_client_that_does_not_read_left` and
+/// `a_clients_close_cut_short_ends_with_a_timeout_close`.
+///
+/// What it answers as `left` is only what the connection would have
+/// WRITTEN: an event `numbered` skips -- the runtime's state, which the
+/// connection's own `server_state` frame carries, or a type the
+/// negotiated version does not have -- is no loss to this client, so it
+/// is not counted when the bounds cut the hand-over short. The state does
+/// ride a close's remainder (the session's owed notices lead with it), so
+/// counting the remainder's length would overcount
+/// (`a_clients_close_counts_what_a_client_that_does_not_read_left`, whose
+/// queue ends in states).
 async fn hand_remainder(
     lanes: &Lanes,
     sequence: &mut u64,
     version: IpcVersion,
     remainder: Vec<SessionEvent>,
     until: tokio::time::Instant,
-) -> usize {
-    let mut left = remainder.len();
-    for event in remainder {
-        let frame = numbered(sequence, version, event);
-        let Some(frame) = frame else {
+) -> Handed {
+    let mut events = remainder.into_iter();
+    while let Some(event) = events.next() {
+        let Some(frame) = numbered(sequence, version, event) else {
             // Not this client's to read: nothing to hand over.
-            left -= 1;
             continue;
         };
-        match tokio::time::timeout_at(until, lanes.events.reserve()).await {
-            Ok(Ok(permit)) => {
-                permit.send(frame);
-                left -= 1;
-            }
-            Ok(Err(_)) | Err(_) => return left,
-        }
+        let Ok(Ok(permit)) = tokio::time::timeout_at(until, lanes.events.reserve()).await else {
+            // Out of time, or the writer gave up: this one, and every later
+            // one the connection would have written. The numbers drawn here
+            // are never sent.
+            let mut unsent = *sequence;
+            let later = events
+                .filter_map(|event| numbered(&mut unsent, version, event))
+                .count();
+            return Handed {
+                left: 1 + later,
+                complete: false,
+            };
+        };
+        permit.send(frame);
     }
     // Every slot free again means the writer has taken every event.
     let all = lanes.events.max_capacity();
-    if let Ok(Ok(permits)) = tokio::time::timeout_at(until, lanes.events.reserve_many(all)).await {
-        drop(permits);
-    }
-    0
+    let complete = matches!(
+        tokio::time::timeout_at(until, lanes.events.reserve_many(all)).await,
+        Ok(Ok(_))
+    );
+    Handed { left: 0, complete }
 }
 
 /// The events a stop counts for its connection's writer, once every
@@ -780,11 +808,20 @@ where
     /// finds no room left is dropped and its request ended by the `close`.
     ///
     /// A client that LEFT is written what the session's close returned,
-    /// after the release and until `until` ([`hand_remainder`]), and sent
-    /// no `close`: the end of the stream is its signal that the remainder
-    /// is complete. Answers how many of the remainder were never put in
-    /// the lane, for `run` to count. Any other end drops what the close
-    /// returned, as before A 2026-11-28; a stop has handed it over first.
+    /// after the release and until `until` ([`hand_remainder`]). When the
+    /// writer took all of it, the client is sent no `close`: a clean end
+    /// of stream is its signal that the remainder is complete. When the
+    /// bounds cut the hand-over short, the client is sent `close{Timeout}`
+    /// in the slot reserved for it, on the control lane the writer reads
+    /// first, so it overtakes any event still in the event lane, which the
+    /// writer then counts as unwritten -- unless the writer is stuck on a
+    /// client that does not read, which then reads no `close` either
+    /// (`a_clients_close_cut_short_ends_with_a_timeout_close`, and
+    /// `a_clients_close_is_written_what_the_session_held_before_the_stream_ends`
+    /// for the complete one). Answers how many of the remainder were
+    /// never put in the lane, for `run` to count. Any other end drops what
+    /// the close returned, as before A 2026-11-28; a stop has handed it
+    /// over first.
     ///
     /// A finished answer is not dropped for losing a race with `stop`:
     /// `admin.shutdown` is what MAKES the server stop, so its task is done
@@ -797,7 +834,11 @@ where
     async fn end(mut self, end: End, until: tokio::time::Instant) -> usize {
         let leaving = matches!(end, End::Left);
         let close = match end {
-            End::Gone | End::Stalled | End::Left => None,
+            End::Gone | End::Stalled => None,
+            // Sent only if the hand-over is cut short, below.
+            End::Left => {
+                Some(Close::new(TransportError::Timeout).with_message("hand-over cut short"))
+            }
             End::Close(code) => Some(Close::new(code)),
             End::Stop => Some(Close::new(TransportError::ShuttingDown)),
             End::Violation(detail) => {
@@ -831,7 +872,7 @@ where
                 remainder = taken;
             }
         }
-        let held = if leaving {
+        let handed = if leaving {
             hand_remainder(
                 &self.lanes,
                 &mut self.sequence,
@@ -841,7 +882,10 @@ where
             )
             .await
         } else {
-            0
+            Handed {
+                left: 0,
+                complete: false,
+            }
         };
         // What is owed goes first, as far as the lane takes it now -- the
         // writer is not waited for here -- then the close.
@@ -850,10 +894,13 @@ where
                 break;
             }
         }
-        if let Some((permit, close)) = reserved {
+        // A complete hand-over ends with no `close`: its permit is dropped.
+        if let Some((permit, close)) = reserved
+            && !(leaving && handed.complete)
+        {
             permit.send(Frame::Close(close));
         }
-        held
+        handed.left
     }
 }
 
