@@ -51,6 +51,29 @@ fn stopped(_: SubstrateError) -> TransportError {
     TransportError::BackendUnavailable
 }
 
+/// A direct message as the session reads it.
+fn direct_event(e: interweave_transport_runtime::DirectEvent) -> SessionEvent {
+    SessionEvent::Direct(ReceivedDirect {
+        source_peer: e.source_peer,
+        source_endpoint: e.source_endpoint,
+        destination_endpoint: e.destination_endpoint,
+        message_id: e.message_id,
+        payload: e.payload,
+        received_at_ms: e.received_at,
+    })
+}
+
+/// A broadcast as the session reads it.
+fn broadcast_event(e: interweave_transport_runtime::session_queue::BroadcastEvent) -> SessionEvent {
+    SessionEvent::Broadcast(ReceivedBroadcast {
+        source_peer: e.source_peer,
+        channel: e.channel,
+        message_id: e.message_id,
+        payload: e.payload,
+        received_at_ms: e.received_at,
+    })
+}
+
 /// A fresh 128-bit generation (`LOCAL-CLIENT.md` §2, §3).
 fn fresh_generation() -> Result<Generation, TransportError> {
     let bytes: [u8; 16] = rand::random();
@@ -586,25 +609,8 @@ impl DataSessionPort for InProcessSession {
                 .chain(broadcast.iter().map(|e| &e.source_peer)),
         );
         let mut events: Vec<SessionEvent> = owed.into_iter().map(SessionEvent::Local).collect();
-        events.extend(direct.into_iter().map(|e| {
-            SessionEvent::Direct(ReceivedDirect {
-                source_peer: e.source_peer,
-                source_endpoint: e.source_endpoint,
-                destination_endpoint: e.destination_endpoint,
-                message_id: e.message_id,
-                payload: e.payload,
-                received_at_ms: e.received_at,
-            })
-        }));
-        events.extend(broadcast.into_iter().map(|e| {
-            SessionEvent::Broadcast(ReceivedBroadcast {
-                source_peer: e.source_peer,
-                channel: e.channel,
-                message_id: e.message_id,
-                payload: e.payload,
-                received_at_ms: e.received_at,
-            })
-        }));
+        events.extend(direct.into_iter().map(direct_event));
+        events.extend(broadcast.into_iter().map(broadcast_event));
         // The path notices last: the ordinary lane, after every message,
         // under what is left of `max`.
         let room = max - events.len();
@@ -635,20 +641,62 @@ impl DataSessionPort for InProcessSession {
         Ok(())
     }
 
+    /// The release first, and in ONE command of the runtime: the lease
+    /// ends and its endpoint queue is taken together, so nothing is
+    /// admitted to it after, a sender after is answered `no_route`, and
+    /// what it held comes back to this closer rather than being dropped
+    /// (`LOCAL-CLIENT.md`, A 2026-11-28;
+    /// `a_close_hands_over_what_was_admitted_and_after_it_no_route`). The
+    /// rest of the remainder is taken after it, in `events`' order:
+    /// the notices, then the direct messages the release took, then what
+    /// the session's broadcast queue holds at this moment -- a broadcast
+    /// arriving later carries no acceptance and is not handed over --
+    /// then the path notices. The leaves come last, since a session that
+    /// holds no join loses its broadcast queue with its last leave.
     async fn close(mut self) -> Result<Vec<SessionEvent>, TransportError> {
-        let channels = self.channels_to_leave();
-        for channel in channels {
-            self.commander
-                .leave(channel, self.key().to_owned())
-                .await
-                .map_err(stopped)?;
-        }
-        self.commander
+        let released = self
+            .commander
             .release_session(self.key().to_owned())
             .await
             .map_err(stopped)?;
+        let mut remainder = Vec::new();
+        if self.session.holds(DataCapability::Events) {
+            remainder.extend(released.notices.into_iter().map(SessionEvent::Local));
+            remainder.extend(
+                self.notices
+                    .take(self.key(), usize::MAX)
+                    .into_iter()
+                    .map(SessionEvent::Local),
+            );
+            remainder.extend(released.remainder.into_iter().map(direct_event));
+            // A runtime that stopped since the release holds no broadcast
+            // to hand over, nor a join to leave: what was taken is still
+            // the closer's.
+            let broadcast = self
+                .commander
+                .drain_session(self.key().to_owned(), usize::MAX)
+                .await
+                .unwrap_or_default();
+            remainder.extend(broadcast.into_iter().map(broadcast_event));
+            remainder.extend(
+                self.notices
+                    .take_paths(self.key(), usize::MAX)
+                    .into_iter()
+                    .map(SessionEvent::Local),
+            );
+        }
+        for channel in self.channels_to_leave() {
+            if self
+                .commander
+                .leave(channel, self.key().to_owned())
+                .await
+                .is_err()
+            {
+                break;
+            }
+        }
         self.closed = true;
-        Ok(Vec::new())
+        Ok(remainder)
     }
 
     async fn losses(&self) -> Result<interweave_local_client_api::SessionLosses, TransportError> {
