@@ -1639,6 +1639,18 @@ ui_texts! {
     /// An identity's page: the name the command line takes, `{alias}`
     /// last, nothing touching it.
     IdentityAlias => "Name to use on the command line: {alias}",
+    /// The button beside `IdentityAlias`, its visible label: the line
+    /// beside it says what is copied (identities §6.2, "Its Copy").
+    // PLACEHOLDER (en)
+    CopyAlias => "Copy",
+    /// That button's accessible name, never visible text: it begins with
+    /// `CopyAlias`'s visible label (WCAG 2.5.3) and says what is copied.
+    // PLACEHOLDER (en)
+    CopyAliasName => "Copy the name to use on the command line",
+    /// The snackbar after that Copy where the platform confirms nothing
+    /// itself (below Android 13, and the desktop), with no action.
+    // PLACEHOLDER (en)
+    AliasCopied => "The name to use on the command line was copied.",
     /// The snackbar at Done, `{name}` the new identity's.
     ConfirmIdentityAdded => "{name} was created. It does not trust any peer yet.",
     /// The add form, above Create: the client knows that nothing was
@@ -2442,6 +2454,9 @@ mod tests {
             UiText::IdentityNewNote,
             UiText::CreateIdentity,
             UiText::IdentityAlias,
+            UiText::CopyAlias,
+            UiText::CopyAliasName,
+            UiText::AliasCopied,
             UiText::ConfirmIdentityAdded,
             UiText::IdentityAddFailed,
             UiText::IdentityAddUnknown,

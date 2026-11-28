@@ -863,7 +863,7 @@ mod tests {
             "once"
         );
         assert!(!form.create(), "closed");
-        ids.added(&done.key, true);
+        ids.added(&done.key, done.kept.clone());
         assert_eq!(
             ids.focus_request().map(|(_, f)| f),
             Some(IdentityFocus::Row)
@@ -880,7 +880,7 @@ mod tests {
             .expect("Done");
         assert_eq!(done.snackbar, None);
         assert_eq!(done.kept, Some(ada()));
-        ids.added(&done.key, false);
+        ids.added(&done.key, done.kept.clone());
         let page = ids.your_identities().expect("the list");
         let row = page.rows.iter().find(|r| r.key == key("n")).expect("row");
         assert_eq!(row.card_not_saved, Some(UiText::IdentityCardNotSaved));

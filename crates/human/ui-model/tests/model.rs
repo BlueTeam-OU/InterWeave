@@ -423,6 +423,48 @@ fn each_session_notice_carries_the_intent_that_resolves_it() {
     assert_eq!(model.session_notice(), Some(SessionNotice::StorageDegraded));
 }
 
+/// Cards §5.1, "Store degraded": the session's own `StorageDegraded`
+/// reaches Your identities, whose Add is drawn disabled with that notice
+/// as its reason, and a session that writes again enables it.
+/// Mutation: the session event not told to the identities.
+#[test]
+fn add_is_disabled_while_this_session_says_the_store_is_degraded() {
+    use interweave_human_ui_model::{HeldIdentity, IdentityIntent, IdentityKey, IdentityState};
+    let held = |tag: &str, first: bool| HeldIdentity {
+        key: IdentityKey::new(endpoint(tag).as_str()),
+        card_name: Some(tag.to_owned()),
+        alias: tag.to_owned(),
+        state: IdentityState::Ready,
+        is_first: first,
+        is_default: first,
+        unread: 0,
+        not_sent: false,
+    };
+    let mut model = UiModel::new();
+    let identities = model.identities_mut();
+    identities
+        .held_changed(vec![held("a", true), held("b", false)])
+        .expect("held");
+    identities.start(None);
+    identities.set_adds(true);
+    identities.act(IdentityIntent::OpenIdentities, false);
+    let disabled = |model: &UiModel| {
+        model
+            .identities()
+            .your_identities()
+            .and_then(|p| p.add)
+            .and_then(|a| a.disabled)
+    };
+    assert_eq!(disabled(&model), None);
+    model.client_event(ClientEvent::Session(SessionState::StorageDegraded));
+    assert_eq!(
+        disabled(&model),
+        Some(interweave_human_ui_model::UiText::StorageDegraded)
+    );
+    model.client_event(ClientEvent::Session(SessionState::Ready { endpoint: None }));
+    assert_eq!(disabled(&model), None);
+}
+
 /// No daemon replaces "reconnecting" only: storage trouble is still said
 /// as it is, and a ready session shows no notice.
 #[test]

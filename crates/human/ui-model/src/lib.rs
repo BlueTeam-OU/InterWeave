@@ -37,11 +37,11 @@ mod waiting;
 
 pub use connect::{Connect, ConnectFocus, ConnectGate, ConnectInput, ConnectLine, ConnectPhase};
 pub use identities::{
-    AddControl, Badge, ComposerLine, FrontOutcome, HeldChange, HeldIdentity, HeldProblem,
-    IDENTITY_CAP, Identities, IdentitiesPage, IdentityFocus, IdentityIntent, IdentityKey,
-    IdentityRow, IdentityState, LockedEntry, NotificationOpened, Pane, SWITCHING_HOLD_MS, Said,
-    SendControl, ShownSwitchSnackbar, SwitchSnackbar, SwitchView, Switched, Switcher, SwitcherRow,
-    Transition, TryAgainControl,
+    AddControl, AliasLine, Badge, ComposerLine, FrontOutcome, HeldChange, HeldIdentity,
+    HeldProblem, IDENTITY_CAP, Identities, IdentitiesPage, IdentityFocus, IdentityIntent,
+    IdentityKey, IdentityPageView, IdentityRow, IdentityState, LockedEntry, NotificationOpened,
+    Pane, SWITCHING_HOLD_MS, Said, SendControl, ShownSwitchSnackbar, SwitchSnackbar, SwitchView,
+    Switched, Switcher, SwitcherRow, Transition, TryAgainControl,
 };
 pub use identity_add::{
     AddDone, AddEnding, AddFocus, AddForm, AddFormView, AddFrom, AddValues, CreateControl, InPlace,

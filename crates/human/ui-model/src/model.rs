@@ -968,6 +968,10 @@ impl UiModel {
                 if matches!(state, SessionState::Ready { .. }) {
                     self.trust.session_ready();
                 }
+                // Your identities' Add is disabled while the store cannot
+                // write (`add_is_disabled_while_this_session_says_the_store_is_degraded`).
+                self.identities
+                    .set_store_degraded(matches!(state, SessionState::StorageDegraded));
                 self.session = state;
                 self.paths.clear();
             }

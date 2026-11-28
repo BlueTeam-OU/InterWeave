@@ -22,6 +22,7 @@
 
 use unicode_segmentation::UnicodeSegmentation as _;
 
+use crate::identity_add::AddValues;
 use crate::labels::{HostText, UiText, by_count, fill, isolated, placeholder_en};
 
 /// How many identities a profile holds at most: the profile's endpoint
@@ -299,8 +300,8 @@ pub enum FrontOutcome {
     /// it, switching nothing (identities §9, §16 Q7 a;
     /// `a_notification_of_no_one_identity_switches_only_to_the_one_with_news`).
     OpenSwitcher,
-    /// A row of Your identities was chosen: the root opens that
-    /// identity's page, switching nothing (cards §5.1).
+    /// A row of Your identities was chosen: that identity's page opens
+    /// ([`Identities::identity_page`]), switching nothing (cards §5.1).
     OpenPage(IdentityKey),
     /// Your identities' Add an identity: the root opens the add form,
     /// whose back arrow returns to the list (identities §6.2).
@@ -322,10 +323,10 @@ pub enum NotificationOpened {
 /// snackbar, as a view returns it (cards §5.7.1, §5.7.3; identities §11),
 /// applied by [`Identities::act`].
 ///
-/// A type of its own rather than [`crate::Intent`] variants until a
-/// composition root carries identities out: every root matches `Intent`
-/// exhaustively, and nothing feeds a second identity in production yet
-/// (plan §30 step 1).
+/// A type of its own rather than [`crate::Intent`] variants: every root
+/// matches `Intent` exhaustively, so a variant there would change each
+/// of them, while these are carried out by app-core's model side alone
+/// (`ModelSide::take_identity_acts`; plan §30 step 1).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum IdentityIntent {
     /// The switch was activated: the switcher opens.
@@ -354,6 +355,9 @@ pub enum IdentityIntent {
     OpenRow(IdentityKey),
     /// Your identities' Add an identity.
     Add,
+    /// An identity's page was left by its back arrow, Escape or Back:
+    /// Your identities shows again, on that identity's row.
+    ClosePage,
 }
 
 /// Where an act asks focus to go (identities §11's focus table).
@@ -544,6 +548,54 @@ pub struct AddControl {
     pub text: UiText,
     /// `IdentityLimit` under it, at the bound: Add then opens nothing.
     pub limit: Option<UiText>,
+    /// Why Add is disabled, when it is: `StorageDegraded`, the notice the
+    /// app already shows above it while the store cannot write (cards
+    /// §5.1, "Store degraded"). Add then opens nothing.
+    pub disabled: Option<UiText>,
+}
+
+/// The alias line under an identity's card fields (identities §6.2,
+/// "The alias" and "Its Copy").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AliasLine {
+    /// `IdentityAlias`, the alias its last value, bare: the alias grammar
+    /// is lowercase ASCII, and nothing touches it, so the line ends with
+    /// the alias a person copies by hand
+    /// (`the_alias_line_ends_with_the_alias_and_is_absent_without_one`).
+    pub said: Said,
+    /// The alias alone: what Copy puts on the clipboard, without the
+    /// line's words.
+    pub alias: String,
+    /// Copy's visible label, `CopyAlias`.
+    pub copy: UiText,
+    /// Copy's accessible name, `CopyAliasName`.
+    pub copy_name: UiText,
+    /// The snackbar once copied, where the platform confirms nothing
+    /// itself: `AliasCopied`.
+    pub copied: UiText,
+}
+
+/// The page of an identity, opened from its row of Your identities
+/// (cards §5.2; identities §6.2 step 4), apart from its card's fields,
+/// which are that identity's own model's. It has no overflow while two
+/// or more are held: Make default and Remove land together, later
+/// (architect-cto's ruling of 2026-11-28, plan §30; Q-A1 (a)).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IdentityPageView {
+    /// Whose page it is.
+    pub key: IdentityKey,
+    /// The app bar's subtitle: that identity's name (N10).
+    pub subtitle: String,
+    /// `IdentityNotInFront` under the app bar, when it is not the
+    /// identity in front.
+    pub not_in_front: Option<Said>,
+    /// The alias line and its Copy, for an identity with an alias.
+    pub alias: Option<AliasLine>,
+    /// The back arrow's accessible name, `BackToIdentities`.
+    pub back: UiText,
+    /// The add form's values that Done did not write: the editor opens
+    /// holding them as unsaved changes, for this session (F9).
+    pub unsaved: Option<AddValues>,
 }
 
 /// Your identities (cards §5.1, identities §6.1), top to bottom.
@@ -607,11 +659,24 @@ pub struct Identities {
     focus_row: Option<IdentityKey>,
     /// Your identities is shown.
     list_open: bool,
+    /// Whether Add is drawn and whether it opens the form.
+    add_gate: AddGate,
+    /// The identities whose card Done did not write, each with the form's
+    /// values, until a held list gives each a card's name: kept for the
+    /// session.
+    cards_not_saved: Vec<(IdentityKey, AddValues)>,
+    /// The identity whose page is shown, opened from its row.
+    page: Option<IdentityKey>,
+}
+
+/// What Your identities' Add depends on besides the bound.
+#[derive(Debug, Clone, Copy, Default)]
+struct AddGate {
     /// The root can add an identity: false until it says so.
     adds: bool,
-    /// The identities whose card Done did not write, until a held list
-    /// gives each a card's name: kept for the session.
-    cards_not_saved: Vec<IdentityKey>,
+    /// The store cannot write now: Add is disabled (cards §5.1, "Store
+    /// degraded").
+    store_degraded: bool,
 }
 
 impl Identities {
@@ -691,7 +756,7 @@ impl Identities {
         self.held = held;
         // A card saved since: its row no longer says that it was not.
         let held = &self.held;
-        self.cards_not_saved.retain(|key| {
+        self.cards_not_saved.retain(|(key, _)| {
             !held
                 .iter()
                 .any(|h| &h.key == key && h.card_name.as_deref().is_some_and(|n| !n.is_empty()))
@@ -738,6 +803,11 @@ impl Identities {
         if was_named && !self.shows_identity() {
             self.list_open = false;
         }
+        // A page of an identity no longer held has nothing to show, and
+        // with one held the card editor is that identity's page.
+        if !self.shows_identity() || self.page.as_ref().is_some_and(|p| self.get(p).is_none()) {
+            self.page = None;
+        }
         if !self.shows_identity() || self.previous.is_none() {
             self.snackbar = None;
         }
@@ -757,6 +827,7 @@ impl Identities {
         self.opening = None;
         self.switcher_open = false;
         self.snackbar = None;
+        self.page = None;
         self.front.as_ref()
     }
 
@@ -787,6 +858,9 @@ impl Identities {
             return FrontOutcome::Unchanged;
         };
         self.previous = Some(previous.clone());
+        // An identity's page is one identity's pane, which a switch
+        // closes (`Pane::IdentityPage`; `a_switch_closes_an_identitys_page`).
+        self.page = None;
         let switched = self.switched(to, previous, true, false);
         self.shown(&switched);
         FrontOutcome::Switched(switched)
@@ -880,17 +954,35 @@ impl Identities {
             IdentityIntent::TryAgain(_) => FrontOutcome::Unchanged,
             IdentityIntent::CloseIdentities => {
                 self.list_open = false;
+                self.page = None;
                 FrontOutcome::Unchanged
             }
             IdentityIntent::OpenRow(key) => {
                 if self.identities_open() && self.get(&key).is_some() {
+                    // The page opens over the list; the identity in front
+                    // stays (`a_row_opens_that_identitys_page_and_switches_nothing`).
+                    self.page = Some(key.clone());
                     FrontOutcome::OpenPage(key)
                 } else {
                     FrontOutcome::Unchanged
                 }
             }
+            IdentityIntent::ClosePage => {
+                // Back on the row it was opened from
+                // (`back_from_a_rows_page_returns_to_the_list_on_that_row`).
+                if let Some(key) = self.page.take()
+                    && self.identities_open()
+                {
+                    self.focus_row = Some(key);
+                    self.ask_focus(IdentityFocus::Row);
+                }
+                FrontOutcome::Unchanged
+            }
             IdentityIntent::Add => {
-                if !self.identities_open() || !self.adds {
+                // Disabled while the store cannot write: it opens nothing
+                // and moves no focus
+                // (`add_is_disabled_while_the_store_is_degraded`).
+                if !self.identities_open() || !self.add_gate.adds || self.add_gate.store_degraded {
                     return FrontOutcome::Unchanged;
                 }
                 // Interim, Q-A2 (a), until the endpoint list's read lands
@@ -918,24 +1010,36 @@ impl Identities {
     /// The root says whether it can add an identity: Add is drawn only
     /// where it can (`add_is_drawn_only_on_a_root_that_can_add`).
     pub const fn set_adds(&mut self, adds: bool) {
-        self.adds = adds;
+        self.add_gate.adds = adds;
+    }
+
+    /// The store can write, or cannot, as the session says: while it
+    /// cannot, Add is disabled with the degraded notice as its reason
+    /// (`add_is_disabled_while_the_store_is_degraded`).
+    pub const fn set_store_degraded(&mut self, degraded: bool) {
+        self.add_gate.store_degraded = degraded;
     }
 
     /// A Create ended Done with `key` (identities §6.2 step 4): Your
-    /// identities opens on its row (F6), which says that its card was
-    /// not saved when `card_saved` is false (F9) until a held list gives
-    /// it a card's name. A row not held yet is not waited for: the title
-    /// takes focus.
-    pub fn added(&mut self, key: &IdentityKey, card_saved: bool) {
+    /// identities opens on its row (F6). `kept` is the form's values when
+    /// its card was not saved: the row then says so (F9) and its page
+    /// opens holding them, until a held list gives it a card's name;
+    /// `None` when the card was saved. A row not held yet is not waited
+    /// for: the title takes focus.
+    pub fn added(&mut self, key: &IdentityKey, kept: Option<AddValues>) {
         self.switcher_open = false;
         self.list_open = true;
-        if !card_saved && !self.cards_not_saved.contains(key) {
-            // As many as a profile holds; a mark past that is dropped, the
-            // oldest first, so the list stays bounded.
-            if self.cards_not_saved.len() >= IDENTITY_CAP {
-                self.cards_not_saved.remove(0);
+        if let Some(values) = kept {
+            if let Some((_, held)) = self.cards_not_saved.iter_mut().find(|(k, _)| k == key) {
+                *held = values;
+            } else {
+                // As many as a profile holds; a mark past that is dropped,
+                // the oldest first, so the list stays bounded.
+                if self.cards_not_saved.len() >= IDENTITY_CAP {
+                    self.cards_not_saved.remove(0);
+                }
+                self.cards_not_saved.push((key.clone(), values));
             }
-            self.cards_not_saved.push(key.clone());
         }
         if self.get(key).is_some() {
             self.focus_row = Some(key.clone());
@@ -967,9 +1071,8 @@ impl Identities {
                     state: self.state_line(h),
                     try_again: try_again(h.state),
                     card_not_saved: self
-                        .cards_not_saved
-                        .contains(&h.key)
-                        .then_some(UiText::IdentityCardNotSaved),
+                        .kept_values(&h.key)
+                        .map(|_| UiText::IdentityCardNotSaved),
                 }
             })
             .collect();
@@ -978,10 +1081,45 @@ impl Identities {
             statement: HostText::IdentitiesShareDevice,
             unlisted: UiText::IdentitiesUnlisted,
             rows,
-            add: self.adds.then(|| AddControl {
+            add: self.add_gate.adds.then(|| AddControl {
                 text: UiText::AddIdentity,
                 limit: (!self.can_add()).then_some(UiText::IdentityLimit),
+                disabled: self
+                    .add_gate
+                    .store_degraded
+                    .then_some(UiText::StorageDegraded),
             }),
+        })
+    }
+
+    /// The form's values Done kept for `key`, its card not saved.
+    fn kept_values(&self, key: &IdentityKey) -> Option<&AddValues> {
+        self.cards_not_saved
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, values)| values)
+    }
+
+    /// The page of the identity opened from its row, while it is shown:
+    /// with two or more held, the identity held.
+    #[must_use]
+    pub fn identity_page(&self) -> Option<IdentityPageView> {
+        let h = self.named(self.page.as_ref()?)?;
+        Some(IdentityPageView {
+            key: h.key.clone(),
+            subtitle: h.name().into_owned(),
+            not_in_front: self.not_in_front_line(&h.key),
+            alias: (!h.alias.is_empty()).then(|| AliasLine {
+                // Bare, not isolated: an isolate's closing mark would be
+                // the line's last character, after the alias.
+                said: Said::of(UiText::IdentityAlias).with("alias", h.alias.clone()),
+                alias: h.alias.clone(),
+                copy: UiText::CopyAlias,
+                copy_name: UiText::CopyAliasName,
+                copied: UiText::AliasCopied,
+            }),
+            back: UiText::BackToIdentities,
+            unsaved: self.kept_values(&h.key).cloned(),
         })
     }
 
@@ -1087,6 +1225,7 @@ impl Identities {
         };
         self.previous = Some(previous.clone());
         self.switcher_open = false;
+        self.page = None;
         self.opening = Some(Opening {
             to: to.clone(),
             previous,
@@ -2531,6 +2670,7 @@ mod tests {
             Some(AddControl {
                 text: UiText::AddIdentity,
                 limit: None,
+                disabled: None,
             })
         );
         assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::OpenAdd);
@@ -2575,7 +2715,7 @@ mod tests {
         let mut held = holding(&["a", "b", "c"]);
         held[2].card_name = None;
         m.held_changed(held.clone()).expect("held");
-        m.added(&key("c"), false);
+        m.added(&key("c"), Some(AddValues::default()));
         assert_eq!(focus(&m), Some(IdentityFocus::Row));
         assert_eq!(m.focus_row(), Some(&key("c")));
         let p = page(&m);
@@ -2595,18 +2735,18 @@ mod tests {
         m.held_changed(held).expect("held");
         assert_eq!(row(&page(&m), "c").card_not_saved, None, "saved");
 
-        m.added(&key("b"), true);
+        m.added(&key("b"), None);
         assert_eq!(row(&page(&m), "b").card_not_saved, None);
         assert_eq!(focus(&m), Some(IdentityFocus::Row));
         assert_eq!(m.focus_row(), Some(&key("b")));
-        m.added(&key("not-held"), true);
+        m.added(&key("not-held"), None);
         assert_eq!(focus(&m), Some(IdentityFocus::IdentitiesTitle));
 
         for n in 0..=IDENTITY_CAP {
-            m.added(&key(&format!("x{n}")), false);
+            m.added(&key(&format!("x{n}")), Some(AddValues::default()));
         }
         assert_eq!(m.cards_not_saved.len(), IDENTITY_CAP);
-        assert!(!m.cards_not_saved.contains(&key("x0")), "the oldest went");
+        assert!(m.kept_values(&key("x0")).is_none(), "the oldest went");
     }
 
     /// With one identity held before, Done may come before the new
@@ -2616,7 +2756,7 @@ mod tests {
     #[test]
     fn done_before_the_new_identity_is_held_shows_the_list_when_it_is() {
         let mut m = model(&["a"]);
-        m.added(&key("c"), false);
+        m.added(&key("c"), Some(AddValues::default()));
         assert!(m.your_identities().is_none(), "one held: no list yet");
         assert_eq!(focus(&m), Some(IdentityFocus::IdentitiesTitle));
         let mut one = holding(&["a"]);
@@ -2648,5 +2788,201 @@ mod tests {
         assert!(!row(&p, "a").in_front);
         assert!(row(&p, "b").in_front);
         assert_eq!(row(&p, "b").description, Some(UiText::IdentityInFront));
+    }
+
+    fn opened_page(m: &Identities) -> IdentityPageView {
+        m.identity_page().expect("an identity's page shown")
+    }
+
+    /// Cards §5.1 and identities §6.2 step 4: a row of Your identities
+    /// opens that identity's page, the identity in front unchanged and
+    /// nothing switched; a row chosen with the list closed opens nothing.
+    /// Mutation: opening the row switches to it.
+    #[test]
+    fn a_row_opens_that_identitys_page_and_switches_nothing() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenIdentities, false);
+        assert_eq!(
+            m.act(IdentityIntent::OpenRow(key("b")), false),
+            FrontOutcome::OpenPage(key("b"))
+        );
+        assert_eq!(m.front(), Some(&key("a")), "nothing switched");
+        assert_eq!(m.previous(), None);
+        assert_eq!(m.switch_snackbar(), None);
+        assert_eq!(opened_page(&m).key, key("b"));
+
+        m.act(IdentityIntent::CloseIdentities, false);
+        assert_eq!(m.identity_page(), None, "the list's close closes it");
+        assert_eq!(
+            m.act(IdentityIntent::OpenRow(key("b")), false),
+            FrontOutcome::Unchanged,
+            "no list, no row to choose"
+        );
+        assert_eq!(m.identity_page(), None);
+    }
+
+    /// Identities §5's N10 and cards §5.7.2: the page names its identity
+    /// as its subtitle and, when it is not the identity in front, says so
+    /// with `IdentityNotInFront`, naming both; the page of the identity in
+    /// front does not. Mutation: the line given on the front's page too.
+    #[test]
+    fn a_page_not_in_front_says_whose_it_is_and_the_fronts_page_does_not() {
+        let mut m = model(&["a", "b"]);
+        m.act(IdentityIntent::OpenIdentities, false);
+        m.act(IdentityIntent::OpenRow(key("b")), false);
+        let p = opened_page(&m);
+        assert_eq!(p.subtitle, "Name b");
+        let line = p.not_in_front.expect("not in front");
+        assert_eq!(line.text, UiText::IdentityNotInFront);
+        assert_eq!(
+            line.english(),
+            format!(
+                "You are using {}. What you change on this page applies to {}.",
+                name("a"),
+                name("b")
+            )
+        );
+        assert_eq!(p.back, UiText::BackToIdentities);
+
+        m.act(IdentityIntent::ClosePage, false);
+        m.act(IdentityIntent::OpenRow(key("a")), false);
+        let p = opened_page(&m);
+        assert_eq!(p.subtitle, "Name a");
+        assert_eq!(p.not_in_front, None, "the front's own page");
+    }
+
+    /// Identities §6.2, "The alias" and "Its Copy": the page shows
+    /// `IdentityAlias` with the alias its last characters, bare -- no
+    /// isolate or punctuation after it -- and Copy, labelled `CopyAlias`,
+    /// named `CopyAliasName`, putting the alias alone on the clipboard
+    /// and confirmed by `AliasCopied`; an identity with no alias (a first
+    /// identity authored without one) has no line. Mutation: the alias
+    /// isolated as a name is.
+    #[test]
+    fn the_alias_line_ends_with_the_alias_and_is_absent_without_one() {
+        let mut held = holding(&["a", "b"]);
+        held[1].alias = "anna-rossi".to_owned();
+        held[0].alias = String::new();
+        let mut m = Identities::new();
+        m.held_changed(held).expect("held");
+        m.start(None);
+        m.act(IdentityIntent::OpenIdentities, false);
+        m.act(IdentityIntent::OpenRow(key("b")), false);
+        let alias = opened_page(&m).alias.expect("an alias line");
+        assert_eq!(alias.said.text, UiText::IdentityAlias);
+        let line = alias.said.english();
+        assert!(line.ends_with(": anna-rossi"), "{line:?}");
+        assert_eq!(alias.alias, "anna-rossi", "the alias alone");
+        assert_eq!(alias.copy, UiText::CopyAlias);
+        assert_eq!(alias.copy_name, UiText::CopyAliasName);
+        assert_eq!(alias.copied, UiText::AliasCopied);
+        assert!(
+            placeholder_en::text(alias.copy_name).starts_with(placeholder_en::text(alias.copy)),
+            "the accessible name begins with the visible label (WCAG 2.5.3)"
+        );
+
+        m.act(IdentityIntent::ClosePage, false);
+        m.act(IdentityIntent::OpenRow(key("a")), false);
+        assert_eq!(opened_page(&m).alias, None, "no alias, no line");
+    }
+
+    /// Identities §6.2: Back from a row's page returns to Your
+    /// identities, focus on that row; Back with no page open moves
+    /// nothing. Mutation: focus sent to the list's title.
+    #[test]
+    fn back_from_a_rows_page_returns_to_the_list_on_that_row() {
+        let mut m = model(&["a", "b", "c"]);
+        m.act(IdentityIntent::OpenIdentities, false);
+        m.act(IdentityIntent::OpenRow(key("c")), false);
+        assert_eq!(
+            m.act(IdentityIntent::ClosePage, false),
+            FrontOutcome::Unchanged
+        );
+        assert_eq!(m.identity_page(), None);
+        assert!(m.identities_open(), "the list shows again");
+        assert_eq!(focus(&m), Some(IdentityFocus::Row));
+        assert_eq!(m.focus_row(), Some(&key("c")));
+
+        let before = m.focus_request();
+        m.act(IdentityIntent::ClosePage, false);
+        assert_eq!(m.focus_request(), before, "no page, nothing moves");
+    }
+
+    /// F9 and cards §5.2: the page of a row whose card Done did not write
+    /// opens holding the form's values, as unsaved changes; another
+    /// row's page holds none, and once a held list gives that identity a
+    /// card's name its page holds none either. Mutation: the values not
+    /// kept by `added`.
+    #[test]
+    fn a_page_opened_from_a_card_not_saved_row_holds_the_forms_values_unsaved() {
+        let mut m = model(&["a", "b"]);
+        let mut held = holding(&["a", "b", "c"]);
+        held[2].card_name = None;
+        m.held_changed(held.clone()).expect("held");
+        let values = AddValues {
+            name: "Anna".to_owned(),
+            surname: "Rossi".to_owned(),
+            photo: false,
+        };
+        m.added(&key("c"), Some(values.clone()));
+        m.act(IdentityIntent::OpenRow(key("c")), false);
+        assert_eq!(opened_page(&m).unsaved, Some(values));
+        m.act(IdentityIntent::ClosePage, false);
+        m.act(IdentityIntent::OpenRow(key("b")), false);
+        assert_eq!(opened_page(&m).unsaved, None, "another identity's");
+
+        m.act(IdentityIntent::ClosePage, false);
+        held[2].card_name = Some("Anna Rossi".to_owned());
+        m.held_changed(held).expect("held");
+        m.act(IdentityIntent::OpenRow(key("c")), false);
+        assert_eq!(opened_page(&m).unsaved, None, "its card saved since");
+    }
+
+    /// Identities §5.3 and `Pane::IdentityPage`: an identity's page is one
+    /// identity's pane, so a switch closes it, as does a notification's
+    /// switch; the list under it stays. A page whose identity is no longer
+    /// held closes too. Mutation: a switch leaving the page open.
+    #[test]
+    fn a_switch_closes_an_identitys_page() {
+        assert!(Pane::IdentityPage.closes_on_switch());
+        let mut m = model(&["a", "b", "c"]);
+        m.act(IdentityIntent::OpenIdentities, false);
+        m.act(IdentityIntent::OpenRow(key("b")), false);
+        switched(m.switch(&key("c"), false));
+        assert_eq!(m.identity_page(), None);
+        assert!(m.identities_open(), "the list stays");
+
+        m.act(IdentityIntent::OpenRow(key("b")), false);
+        let opened = m.open_notification(NotificationOpened::Identity(key("a")), false, 0);
+        assert!(matches!(opened, FrontOutcome::Opening(_)), "{opened:?}");
+        assert_eq!(m.identity_page(), None, "a notification's switch");
+
+        m.act(IdentityIntent::OpenRow(key("b")), false);
+        m.held_changed(holding(&["a", "c"])).expect("held");
+        assert_eq!(m.identity_page(), None, "b no longer held");
+    }
+
+    /// Cards §5.1, "Store degraded": while the store cannot write, Add is
+    /// drawn disabled with the degraded notice, `StorageDegraded`, as its
+    /// reason, and choosing it opens nothing and moves no focus; once the
+    /// store writes again Add opens the form. Mutation: the fact ignored
+    /// by `act` and by the view.
+    #[test]
+    fn add_is_disabled_while_the_store_is_degraded() {
+        let mut m = model(&["a", "b"]);
+        m.set_adds(true);
+        m.act(IdentityIntent::OpenIdentities, false);
+        m.set_store_degraded(true);
+        assert_eq!(
+            page(&m).add.and_then(|a| a.disabled),
+            Some(UiText::StorageDegraded)
+        );
+        let before = m.focus_request();
+        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::Unchanged);
+        assert_eq!(m.focus_request(), before);
+
+        m.set_store_degraded(false);
+        assert_eq!(page(&m).add.and_then(|a| a.disabled), None);
+        assert_eq!(m.act(IdentityIntent::Add, false), FrontOutcome::OpenAdd);
     }
 }
