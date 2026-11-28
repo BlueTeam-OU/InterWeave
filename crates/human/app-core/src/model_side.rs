@@ -8,15 +8,18 @@ use std::collections::{HashSet, VecDeque};
 
 use interweave_human_chat_protocol::is_allowed_link_scheme;
 use interweave_human_client_api::{ClientEvent, SessionState};
+use interweave_human_transport_client::AddOutcome;
 use interweave_human_ui_model::{
-    ConnectGate, ConversationKey, FrontOutcome, HeldChange, HeldIdentity, HeldProblem,
-    IdentityIntent, IdentityKey, Intent, StartBusy, TrustInput, UiModel, UnlockFacts, ViewEvent,
-    WindowEvent, WindowInput,
+    AddDone, AddEnding, AddForm, AddIntent, AddValues, ConnectGate, ConversationKey, FrontOutcome,
+    HeldChange, HeldIdentity, HeldProblem, IdentityIntent, IdentityKey, Intent, Leave, StartBusy,
+    TrustInput, UiModel, UnlockFacts, ViewEvent, WindowEvent, WindowInput,
 };
 use interweave_transport_api::EndpointId;
 
 use crate::facade::CANCELLED_CAP;
-use crate::protocol::{Command, Crossing, Failure, Update, WindowCommand};
+use crate::protocol::{
+    AddAct, AddTold, CardSaved, Command, Crossing, Failure, Update, WindowCommand,
+};
 
 /// A view as the root drives it: show the model, then hand back what the
 /// person did. `ui-slint`'s `View` is one; a test can script one.
@@ -49,6 +52,57 @@ pub trait Surface {
     /// by default: a surface that draws no switch reports nothing.
     fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
         Vec::new()
+    }
+    /// What the person did on the add form since the last call
+    /// ([`ModelSide::take_add_acts`]). None by default: a surface that
+    /// draws no form reports nothing.
+    fn take_add_intents(&mut self) -> Vec<AddIntent> {
+        Vec::new()
+    }
+}
+
+/// The add form and the list's acts: the profile's, not one identity's,
+/// so what they show is told to every model held
+/// (`the_form_reaches_every_model_and_a_switch_keeps_it`).
+#[derive(Default)]
+struct AddSide {
+    /// The root can add an identity: false until it says so.
+    adds: bool,
+    /// A first-identity seed was answered in this run, as told: a form
+    /// opened later does not ask again.
+    seeded: bool,
+    /// The one form open.
+    form: Option<AddForm>,
+    /// What goes to the facade side, in the person's order.
+    out: Vec<AddAct>,
+    /// Done, until the held list names its identity.
+    done: Option<AddDone>,
+    /// The clock as the root last gave it, for a form opened by an
+    /// identity act, which carries none.
+    now: u64,
+}
+
+impl AddSide {
+    /// Tell `model` whether the root can add and the form as it is.
+    fn tell(&self, model: &mut UiModel) {
+        let identities = model.identities_mut();
+        identities.set_adds(self.adds);
+        identities.set_form(self.form.clone());
+    }
+}
+
+/// How a Create ended, as the form shows it.
+fn ending(outcome: AddOutcome, card: Option<CardSaved>) -> AddEnding {
+    match outcome {
+        AddOutcome::Created { endpoint, .. } => AddEnding::Done {
+            key: IdentityKey::new(endpoint.as_str()),
+            card_saved: card == Some(CardSaved::Saved),
+        },
+        AddOutcome::NotFinished => AddEnding::NotFinished,
+        AddOutcome::Failed => AddEnding::Failed,
+        AddOutcome::Unknown => AddEnding::Unknown,
+        AddOutcome::Limit => AddEnding::Limit,
+        AddOutcome::KeyGone => AddEnding::KeyGone,
     }
 }
 
@@ -276,6 +330,8 @@ pub struct ModelSide<S: Surface, O: Opener> {
     behind: Vec<(EndpointId, Behind)>,
     /// What the root said about the profile, told to every model held.
     facts: RootFacts,
+    /// The add form and the list's acts.
+    add: AddSide,
 }
 
 impl<S: Surface, O: Opener> ModelSide<S, O> {
@@ -296,6 +352,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             identity: None,
             behind: Vec::new(),
             facts: RootFacts::default(),
+            add: AddSide::default(),
         }
     }
 
@@ -322,6 +379,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             if identity != front && !self.behind.iter().any(|(e, _)| e == identity) {
                 let mut made = Behind::new();
                 self.facts.tell(&mut made.model);
+                self.add.tell(&mut made.model);
                 self.behind.push((identity.clone(), made));
             }
         }
@@ -345,6 +403,7 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
             {
                 let mut made = Behind::new();
                 self.facts.tell(&mut made.model);
+                self.add.tell(&mut made.model);
                 self.behind.push((identity.clone(), made));
             }
         }
@@ -381,6 +440,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
         for (identity, behind) in &mut self.behind {
             let _ = tell(&mut behind.model, own(Some(identity)));
         }
+        // Done waits for this list to name its identity, so the row it
+        // focuses exists (F6).
+        self.done_if_held();
         Ok(change)
     }
 
@@ -396,7 +458,9 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// Every other act is the front's model's to decide
     /// ([`interweave_human_ui_model::Identities::act`]): opening and
     /// closing the switcher, a snackbar closing and Your identities change
-    /// what is drawn and send nothing; a choice or Switch back that the
+    /// what is drawn and send no crossing -- the list's opening and its
+    /// Add go to the facade side as add acts, taken by
+    /// [`Self::take_add_acts`] -- and a choice or Switch back that the
     /// model decides is a switch brings that identity in front through
     /// [`Self::switch`], in its order, and the shown switch state -- the
     /// switcher closed, the switch's snackbar naming the new identity, the
@@ -437,14 +501,33 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
     /// snackbar and moves focus once.
     fn identity_act(&mut self, intent: IdentityIntent, send: &mut impl FnMut(Crossing)) {
         let mut decided = self.model.identities().clone();
+        let was_listed = decided.identities_open();
         // No identity's page with unsaved changes reaches the model on
         // this root: the desktop's own card editor asks its discard
-        // question in the view, and no act answers
+        // question in the view, the add form's leaving asks in the form
+        // ([`Self::take_add_acts`]), and no act answers
         // `Identities::discard_confirmed` yet.
         let outcome = decided.act(intent, false);
-        let FrontOutcome::Switched(switched) = outcome else {
-            *self.model.identities_mut() = decided;
-            return;
+        // The list's opening is a settle moment, once per opening, and
+        // only on a root that can add
+        // (`opening_the_list_sends_one_settle_moment_per_opening`).
+        if self.add.adds && !was_listed && decided.identities_open() {
+            self.add.out.push(AddAct::ListOpened);
+        }
+        let switched = match outcome {
+            FrontOutcome::Switched(switched) => switched,
+            other => {
+                *self.model.identities_mut() = decided;
+                if let FrontOutcome::OpenAdd(from) = other
+                    && self.add.adds
+                    && self.add.form.is_none()
+                {
+                    self.add.form = Some(AddForm::open(from, self.add.seeded, self.add.now));
+                    self.add.out.push(AddAct::Opened);
+                    self.tell_add();
+                }
+                return;
+            }
         };
         let old = self.identity.clone();
         let switched_in = self
@@ -472,6 +555,175 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 .model
                 .identities_mut()
                 .start(Some(IdentityKey::new(old.as_str())));
+        }
+    }
+
+    /// Tell every model held, in front or behind, the add form and whether
+    /// the root can add.
+    fn tell_add(&mut self) {
+        self.add.tell(&mut self.model);
+        for (_, behind) in &mut self.behind {
+            self.add.tell(&mut behind.model);
+        }
+    }
+
+    /// Whether this root can add an identity: a root composed with an add
+    /// factory can (`crate::Roster::adding`). Until it says so no Add is
+    /// drawn and no act is sent (`a_root_that_cannot_add_sends_no_act`).
+    pub fn can_add(&mut self, adds: bool) {
+        self.add.adds = adds;
+        if !adds {
+            self.add.form = None;
+            self.add.out.clear();
+        }
+        self.tell_add();
+    }
+
+    /// What the person did on the add form since the last call, at `now`
+    /// (ms), and what the list's acts asked: the acts for the facade side
+    /// ([`crate::Roster::add`]), in the person's order
+    /// (`the_forms_acts_reach_the_facade_in_the_persons_order`). Create
+    /// goes once the form's own rules let it, carrying the form's card;
+    /// Try again is the form opened again, which asks the seed once more;
+    /// a leaving goes once it no longer asks. A root that cannot add takes
+    /// nothing.
+    pub fn take_add_acts(&mut self, now: u64) -> Vec<AddAct> {
+        self.add.now = now;
+        let intents = self.surface.take_add_intents();
+        if !self.add.adds {
+            return Vec::new();
+        }
+        let mut changed = false;
+        for intent in intents {
+            let Some(form) = self.add.form.as_mut() else {
+                break;
+            };
+            changed = true;
+            let mut left = false;
+            match intent {
+                AddIntent::Edited { name, surname } => {
+                    let photo = form.values().photo;
+                    form.edit(AddValues {
+                        name,
+                        surname,
+                        photo,
+                    });
+                }
+                AddIntent::Focused(at) => form.focused(at),
+                AddIntent::ChoosePhoto(chosen) => {
+                    if let Some(seq) = form.photo_chosen() {
+                        self.add.out.push(AddAct::PreparePhoto { chosen, seq });
+                    }
+                }
+                AddIntent::RemovePhoto => {
+                    form.photo_removed();
+                }
+                AddIntent::Create => {
+                    if form.create_checked() {
+                        let (name, surname, photo) = form.card();
+                        self.add.out.push(AddAct::Create {
+                            name,
+                            surname,
+                            photo,
+                        });
+                    }
+                }
+                AddIntent::TryAgain => {
+                    if form.try_again(now) {
+                        self.add.out.push(AddAct::Opened);
+                    }
+                }
+                AddIntent::Leave => left = form.ask_leave() == Leave::Go,
+                AddIntent::Discard(close) => left = form.discard_answered(close),
+            }
+            if left {
+                self.add.form = None;
+                self.add.out.push(AddAct::Left);
+            }
+        }
+        if changed {
+            self.tell_add();
+        }
+        std::mem::take(&mut self.add.out)
+    }
+
+    /// What became of an add act or a settle, at `now` (ms), for the form
+    /// and the list to show. A told for a form already left, or closed at
+    /// Done, changes nothing (`a_told_for_a_form_already_left_changes_nothing`);
+    /// Done closes the form, and Your identities opens on the new row
+    /// once the held list names it
+    /// (`done_opens_the_list_and_focuses_the_new_row_once_the_held_list_names_it`),
+    /// or at once when its identity could not be held yet (Q-U5).
+    pub fn add_told(&mut self, told: AddTold, now: u64) {
+        self.add.now = now;
+        if told == AddTold::Offered {
+            self.add.seeded = true;
+        }
+        // Done's identity could not be held yet: the list opens now, its
+        // title focused, and the row comes when it is held (Q-U5).
+        if let AddTold::NotHeld(id) | AddTold::NotHeldUntilRestart(id) = &told
+            && let Some(done) = self
+                .add
+                .done
+                .take_if(|done| done.key.as_str() == id.as_str())
+        {
+            self.apply_done(&done);
+            return;
+        }
+        let Some(form) = self.add.form.as_mut() else {
+            return;
+        };
+        let mut done = None;
+        match told {
+            AddTold::Offered => form.seed_told(true),
+            AddTold::NoSeed => form.seed_told(false),
+            // Nothing was made, written or sent.
+            AddTold::OutOfBounds | AddTold::NotStarted => {
+                form.ended(AddEnding::Failed);
+            }
+            AddTold::Ended { outcome, card } => done = form.ended(ending(outcome, card)),
+            AddTold::PhotoPrepared { seq, photo } => {
+                form.photo_prepared(seq, photo.map(|p| (p.bytes, p.shown)));
+            }
+            AddTold::WaitsSeed
+            | AddTold::Held(_)
+            | AddTold::NotHeld(_)
+            | AddTold::NotHeldUntilRestart(_) => {}
+        }
+        if let Some(done) = done {
+            self.add.form = None;
+            self.add.done = Some(done);
+            self.done_if_held();
+        }
+        self.tell_add();
+    }
+
+    /// Done's identity is named by the held list: Your identities opens
+    /// on its row in every model.
+    fn done_if_held(&mut self) {
+        let held = self.add.done.as_ref().is_some_and(|done| {
+            self.model
+                .identities()
+                .held()
+                .iter()
+                .any(|h| h.key == done.key)
+        });
+        if held && let Some(done) = self.add.done.take() {
+            self.apply_done(&done);
+        }
+    }
+
+    /// Done, shown: in every model, so a switch shows the list's state as
+    /// it was.
+    fn apply_done(&mut self, done: &AddDone) {
+        let models = std::iter::once(&mut self.model)
+            .chain(self.behind.iter_mut().map(|(_, b)| &mut b.model));
+        for model in models {
+            let identities = model.identities_mut();
+            identities.added(&done.key, done.kept.clone());
+            if let Some(said) = &done.snackbar {
+                identities.confirm_added(said.clone());
+            }
         }
     }
 
@@ -2268,6 +2520,7 @@ mod tests {
         log: Log,
         events: Vec<ViewEvent>,
         intents: Vec<IdentityIntent>,
+        add_intents: Vec<AddIntent>,
     }
 
     impl Surface for Person {
@@ -2290,6 +2543,9 @@ mod tests {
         fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
             std::mem::take(&mut self.intents)
         }
+        fn take_add_intents(&mut self) -> Vec<AddIntent> {
+            std::mem::take(&mut self.add_intents)
+        }
     }
 
     fn key_name(k: &IdentityKey) -> &'static str {
@@ -2311,6 +2567,7 @@ mod tests {
                 log: log.clone(),
                 events: Vec::new(),
                 intents: Vec::new(),
+                add_intents: Vec::new(),
             },
             Nothing,
         );
@@ -2480,5 +2737,278 @@ mod tests {
         act(&mut side, vec![IdentityIntent::SnackbarClosed(id)]);
         assert!(side.model().identities().switch_snackbar().is_none());
         assert!(log.borrow().is_empty(), "nothing sent");
+    }
+
+    /// The person's acts on the add form, then the add acts they asked.
+    fn form_acts(side: &mut ModelSide<Person, Nothing>, intents: Vec<AddIntent>) -> Vec<AddAct> {
+        side.surface_mut().add_intents = intents;
+        side.take_add_acts(0)
+    }
+
+    /// A side of two identities that can add, with Your identities open
+    /// and its Add chosen: the form open, its seed unanswered.
+    fn adding_side(log: &Log) -> (ModelSide<Person, Nothing>, Vec<AddAct>) {
+        let mut side = person_side(log);
+        side.can_add(true);
+        act(
+            &mut side,
+            vec![IdentityIntent::OpenIdentities, IdentityIntent::Add],
+        );
+        let acts = side.take_add_acts(0);
+        (side, acts)
+    }
+
+    fn created(endpoint: &EndpointId, card: CardSaved) -> AddTold {
+        AddTold::Ended {
+            outcome: AddOutcome::Created {
+                endpoint: endpoint.clone(),
+                alias: Some("anna".to_owned()),
+            },
+            card: Some(card),
+        }
+    }
+
+    fn anna() -> AddIntent {
+        AddIntent::Edited {
+            name: "Anna".to_owned(),
+            surname: String::new(),
+        }
+    }
+
+    /// Your identities' opening is a settle moment (identities §6.2, the
+    /// settle): one `ListOpened` per opening, none for an act on a list
+    /// already open, another after it closed and opened again.
+    /// Mutation: every act on the open list sent as an opening.
+    #[test]
+    fn opening_the_list_sends_one_settle_moment_per_opening() {
+        let log: Log = std::rc::Rc::default();
+        let mut side = person_side(&log);
+        side.can_add(true);
+        act(&mut side, vec![IdentityIntent::OpenIdentities]);
+        assert_eq!(side.take_add_acts(0), [AddAct::ListOpened]);
+        act(&mut side, vec![IdentityIntent::OpenIdentities]);
+        act(&mut side, vec![IdentityIntent::OpenRow(key_of(&second()))]);
+        assert!(side.take_add_acts(0).is_empty(), "already open");
+        act(
+            &mut side,
+            vec![IdentityIntent::ClosePage, IdentityIntent::CloseIdentities],
+        );
+        act(&mut side, vec![IdentityIntent::OpenIdentities]);
+        assert_eq!(side.take_add_acts(0), [AddAct::ListOpened], "opened again");
+        assert!(log.borrow().is_empty(), "no crossing: {:?}", log.borrow());
+    }
+
+    /// The form's acts reach the facade side in the person's order (the
+    /// roster's `add`): Add opens the form, `Opened`; Try again under
+    /// `IdentityAddWaitsSeed` is `Opened` again; Create, once offered,
+    /// carries the form's card; a leaving with changes asks first and goes
+    /// as `Left` at Close without saving. Mutations: Try again sent as
+    /// nothing; Create sent with no card's name.
+    #[test]
+    fn the_forms_acts_reach_the_facade_in_the_persons_order() {
+        let log: Log = std::rc::Rc::default();
+        let (mut side, mut acts) = adding_side(&log);
+        side.add_told(AddTold::WaitsSeed, 0);
+        side.add_told(AddTold::NoSeed, 0);
+        acts.extend(form_acts(&mut side, vec![AddIntent::TryAgain]));
+        side.add_told(AddTold::Offered, 0);
+        acts.extend(form_acts(&mut side, vec![anna(), AddIntent::Create]));
+        side.add_told(
+            AddTold::Ended {
+                outcome: AddOutcome::Failed,
+                card: None,
+            },
+            0,
+        );
+        acts.extend(form_acts(&mut side, vec![AddIntent::Leave]));
+        assert!(
+            side.model()
+                .identities()
+                .add_form()
+                .is_some_and(|f| f.view(0).discard.is_some()),
+            "asked first"
+        );
+        acts.extend(form_acts(&mut side, vec![AddIntent::Discard(true)]));
+        assert_eq!(
+            acts,
+            [
+                AddAct::ListOpened,
+                AddAct::Opened,
+                AddAct::Opened,
+                AddAct::Create {
+                    name: "Anna".to_owned(),
+                    surname: None,
+                    photo: None,
+                },
+                AddAct::Left,
+            ]
+        );
+        assert!(side.model().identities().add_form().is_none(), "left");
+    }
+
+    /// F6: Done closes the form and opens Your identities on the new row
+    /// -- once the held list names it, the facade side sending the
+    /// identity held, then the list (`HeldMore`, then `Held`) -- with
+    /// `ConfirmIdentityAdded`; a Done whose identity could not be held yet
+    /// opens the list on its title at once (Q-U5). Mutation: Done applied
+    /// before the held list names the row -- focus stays on the title.
+    #[test]
+    fn done_opens_the_list_and_focuses_the_new_row_once_the_held_list_names_it() {
+        use interweave_human_ui_model::IdentityFocus;
+        let log: Log = std::rc::Rc::default();
+        let (mut side, _) = adding_side(&log);
+        side.add_told(AddTold::Offered, 0);
+        form_acts(&mut side, vec![anna(), AddIntent::Create]);
+        side.add_told(created(&third(), CardSaved::Saved), 0);
+        side.add_told(AddTold::Held(third()), 0);
+        assert!(side.model().identities().add_form().is_none(), "closed");
+        assert_eq!(side.model().identities().added_snackbar(), None, "not yet");
+
+        assert!(side.hold_more(&[third()]));
+        side.held_changed(&[
+            held(first().as_str(), true),
+            held(second().as_str(), false),
+            held(third().as_str(), false),
+        ])
+        .expect("three held");
+        let ids = side.model().identities();
+        assert!(ids.identities_open());
+        assert_eq!(
+            ids.focus_request().map(|(_, f)| f),
+            Some(IdentityFocus::Row)
+        );
+        assert_eq!(ids.focus_row(), Some(&key_of(&third())));
+        let (_, said) = ids.added_snackbar().expect("announced");
+        assert_eq!(
+            said.text,
+            interweave_human_ui_model::UiText::ConfirmIdentityAdded
+        );
+
+        // Done with its identity not held yet: the list's title.
+        act(&mut side, vec![IdentityIntent::Add]);
+        side.take_add_acts(0);
+        form_acts(&mut side, vec![anna(), AddIntent::Create]);
+        let gone = endpoint_id("not-held");
+        side.add_told(created(&gone, CardSaved::NotSaved), 0);
+        side.add_told(AddTold::NotHeld(gone), 0);
+        assert_eq!(
+            side.model().identities().focus_request().map(|(_, f)| f),
+            Some(IdentityFocus::IdentitiesTitle)
+        );
+    }
+
+    /// A told that comes after its form was left changes nothing: no
+    /// form comes back, no list opens, no row is focused when a held list
+    /// later names the identity. Mutation: Done applied with no form open.
+    #[test]
+    fn a_told_for_a_form_already_left_changes_nothing() {
+        let log: Log = std::rc::Rc::default();
+        let (mut side, _) = adding_side(&log);
+        act(&mut side, vec![IdentityIntent::CloseIdentities]);
+        assert_eq!(form_acts(&mut side, vec![AddIntent::Leave]), [AddAct::Left]);
+        let before = side.model().identities().focus_request();
+        side.add_told(AddTold::Offered, 0);
+        side.add_told(created(&third(), CardSaved::NotSaved), 0);
+        side.add_told(
+            AddTold::PhotoPrepared {
+                seq: 1,
+                photo: None,
+            },
+            0,
+        );
+        assert!(side.hold_more(&[third()]));
+        side.held_changed(&[
+            held(first().as_str(), true),
+            held(second().as_str(), false),
+            held(third().as_str(), false),
+        ])
+        .expect("three held");
+        let ids = side.model().identities();
+        assert!(ids.add_form().is_none());
+        assert!(!ids.identities_open(), "no list opened");
+        assert_eq!(ids.focus_request(), before);
+        assert_eq!(ids.added_snackbar(), None);
+    }
+
+    /// Android composes its roster with no add (plan §1.1): a root that
+    /// never said it can add draws no Add, opens no form and sends no
+    /// act, the list's opening included; one that stops being able to
+    /// lets its form go. Mutation: a root that can add by default.
+    #[test]
+    fn a_root_that_cannot_add_sends_no_act() {
+        let log: Log = std::rc::Rc::default();
+        let mut side = person_side(&log);
+        act(
+            &mut side,
+            vec![IdentityIntent::OpenIdentities, IdentityIntent::Add],
+        );
+        assert!(form_acts(&mut side, vec![anna(), AddIntent::Create]).is_empty());
+        let ids = side.model().identities();
+        assert!(ids.add_form().is_none());
+        assert_eq!(ids.your_identities().and_then(|p| p.add), None);
+
+        let (mut side, _) = adding_side(&log);
+        assert!(side.model().identities().add_form().is_some());
+        side.can_add(false);
+        assert!(side.model().identities().add_form().is_none());
+        assert!(form_acts(&mut side, vec![AddIntent::Leave]).is_empty());
+    }
+
+    /// F28 (identities §6.2, the settle): with one identity held the card
+    /// editor's overflow offers Add another identity; a second identity
+    /// found while it shows takes the item away -- in this build the
+    /// first identity's overflow then holds nothing, so the menu closes
+    /// with its button gone -- in every model held. Mutation: the root's
+    /// `can_add` not told to the models -- no item to begin with. The
+    /// item's going is the identities' own
+    /// (`the_editors_overflow_offers_add_another_with_one_held_alone`).
+    #[test]
+    fn a_second_identity_found_while_the_editor_shows_closes_its_overflow_menu() {
+        let mut side = ModelSide::new(Nothing, Nothing);
+        side.hold(&[first()], &first());
+        side.can_add(true);
+        side.held_changed(&[held(first().as_str(), true)])
+            .expect("one held");
+        assert_eq!(
+            side.model().identities().editor_overflow(),
+            Some(interweave_human_ui_model::UiText::AddAnotherIdentity)
+        );
+        assert!(side.hold_more(&[second()]));
+        side.held_changed(&[held(first().as_str(), true), held(second().as_str(), false)])
+            .expect("two held");
+        assert_eq!(side.model().identities().editor_overflow(), None);
+        assert_eq!(
+            side.model_of(&second())
+                .expect("held")
+                .identities()
+                .editor_overflow(),
+            None
+        );
+    }
+
+    /// The form is the profile's, not one identity's: every model held is
+    /// told it, so a switch shows it still, and a model made later is
+    /// told it too. Mutation: the form told to the front's model alone.
+    #[test]
+    fn the_form_reaches_every_model_and_a_switch_keeps_it() {
+        let log: Log = std::rc::Rc::default();
+        let (mut side, _) = adding_side(&log);
+        form_acts(&mut side, vec![anna()]);
+        let held_form = |side: &ModelSide<Person, Nothing>, identity: &EndpointId| {
+            side.model_of(identity)
+                .and_then(|m| m.identities().add_form())
+                .map(|f| f.values().name.clone())
+        };
+        assert_eq!(held_form(&side, &second()).as_deref(), Some("Anna"));
+        assert!(side.switch(&second(), |_| {}));
+        assert_eq!(
+            side.model()
+                .identities()
+                .add_form()
+                .map(|f| f.values().name.clone()),
+            Some("Anna".to_owned())
+        );
+        assert!(side.hold_more(&[third()]));
+        assert_eq!(held_form(&side, &third()).as_deref(), Some("Anna"));
     }
 }
