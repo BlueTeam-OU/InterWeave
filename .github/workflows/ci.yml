@@ -14,12 +14,12 @@
 #      exact stall fabric-pr wait-merged's exit 6 was written to name.
 #
 #   2. A job's `name:` IS its required-check context. Renaming a job
-#      silently un-gates `main`: the ruleset keeps requiring a context
-#      that no longer exists, and nothing reports it, so the queue hangs
-#      the same way. Rename a job only together with the ruleset
-#      (AGENTS.md §9). ADDING a job has the mirror-image failure: the
-#      job runs, reports, and gates nothing at all until its name is
-#      added to the ruleset's required_status_checks.
+#      silently blocks every merge: the ruleset keeps requiring a context
+#      that no longer exists, and nothing reports it, so every pull
+#      request and the queue wait on it the same way. Rename a job only
+#      together with the ruleset (AGENTS.md §9). ADDING a job has the
+#      mirror-image failure: the job runs, reports, and gates nothing at
+#      all until its name is added to the ruleset's required_status_checks.
 #
 # Contexts reported here, every one required: `rust`, `tree checks`,
 # `tool self-tests`, `android check (aarch64-linux-android)` and
@@ -525,7 +525,7 @@ jobs:
 
   android-check:
     # CONTEXT NAME: `android check (aarch64-linux-android)`. Required (the
-    # ruleset; AGENTS.md §9), so renaming it un-gates main. Stage 17 §20
+    # ruleset; AGENTS.md §9), so renaming it blocks every merge. Stage 17 §20
     # step 1 cites it as the record that the phone's crates build for
     # their target (architect-cto-01, relay 01a12048). No account on
     # develop-qzapp has an Android std, so this job is the only place they

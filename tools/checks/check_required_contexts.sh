@@ -20,7 +20,7 @@
 # checks keep running, and the paragraph quietly becomes a description
 # of an older repository. The failure only shows up when someone
 # consults it to decide whether a rename is safe — and a rename that
-# un-gates `main` reports nothing at all, because the ruleset goes on
+# blocks every merge reports nothing at all, because the ruleset goes on
 # requiring a context nothing produces and the queue waits forever.
 #
 # AGENTS.md is the instruction file of record since 2026-11-19 (it was
