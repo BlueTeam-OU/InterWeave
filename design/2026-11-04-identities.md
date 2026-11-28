@@ -1338,10 +1338,12 @@ where focus lands — with its dialog changed for ADR-0067:
     included, never begin for it, and the notice slot shows nothing
     for its session, only what it shows for the device (the no-daemon
     notice, `StorageDegraded`). It has no conversations or contacts
-    left, so its composer line shows only in a conversation of it that
-    the person opens in the span; whether one can be started then is
-    what cards §5.7.6 gives an identity that cannot send or receive,
-    unchanged here.
+    left, and none can begin in the span: the client admits nothing to
+    its store for it (ADR-0061 decision 7), so while it is in front no
+    entry that starts a conversation is offered (the new-conversation
+    flow is plan §18 carry 11's, cards §5.7.4), and nothing a peer
+    sends reaches it. So no composer of it shows in the span; the
+    composer line above is what one shows if a later flow reaches one.
     **Alternative named:** `IdentityUnavailable`, as a refused lease
     reads. Rejected: its "right now" says that the state passes by
     itself, and it shares its words with states that the person waits
@@ -2244,7 +2246,9 @@ pass before it lands.
     run, the store is made to refuse writes after Remove has ended
     unfinished, and the row still reads `IdentityPartlyRemoved`, with
     `StorageDegraded` shown, and, once the store accepts writes again,
-    no lease is taken for it; after the restart neither row shows it;
+    no lease is taken for it; brought in front before the restart, it
+    shows no conversation in Chats and no way to start one as it;
+    after the restart neither row shows it;
     Remove chosen again completes as above, with no snackbar of
     failure. With a seam that drops the connection after the device has
     removed the endpoint and before the device's answer arrives: the
