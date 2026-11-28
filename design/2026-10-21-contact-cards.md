@@ -374,9 +374,9 @@ recovery, which needs the changes still there to retry with).
   and the device's write itself, which no software bound can cut
   without the unknown outcome. (Hypothesis, 5 s: far past a local
   write; falsified if a Save is seen dropped by it on the Pixel 9a
-  with nothing else running.) The outcome is the write's: a read after a write that landed (the
-  page's view read again) that fails never makes a written Save show
-  as not written.
+  with nothing else running.) The outcome is the write's: when the
+  write landed and the read after it (the page's view read again)
+  fails, the Save still shows as written, never as not written.
 - **A way of leaving chosen while Save runs** (any of the list under
   "Leaving with unsaved changes", below) is not lost: the editor holds
   the last one chosen, and it acts when Save ends, as it would act
@@ -388,10 +388,10 @@ recovery, which needs the changes still there to retry with).
   Save's ending puts it (the items below): the line above Save, or the
   photo's button after a photo that cannot be used.
 - **A Save that wrote.** As "On a valid Save", above.
-- **A Save that wrote nothing**, for any reason the store gives, or
-  dropped by the queue's 5 s bound (above),
-  the degraded store included (§5.1 "Store degraded", where Save stays
-  enabled): nothing says the card was saved, and the editor stays
+- **A Save that wrote nothing**, for any reason the store gives, the
+  degraded store included (§5.1 "Store degraded", where Save stays
+  enabled), or because the queue's 5 s bound (above) dropped it:
+  nothing says the card was saved, and the editor stays
   open with its fields, its photo and the overflow as they were before
   Save, so its changes are still unsaved changes (`CardDiscardChanges`,
   below, still asks when the person leaves). `CardNotSaved` shows above Save,
@@ -439,8 +439,9 @@ recovery, which needs the changes still there to retry with).
   `CardNotSavedPhoto`, since the editor is then in that item's state
   (the new photo gone, Save saving the card without it), but only
   when the photo stopped the Save that left the line (the line showed
-  `CardNotSavedPhoto` or `CardNotSavedPhotoSlow`, or the `CardNotSaved`
-  one of them became). A line left by the store's refusal or the
+  `CardNotSavedPhoto` or `CardNotSavedPhotoSlow`, or shows a
+  `CardNotSaved` that one of those two became). A line left by the
+  store's refusal or the
   queue's bound never names the photo: it stays `CardNotSaved`, and
   the photo step announces `PhotoUnusable` as usual. The line stays where it is, so focus on it stays
   there. The change of text is not announced, except that a picture
@@ -2411,10 +2412,10 @@ and are for them to write.
 | `CardDiscardChanges` | Close without saving your changes? | unsaved-changes dialog |
 | `KeepEditing` / `DiscardChanges` | Continue editing / Close without saving | its actions; stacked, Close without saving above (§5.2) |
 | `PhotoUnusable` | This photo cannot be used. Choose another one. | editor, under the circle; announced once (§5.2) |
-| `CardSaving` | Saving your card | new text, proposal (j207); the accessible name of Save while it runs (§5.2, "While Save runs"); says the save is under way, never that it is done |
-| `CardNotSaved` | Your card was not saved. Your changes are still here. Choose Save to try again. | new text, proposal (j207); the line above Save after a Save the store refused, whatever the store's cause, or a Save whose write did not start within 5 s, and in place of `CardNotSavedPhoto` or `CardNotSavedPhotoSlow` once the photo is prepared, chosen or removed (§5.2, "The line above Save"); in each, "try again" holds: Save writes the editor as it then is; must say nothing was saved, that the edits are still in the editor, and that Save is the way on; must not name a cause, since the degraded store's notice names its own, once |
-| `CardNotSavedPhoto` | Your card was not saved, because the new photo cannot be used. Choose another photo, or choose Save to save your card without it. | new text, proposal (j207); the line above Save after a Save whose new photo could not be prepared (§5.2), announced once; must say nothing was saved, that the photo is the cause and cannot be used, and both ways on, so that Save is not read as a retry of the same card; follows the photo when it changes (§5.2, "The line above Save") |
-| `CardNotSavedPhotoSlow` | Your card was not saved, because the new photo is still being prepared. Choose Save again when it is ready. | new text, proposal (j207); the line above Save after a Save whose photo was not ready within 30 seconds (§5.2); must say nothing was saved, that the photo is still being prepared (not that it cannot be used), and that Save once it is ready is the way on; follows the photo when it changes (§5.2, "The line above Save") |
+| `CardSaving` | Saving your changes | new text, proposal (j207); the accessible name of Save while it runs (§5.2, "While Save runs"); says the save is under way, never that it is done |
+| `CardNotSaved` | Your changes were not saved. They are still on this page. Choose Save to try again. | new text, proposal (j207); the line above Save after a Save the store refused, whatever the store's cause, or a Save whose write did not start within 5 s, and in place of `CardNotSavedPhoto` or `CardNotSavedPhotoSlow` once the photo is prepared, chosen or removed (§5.2, "The line above Save"); in each, "try again" holds: Save writes the editor as it then is; must say nothing was saved, that the edits are still in the editor, and that Save is the way on; must not name a cause, since the degraded store's notice names its own, once |
+| `CardNotSavedPhoto` | Your changes were not saved, because the new photo cannot be used. Choose another photo, or choose Save to save your card without the new photo. | new text, proposal (j207); the line above Save after a Save whose new photo could not be prepared (§5.2), announced once; must say nothing was saved, that the photo is the cause and cannot be used, and both ways on, so that Save is not read as a retry of the same card; follows the photo when it changes (§5.2, "The line above Save") |
+| `CardNotSavedPhotoSlow` | Your changes were not saved, because the new photo is still being prepared. When the photo is ready, choose Save. | new text, proposal (j207); the line above Save after a Save whose photo was not ready within 30 seconds (§5.2); must say nothing was saved, that the photo is still being prepared (not that it cannot be used), and that Save once it is ready is the way on; follows the photo when it changes (§5.2, "The line above Save") |
 | `CardPhotoPreparing` | Preparing the photo… | new text, proposal; the editor's photo circle, accessible label while a chosen picture is being prepared (§5.2); must say the photo is not ready yet |
 | `PhotoAdded` | Photo ready | new text, proposal; announced once in the editor when a chosen picture has been prepared (§5.2); must not say it is saved or sent, since that happens only on Save and Share |
 | `ShareCard` | Share a card | conversation overflow, empty-conversation offer |
