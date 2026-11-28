@@ -1265,10 +1265,16 @@ where focus lands — with its dialog changed for ADR-0067:
   answer. Its local steps (Remove's order, below) are bounded as
   Save's write is (cards §5.2, "While Save runs"): the deletion of the
   identity's rows waits at most 5 seconds in the facade's queue before
-  its first statement, and is dropped from the queue after that, and
-  each of its statements waits at most the store's `BUSY_TIMEOUT`
-  (5 s) for the file lock; a deletion dropped or refused so is a
-  failure at that step (below). The key path's removal and the
+  its first statement, and is dropped from the queue after that. The
+  deletion is one store transaction, holding its conversations,
+  contacts, card and any replaces record that names it (ADR-0061
+  decision 7, "that Remove's transaction"), as Save's write is one
+  (cards §5.2, "A kill while Save runs"): it waits once, at most the
+  store's `BUSY_TIMEOUT` (5 s), for the write lock, and a refusal at
+  any of its statements, or the app's process ending during it, leaves
+  every row. So the rows are either all deleted or all kept, and a
+  deletion dropped or refused so is a failure at that step, before
+  its rows were deleted (below). The key path's removal and the
   Keystore alias's deletion are each one call to the platform, which
   no software bound can cut without leaving unknown whether the key
   went; they are the stated exception to this rule, as the device's
@@ -1701,7 +1707,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F25 | the form's seed is not answered while focus is on the inert Create; or a seed is answered while `IdentityAddWaitsSeed` shows (§6.2) | in the first case, `IdentityAddWaitsSeed`; in the second, if focus was on the line or its Try again, Create, which takes their place; with focus elsewhere, focus stays where it was | keyboard, with acceptance 10 (u) |
 | F26 | `CardDiscardChanges` opens on the add form, and closes (§6.2, "Leaving asks first") | as cards §5.2 gives it: Continue editing on opening; on Continue editing, the control that had focus when the dialog opened, or, if that control no longer exists, the control that cards §5.2's rule gives for that case; on Close without saving, where the leaving puts it | keyboard, with acceptance 10 (w) |
 | F27 | Try again under `IdentityAddWaitsSeed` (§6.2) | stays on Try again, inert, while the seed is asked; on a seed not answered, stays on Try again, enabled again; on a seed answered, as F25 | keyboard, with acceptance 10 (u) |
-| F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; when the overflow then holds no item (Make default and Turn off not offered there, cards §5.2), no overflow button is drawn, and focus goes to the page's title (rust-ui-dev-02's QUESTION 01a21fa9, U2); otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant, once with the first identity not the default (the overflow keeps an item) from Remove's change and the first identity's Turn off, before which that run ends as the other (10 (t)) and once with it the default (it keeps none) |
+| F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; when the overflow then holds no item (Make default and Turn off not offered there, cards §5.2), no overflow button is drawn, and focus goes to the page's title (rust-ui-dev-02's QUESTION 01a21fa9, U2); otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant, once with the first identity not the default (the overflow keeps an item) from Remove's change (its Make default), before which that run ends as the other (10 (t)) and once with it the default (it keeps none) |
 | F29 | Remove chosen in the identity Remove dialog (§7, "While Remove runs") | stays on Remove, its accessible name `IdentityRemoving`, while it runs; Tab and Shift+Tab do not reach the disabled Cancel; when it ends done, F11; when it ends with `IdentityChangeFailed`, `IdentityRemoveUnfinished` or `IdentityRemoveUnfinishedRows`, the overflow button of the identity's page | keyboard, with acceptance 13's refusal run, its run with the unlink made to fail, and a run whose remove answer is held past the add's wait; desktop screen reader: Remove read as "Removing {identity}" while it runs |
 | F30 | Create ends Done with the identity made and not held yet (§6.2) | the title of the screen Done lands on: Your identities with two or more held before, the card editor with one; when the identity is held later, F28 in the card editor, and otherwise focus stays where it was | keyboard, with acceptance 11b's runs |
 | F31 | Make default leaves the identity page's overflow with no item (§6.2's settle, the overflow button's rule) | the page's title; on its Undo, as cards §9 item 1's focus table gives it (the overflow button, back with Make default); on an Undo the device refuses, the page's title, with no button drawn | keyboard, with acceptance 14a and its refused-Undo run |
@@ -2155,11 +2161,11 @@ pass before it lands.
     Needs ADR-0061 decision 7 as amended A 2026-11-27. The overflow of
     the run where the first identity is not the default, and its focus
     on the overflow button, need Remove's change (Make default lands
-    with it, §6.2 step 4) and the first identity's Turn off, which no
-    client builds as this is written; before them that overflow holds
-    no item, no button is drawn, and that run checks what the run where
-    it is the default checks (no overflow button, focus on the
-    editor's title).
+    with it, §6.2 step 4; Make default alone gives that overflow an
+    item, whether or not the first identity's Turn off is built);
+    before it that overflow holds no item, no button is drawn, and that
+    run checks what the run where it is the default checks (no overflow
+    button, focus on the editor's title).
     (u) A run in which no seed was answered (a seam makes
     `admin.trust.seed` fail), in four variants. The first opens the
     form from Your identities, and the second from the card editor. In
@@ -2352,8 +2358,8 @@ pass before it lands.
     screen reader reads as "Removing {identity}". With the answer held
     past the add's wait, the list is read back and Remove ends as a
     lost answer does (13's runs), within twice the add's wait and 10
-    seconds of the press (the rows' deletion's queue bound and one
-    statement's `BUSY_TIMEOUT`, with nothing else holding the store or
+    seconds of the press (the rows' deletion's queue bound and its
+    transaction's one `BUSY_TIMEOUT`, with nothing else holding the store or
     the key). In one more run a command is held ahead of the rows'
     deletion on the facade's task for longer than 5 seconds: Remove
     ends unfinished with `IdentityRemoveUnfinished`, the rows kept, the
