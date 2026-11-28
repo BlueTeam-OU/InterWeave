@@ -15,6 +15,7 @@ pub struct Counters {
     cross_domain_capability_denied: AtomicU64,
     peer_credential_refused: AtomicU64,
     events_dropped_at_stop: AtomicU64,
+    events_dropped_at_close: AtomicU64,
 }
 
 impl Counters {
@@ -43,6 +44,23 @@ impl Counters {
 
     pub(crate) fn dropped_at_stop(&self, events: u64) {
         self.events_dropped_at_stop
+            .fetch_add(events, Ordering::Relaxed);
+    }
+
+    /// The events a client's close was handed and did not read before the
+    /// hand-over's grace ended or its writer gave up on it: what its
+    /// session's close returned and the connection could not write, and
+    /// what was still in its lane (`LOCAL-IPC.md` §Disconnect/reconnect, A
+    /// 2026-11-28). A floor, counted as the stop's is, and never part of
+    /// [`events_dropped_at_stop`](Self::events_dropped_at_stop). Not part
+    /// of `admin.status` either: no status field carries it.
+    #[must_use]
+    pub fn events_dropped_at_close(&self) -> u64 {
+        self.events_dropped_at_close.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn dropped_at_close(&self, events: u64) {
+        self.events_dropped_at_close
             .fetch_add(events, Ordering::Relaxed);
     }
 
