@@ -23,6 +23,20 @@ use interweave_transport_runtime::{
 use super::DirectEndpoints;
 use super::config::SubstrateError;
 
+/// What a session's own end took from the runtime, in the one step that
+/// ended its leases (`SwarmCommand::ReleaseSession`): the closer's, not
+/// the runtime's to drop (`a_release_takes_the_sessions_queue_with_its_lease`).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct ReleasedSession {
+    /// The endpoints whose lease ended.
+    pub endpoints: Vec<EndpointId>,
+    /// The revocation notices still owed to the session, oldest first.
+    pub notices: Vec<interweave_local_client_api::LocalSessionEvent>,
+    /// What those endpoints' queues held -- every message answered
+    /// `AcceptedV2` and not yet taken -- oldest first per endpoint.
+    pub remainder: Vec<interweave_transport_runtime::DirectEvent>,
+}
+
 /// Default depth of the command channel.
 /// What the substrate can be asked to do.
 #[derive(Debug)]
@@ -266,12 +280,16 @@ pub enum SwarmCommand {
         /// Answered with the lease, or the contract's refusal.
         reply: oneshot::Sender<Result<interweave_local_client_api::EndpointLease, DirectError>>,
     },
-    /// End every lease a session holds, closing each queue with it.
+    /// End every lease a session holds and TAKE each queue with it, in
+    /// this one command: nothing is admitted to a queue after it, and what
+    /// the queues held goes to the session that is leaving
+    /// ([`ReleasedSession`]; `LOCAL-CLIENT.md`, A 2026-11-28).
     ReleaseSession {
         /// The session going away.
         session: String,
-        /// Answered with the endpoints released.
-        reply: oneshot::Sender<Vec<EndpointId>>,
+        /// Answered with what the release took. A reply nobody waits for
+        /// -- a session dropped without `close` -- drops it.
+        reply: oneshot::Sender<ReleasedSession>,
     },
     /// End one endpoint's lease, closing its queue with it.
     ///

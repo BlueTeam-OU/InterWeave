@@ -194,7 +194,7 @@ impl DataSessionPort for HoldingSession {
         self.inner.losses().await
     }
 
-    async fn close(self) -> Result<(), TransportError> {
+    async fn close(self) -> Result<Vec<SessionEvent>, interweave_local_client_api::CloseError> {
         self.inner.close().await
     }
 }

@@ -12,8 +12,9 @@ use interweave_ipc_protocol::{
     QueryParams, Request, RequestedCapability, SendParams, SendResult, SessionLossesResult,
 };
 use interweave_local_client_api::{
-    DEFAULT_EVENT_QUEUE, DataCapability, DataSessionBinding, DataSessionPort, EndpointLease,
-    Generation, LocalDataSession, MAX_EVENT_QUEUE, SessionEvent, SessionLosses, SessionRequest,
+    CloseError, DEFAULT_EVENT_QUEUE, DataCapability, DataSessionBinding, DataSessionPort,
+    EndpointLease, Generation, LocalDataSession, MAX_EVENT_QUEUE, SessionEvent, SessionLosses,
+    SessionRequest,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointDirectoryV1, EndpointId, MessageId,
@@ -337,13 +338,42 @@ impl DataSessionPort for IpcSession {
             .map(SessionLosses::from)
     }
 
-    async fn close(self) -> Result<(), TransportError> {
+    /// The client's close (`LOCAL-IPC.md` §Disconnect/reconnect, A
+    /// 2026-11-28): the write half is shut and the buffer KEPT, and what
+    /// the server writes until it ends the stream -- the session's
+    /// remainder, after the lease was released -- is read with what the
+    /// buffer already held, in arrival order, the server's state first as
+    /// `events` takes it
+    /// (`close_returns_what_the_server_wrote_after_the_finish`). As the
+    /// gap was found, the buffer was dropped before the server was asked
+    /// to end, and what it held was lost on an orderly close.
+    ///
+    /// A close that fails hands back the same: the held state and every
+    /// event received, in its `CloseError` (`connection.rs`'s `close`).
+    async fn close(self) -> Result<Vec<SessionEvent>, CloseError> {
         let Self {
             connection, events, ..
         } = self;
-        // The buffer goes first, so a reader held by a full one is freed
-        // to read on to the server's close.
-        drop(events);
-        connection.close().await
+        let (buffer, inbox) = match events {
+            Some((buffer, inbox)) => (Some(buffer.into_inner()), Some(inbox)),
+            None => (None, None),
+        };
+        let closed = connection.close(buffer).await;
+        let state = inbox.and_then(|inbox| inbox.take_state());
+        let lead = |remainder: &mut Vec<SessionEvent>| {
+            if let Some(state) = state {
+                remainder.insert(0, state);
+            }
+        };
+        match closed {
+            Ok(mut remainder) => {
+                lead(&mut remainder);
+                Ok(remainder)
+            }
+            Err(mut failed) => {
+                lead(&mut failed.remainder);
+                Err(failed)
+            }
+        }
     }
 }

@@ -99,7 +99,8 @@ pub use status::{DialGateStatus, IngressStatus, PreAuthStatus, ResolverSource, R
 pub use handle::{NetworkMonitor, ShutdownReport, SwarmCommander};
 pub use messages::{
     BackendRefusal, DialFailureClass, DialRefusal, HolePunchOutcome, NetworkView, PathChange,
-    PeerGate, PeerPath, RelayReservationOutcome, RelayServerOutcome, SwarmCommand, SwarmEvent,
+    PeerGate, PeerPath, RelayReservationOutcome, RelayServerOutcome, ReleasedSession, SwarmCommand,
+    SwarmEvent,
 };
 
 pub use config::{

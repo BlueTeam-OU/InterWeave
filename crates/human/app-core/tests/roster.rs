@@ -279,7 +279,7 @@ impl DataSessionPort for SpySession {
         self.inner.losses().await
     }
 
-    async fn close(self) -> Result<(), TransportError> {
+    async fn close(self) -> Result<Vec<SessionEvent>, interweave_local_client_api::CloseError> {
         if let Some(e) = &self.endpoint {
             self.asked
                 .lock()

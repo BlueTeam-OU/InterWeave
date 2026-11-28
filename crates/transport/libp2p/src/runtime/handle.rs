@@ -379,19 +379,20 @@ impl SwarmRuntime {
             .await
     }
 
-    /// End every lease `session` holds, closing each queue with it.
-    ///
-    /// Returns the endpoints released. A composed in-process session's
-    /// `close` calls it -- the IPC server closes a session when its
-    /// connection ends -- and a session dropped instead releases the same
-    /// way without awaiting the answer (`release_detached`).
+    /// End every lease `session` holds and take each queue with it, in one
+    /// command: what the queues held and the notices still owed come back
+    /// in the [`ReleasedSession`](super::ReleasedSession), for the closer.
+    /// A composed in-process session's `close` calls it -- the IPC server
+    /// closes a session when its connection ends -- and a session dropped
+    /// instead releases the same way without awaiting the answer
+    /// (`release_detached`), so what it took is dropped.
     ///
     /// # Errors
     /// [`SubstrateError::Stopped`] if the task is gone.
     pub async fn release_session(
         &self,
         session: impl Into<String>,
-    ) -> Result<Vec<EndpointId>, SubstrateError> {
+    ) -> Result<super::ReleasedSession, SubstrateError> {
         self.commander().release_session(session).await
     }
 
@@ -888,7 +889,7 @@ impl SwarmCommander {
     pub async fn release_session(
         &self,
         session: impl Into<String>,
-    ) -> Result<Vec<EndpointId>, SubstrateError> {
+    ) -> Result<super::ReleasedSession, SubstrateError> {
         let session = session.into();
         self.ask(|reply| SwarmCommand::ReleaseSession { session, reply })
             .await
@@ -1251,7 +1252,9 @@ impl SwarmCommander {
     /// Release `session`'s leases and each of `channels` without waiting
     /// for an answer: what a session dropped without `close` still owes
     /// (#139 review F3). Queued if the command channel has room; the
-    /// answers are discarded. Returns whether every command was queued.
+    /// answers are discarded, and with them what the release took from the
+    /// session's queues, uncounted. Returns whether every command was
+    /// queued.
     pub fn release_detached(
         &self,
         session: &str,

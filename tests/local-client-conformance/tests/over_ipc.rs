@@ -226,6 +226,20 @@ async fn item_4_local_refusals_map_exactly() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_hands_over_what_was_admitted_and_after_it_no_route() {
+    let pair = IpcPair::start().await;
+    let (a, b) = pair.bindings();
+    suite::a_close_hands_over_what_was_admitted_and_after_it_no_route(
+        &a,
+        &b,
+        &pair.b_peer,
+        &human(),
+    )
+    .await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn item_8_nothing_is_kept_for_an_unleased_endpoint() {
     let pair = IpcPair::start().await;
     let (a, b) = pair.bindings();
@@ -419,4 +433,24 @@ async fn a_later_ports_write_supersedes_an_older_ports() {
     let (a, _) = pair.bindings();
     suite::a_later_ports_write_supersedes_an_older_ports(&a).await;
     pair.stop().await;
+}
+
+/// The client's close wait outlasts the server's bound on a leaving
+/// client (`LOCAL-IPC.md` §Disconnect/reconnect): the daemon ends the
+/// stream within its shutdown grace from the client's end of stream --
+/// the substrate's `SHUTDOWN_GRACE`, which `transport-daemon` gives the
+/// server and no configuration changes -- plus the writer's flush
+/// (`CLOSE_GRACE`), and the client's wait starts before the server reads
+/// that end, so it must be longer, with room for the Finish to arrive.
+/// Here because this crate sees all three crates, which do not see each
+/// other. As the gap was found, the wait was 5 s against a 6 s bound.
+#[test]
+fn the_clients_close_wait_outlasts_the_servers_bound() {
+    let bound =
+        interweave_transport_composition::SHUTDOWN_GRACE + interweave_ipc_server::CLOSE_GRACE;
+    assert!(
+        interweave_ipc_client::CLOSE_WAIT > bound,
+        "CLOSE_WAIT {:?} must outlast the server's bound {bound:?}",
+        interweave_ipc_client::CLOSE_WAIT
+    );
 }

@@ -43,4 +43,5 @@ mod connection;
 mod session;
 
 pub use admin::IpcAdmin;
+pub use connection::CLOSE_WAIT;
 pub use session::{IpcBinding, IpcSession, SocketPaths};

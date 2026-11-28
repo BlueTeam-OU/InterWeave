@@ -351,6 +351,105 @@ async fn two_composed_nodes_connect_through_static_discovery() {
     target.shutdown().await.expect("clean shutdown");
 }
 
+/// An in-process session's close returns what was admitted before it
+/// (`LOCAL-CLIENT.md`, A 2026-11-28): a message B's endpoint answered
+/// `AcceptedV2` and B's session never took is in what B's `close` returns,
+/// the lease is free when it returns, and a send after it is refused
+/// `no_route` (A's runtime names it `RemoteEndpointUnavailable`) and is in
+/// no later lease's queue -- a later session on the same endpoint reads
+/// only the control sent to it then. As the gap was found the close
+/// discarded the endpoint queue, and the accepted message reached no one.
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_hands_over_what_was_admitted_and_after_it_no_route() {
+    use interweave_local_client_api::{
+        DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionEvent, SessionRequest,
+    };
+    use interweave_transport_api::{DirectDestination, MessageId, Payload, TransportError};
+
+    let ip = interweave_test_support::net::require_private_interface_v4();
+    let listen = CompositionOptions {
+        listen: vec![format!("/ip4/{ip}/tcp/0")],
+        ..CompositionOptions::default()
+    };
+    let (b_id, b) = id();
+    let (a_id, a) = id();
+    let target = ComposedRuntime::start(&b_id, &profile(&[&a], &[], ""), listen.clone())
+        .await
+        .expect("b composes");
+    let b_addr = format!("{}/p2p/{}", target.listening()[0], b.as_str());
+    let mut subject = ComposedRuntime::start(&a_id, &profile(&[&b], &[b_addr], ""), listen)
+        .await
+        .expect("a composes");
+    wait_connected(&mut subject, &b).await;
+
+    let human = interweave_test_support::endpoint_keys::endpoint_id("human");
+    let request = || {
+        SessionRequest::new(
+            "human-client",
+            Some(human.clone()),
+            [DataCapability::Commands, DataCapability::Events],
+        )
+        .expect("in bounds")
+    };
+    let from = subject.sessions().open(request()).await.expect("a leases");
+    let to = target.sessions().open(request()).await.expect("b leases");
+    let send = |n: u8| {
+        from.send_direct(
+            DirectDestination {
+                peer: b.clone(),
+                endpoint: Some(human.clone()),
+            },
+            MessageId::from_bytes([n; 16]),
+            Payload::at_ceiling(None, vec![n]).expect("in bounds"),
+        )
+    };
+    let direct_ids = |events: &[SessionEvent]| -> Vec<MessageId> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::Direct(message) => Some(message.message_id),
+                _ => None,
+            })
+            .collect()
+    };
+    send(1).await.expect("accepted by B's queue");
+    let remainder = to.close().await.expect("closes");
+    assert_eq!(
+        direct_ids(&remainder),
+        [MessageId::from_bytes([1; 16])],
+        "what B admitted is handed to B's closing session"
+    );
+    assert_eq!(
+        send(2).await,
+        Err(TransportError::RemoteEndpointUnavailable),
+        "after the close B's endpoint is unleased: no_route"
+    );
+    let later = target
+        .sessions()
+        .open(request())
+        .await
+        .expect("the close released the lease");
+    send(3).await.expect("the later lease's queue takes it");
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    let mut read = Vec::new();
+    while !read.contains(&MessageId::from_bytes([3; 16])) {
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the control is read"
+        );
+        read.extend(direct_ids(&later.events(usize::MAX).await.expect("events")));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        read,
+        [MessageId::from_bytes([3; 16])],
+        "the later lease reads neither the remainder nor the refused one"
+    );
+    drop((from, later));
+    subject.shutdown().await.expect("clean shutdown");
+    target.shutdown().await.expect("clean shutdown");
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_static_entry_for_an_untrusted_peer_produces_no_connection() {
     let ip = interweave_test_support::net::require_private_interface_v4();

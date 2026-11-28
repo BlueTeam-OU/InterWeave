@@ -165,7 +165,7 @@ async fn a_stale_cache_entry_then_release_yields_no_route() {
 
     // The responder's session goes; the route is gone.
     let released = responder.release_session("s").await.expect("command");
-    assert_eq!(released, vec![endpoint("human")]);
+    assert_eq!(released.endpoints, vec![endpoint("human")]);
 
     // The cache still answers — advisory, from local receipt, unaware the
     // route died.

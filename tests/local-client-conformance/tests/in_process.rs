@@ -109,6 +109,20 @@ async fn item_4_local_refusals_map_exactly() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_close_hands_over_what_was_admitted_and_after_it_no_route() {
+    let pair = Pair::start().await;
+    let (a, b) = pair.bindings();
+    suite::a_close_hands_over_what_was_admitted_and_after_it_no_route(
+        &a,
+        &b,
+        &pair.b_peer,
+        &human(),
+    )
+    .await;
+    pair.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn item_8_nothing_is_kept_for_an_unleased_endpoint() {
     let pair = Pair::start().await;
     let (a, b) = pair.bindings();
@@ -669,6 +683,15 @@ async fn in_process_ready_is_woken_well_inside_its_recheck() {
         survivor.events(1).await,
         Err(TransportError::BackendUnavailable),
         "and events reports it"
+    );
+    // The in-process close fails only at the release, its first step,
+    // before it has taken anything: its error carries an empty remainder.
+    assert_eq!(
+        survivor.close().await,
+        Err(interweave_local_client_api::CloseError::empty(
+            TransportError::BackendUnavailable
+        )),
+        "and close reports it, having been handed nothing"
     );
 }
 

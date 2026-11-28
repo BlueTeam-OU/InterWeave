@@ -20,7 +20,7 @@ use interweave_ipc_protocol::{
     HelloResponse, IPC_MAX_MINOR, IpcVersion, Request, RequestFrame, RequestId, ResponseFrame,
     decode_frame,
 };
-use interweave_local_client_api::{LocalSessionEvent, SessionEvent};
+use interweave_local_client_api::{CloseError, LocalSessionEvent, SessionEvent};
 use interweave_transport_api::TransportError;
 use serde::de::DeserializeOwned;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
@@ -46,8 +46,21 @@ const OUTGOING: usize = 64;
 const DRAIN_BUDGET: usize = 1024 * 1024;
 
 /// How long `close` waits for the server to finish the session -- it
-/// releases the lease before it closes the socket -- before giving up.
-const CLOSE_WAIT: Duration = Duration::from_secs(5);
+/// releases the lease, writes the session's remainder and then ends the
+/// stream -- before giving up.
+///
+/// Derived from the server's bound, not chosen beside it: a leaving
+/// client's stream ends within the server's shutdown grace measured from
+/// the client's end of stream -- the daemon's is its `SHUTDOWN_GRACE`,
+/// 5 s, not configurable -- plus the writer's one-second flush after it
+/// (`ipc-server`'s `CLOSE_GRACE`), 6 s in all (`LOCAL-IPC.md`
+/// §Disconnect/reconnect). This wait starts BEFORE the server reads the
+/// end of stream, so it takes 4 s more than that for the Finish to reach
+/// a loaded server. At 5 s it gave up while the server was inside its
+/// bounds. Held above the bound by
+/// `the_clients_close_wait_outlasts_the_servers_bound`
+/// (`tests/local-client-conformance`, which sees both sides).
+pub const CLOSE_WAIT: Duration = Duration::from_secs(10);
 
 /// What the writer is handed: frames already encoded, each by the code
 /// that made it, so a frame that cannot be encoded fails where it was
@@ -55,7 +68,7 @@ const CLOSE_WAIT: Duration = Duration::from_secs(5);
 enum Outgoing {
     Bytes(Vec<u8>),
     /// Shut the write half: the server reads end of stream, closes the
-    /// session and then the socket.
+    /// session, writes what its close returned and then ends the stream.
     Finish,
 }
 
@@ -78,12 +91,15 @@ struct Shared {
     closing: AtomicBool,
     /// The end was not the answer to `close`: anything but a clean end of
     /// stream read after `closing` was set. The server answers a client's
-    /// Finish with end of stream and never a `close` frame, so a `close`
-    /// frame, a protocol error or a read error is always a server's own
-    /// end. A bare end of stream is ambiguous: a server that gave up on a
-    /// client that stopped reading (`Stalled`, a writer that timed out, or
-    /// a `close` that did not fit its full lane) also ends with one, and
-    /// if that lands after `close` asked, it reads as the answer.
+    /// Finish with a clean end of stream when it handed the whole
+    /// remainder over, and with `close{Timeout}` when its bounds cut the
+    /// hand-over short, so a `close` frame -- that one included -- a
+    /// protocol error or a read error is never the complete answer, and
+    /// `close` reports it as an error carrying what it read. A bare end of
+    /// stream is ambiguous: a server that gave up on a client that stopped
+    /// reading (`Stalled`, a writer that timed out, or a `close` that did
+    /// not fit its full lane) also ends with one, and if that lands after
+    /// `close` asked, it reads as the answer.
     uninvited: AtomicBool,
 }
 
@@ -426,31 +442,83 @@ impl Connection {
     }
 
     /// End the connection the way a client leaving does: shut the write
-    /// half and wait for the server to close its side, which it does only
-    /// after the session is closed and its lease released.
+    /// half and read until the server ends its side, which it does only
+    /// after the session is closed, its lease released and what its close
+    /// returned written. `buffer`, the session's event buffer when it
+    /// reads events, is drained WHILE the reader runs -- a full buffer
+    /// holds the reader, which would then never reach the end -- and what
+    /// it held and what arrived are answered in arrival order.
+    ///
+    /// A clean end of stream is the server's word that the remainder is
+    /// complete; anything else is an error, and EVERY error carries what
+    /// had been received by then -- the buffer and what was read -- so
+    /// none is dropped (`a_close_ended_another_way_carries_what_it_read`,
+    /// `a_close_that_times_out_carries_what_it_read`, and
+    /// `closing_an_ended_connection_hands_back_its_buffer`).
     ///
     /// # Errors
     /// The connection's end code when it had already ended -- there is no
-    /// server left to release anything -- and `Timeout` when the server
-    /// did not close within [`CLOSE_WAIT`].
-    pub(crate) async fn close(mut self) -> Result<(), TransportError> {
+    /// server left to release anything -- or when the server ended it
+    /// another way: `Timeout` for a hand-over its bounds cut short (its
+    /// `close{Timeout}`), `ShuttingDown` for a stop racing the close.
+    /// `Timeout` when the server did not end within [`CLOSE_WAIT`].
+    pub(crate) async fn close(
+        mut self,
+        mut buffer: Option<mpsc::Receiver<SessionEvent>>,
+    ) -> Result<Vec<SessionEvent>, CloseError> {
         self.shared.closing.store(true, Ordering::SeqCst);
         // Ended for good already: nothing left to release. A writer's
         // provisional end waits below for the reader's, which names the
-        // code.
+        // code. What the buffer held was received all the same.
         if self.shared.uninvited.load(Ordering::SeqCst) && self.has_ended() {
-            return Err(self.gone());
+            return Err(CloseError {
+                code: self.gone(),
+                remainder: buffered(buffer.as_mut()),
+            });
         }
         let _ = self.out.send(Outgoing::Finish).await;
         let Some(reader) = self.reader.as_mut() else {
-            return Ok(());
+            return Ok(buffered(buffer.as_mut()));
         };
-        match tokio::time::timeout(CLOSE_WAIT, reader).await {
-            Ok(_) if self.shared.uninvited.load(Ordering::SeqCst) => Err(self.gone()),
-            Ok(_) => Ok(()),
-            Err(_) => Err(TransportError::Timeout),
+        let mut taken = Vec::new();
+        let read = tokio::time::timeout(CLOSE_WAIT, async {
+            if let Some(buffer) = buffer.as_mut() {
+                // `None` once the reader has ended: it drops the sender.
+                while let Some(event) = buffer.recv().await {
+                    taken.push(event);
+                }
+            }
+            reader.await
+        })
+        .await;
+        match read {
+            Ok(_) if self.shared.uninvited.load(Ordering::SeqCst) => Err(CloseError {
+                code: self.gone(),
+                remainder: taken,
+            }),
+            Ok(_) => Ok(taken),
+            Err(_) => {
+                // The reader still runs: what it buffered since the last
+                // take was received too.
+                taken.extend(buffered(buffer.as_mut()));
+                Err(CloseError {
+                    code: TransportError::Timeout,
+                    remainder: taken,
+                })
+            }
         }
     }
+}
+
+/// What `buffer` holds now, taken without waiting.
+fn buffered(buffer: Option<&mut mpsc::Receiver<SessionEvent>>) -> Vec<SessionEvent> {
+    let mut held = Vec::new();
+    if let Some(buffer) = buffer {
+        while let Ok(event) = buffer.try_recv() {
+            held.push(event);
+        }
+    }
+    held
 }
 
 impl Drop for Connection {

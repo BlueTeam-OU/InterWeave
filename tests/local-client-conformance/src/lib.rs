@@ -585,6 +585,71 @@ pub async fn a_lease_is_exclusive_and_released_on_close<B: DataSessionBinding>(
     second.close().await.expect("closes");
 }
 
+/// A session's close hands over what was admitted (`LOCAL-CLIENT.md`,
+/// A 2026-11-28): a message the receiving endpoint answered `AcceptedV2`
+/// for and the receiver never took is in what its `close` returns; after
+/// the close the endpoint answers the sender the coarse `no_route` of an
+/// unleased endpoint (`RemoteEndpointUnavailable`), and a later lease of
+/// the same endpoint reads neither -- while a message sent to it then, the
+/// control, is read. As the gap was found, the close dropped the queue,
+/// and the accepted message reached no one.
+pub async fn a_close_hands_over_what_was_admitted_and_after_it_no_route<B: DataSessionBinding>(
+    sender: &B,
+    receiver: &B,
+    receiver_peer: &TransportIdentity,
+    endpoint: &EndpointId,
+) {
+    let from = sender.open(full(Some(endpoint))).await.expect("leases");
+    let to = receiver.open(full(Some(endpoint))).await.expect("leases");
+    let destination = DirectDestination {
+        peer: receiver_peer.clone(),
+        endpoint: Some(endpoint.clone()),
+    };
+    let direct_ids = |events: &[SessionEvent]| -> Vec<MessageId> {
+        events
+            .iter()
+            .filter_map(|event| match event {
+                SessionEvent::Direct(message) => Some(message.message_id),
+                _ => None,
+            })
+            .collect()
+    };
+    let before = MessageId::from_bytes([0x41; 16]);
+    from.send_direct(destination.clone(), before, text("before the close"))
+        .await
+        .expect("accepted: the receiver's queue took it");
+    let remainder = to.close().await.expect("closes");
+    assert_eq!(
+        direct_ids(&remainder),
+        [before],
+        "what was admitted and never taken is handed to the closer"
+    );
+    let after = MessageId::from_bytes([0x42; 16]);
+    assert_eq!(
+        from.send_direct(destination.clone(), after, text("after the close"))
+            .await,
+        Err(TransportError::RemoteEndpointUnavailable),
+        "after the close the endpoint is unleased: no_route"
+    );
+    let later = receiver
+        .open(full(Some(endpoint)))
+        .await
+        .expect("the close released the lease");
+    let control = MessageId::from_bytes([0x43; 16]);
+    from.send_direct(destination, control, text("to the later lease"))
+        .await
+        .expect("the later lease's queue takes it");
+    let mut got = receive(&later, PATIENCE).await;
+    got.extend(arriving_within(&later, SETTLE).await);
+    assert_eq!(
+        direct_ids(&got),
+        [control],
+        "the later lease reads what was sent to it, and neither the remainder nor the refused one"
+    );
+    from.close().await.expect("closes");
+    later.close().await.expect("closes");
+}
+
 /// Item 5 when a session ends without `close`: dropping it is its
 /// teardown for an in-process binding, and the lease comes back without
 /// an administrator (#139 review F3).

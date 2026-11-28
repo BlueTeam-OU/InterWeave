@@ -166,7 +166,10 @@ impl DataSessionPort for RecordingSession {
         self.inner.query_endpoints(peer)
     }
 
-    fn close(self) -> impl Future<Output = Result<(), TransportError>> + Send {
+    fn close(
+        self,
+    ) -> impl Future<Output = Result<Vec<SessionEvent>, interweave_local_client_api::CloseError>> + Send
+    {
         self.inner.close()
     }
 }

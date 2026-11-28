@@ -140,6 +140,18 @@ async fn item_4_local_refusals_map_exactly() {
 }
 
 #[tokio::test]
+async fn a_close_hands_over_what_was_admitted_and_after_it_no_route() {
+    let p = pair();
+    suite::a_close_hands_over_what_was_admitted_and_after_it_no_route(
+        &p.a,
+        &p.b,
+        &p.b_peer,
+        &human(),
+    )
+    .await;
+}
+
+#[tokio::test]
 async fn item_8_nothing_is_kept_for_an_unleased_endpoint() {
     let p = pair();
     suite::nothing_is_kept_for_an_unleased_endpoint(&p.a, &p.b, &p.b_peer, &human()).await;
@@ -913,7 +925,12 @@ async fn a_session_from_before_a_restart_ends_with_it() {
         .await
         .expect("ready returns at once")
         .expect("and says nothing waits");
-    assert_eq!(old.close().await, Err(TransportError::BackendUnavailable));
+    assert_eq!(
+        old.close().await,
+        Err(interweave_local_client_api::CloseError::empty(
+            TransportError::BackendUnavailable
+        ))
+    );
 
     let new = p.a.open(suite::full(None)).await.expect("opens after it");
     assert!(new.events(8).await.is_ok(), "the control");

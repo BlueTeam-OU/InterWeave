@@ -1447,6 +1447,12 @@ async fn transportctl_against_a_live_daemon() {
     // serves the refusal total (admin-status 1.2.0).
     assert_eq!(status["ipc"]["events_dropped_total"], 0, "{status}");
     assert_eq!(status["ipc"]["events_refused_total"], 0, "{status}");
+    // The third, a client's close left unread, kept by the server and so
+    // emitted (admin-status 1.3.0).
+    assert_eq!(
+        status["ipc"]["events_dropped_at_close_total"], 0,
+        "{status}"
+    );
 
     let list = |home: &Home| {
         let out = home.transportctl(&["endpoints", "list", "--json"], "");

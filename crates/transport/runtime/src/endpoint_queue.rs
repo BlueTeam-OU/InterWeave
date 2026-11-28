@@ -24,11 +24,16 @@
 //!
 //! # An offline endpoint has no backlog
 //!
-//! Closing drops the queue and everything in it. `testing.md` requires
-//! that an offline human endpoint holds no daemon-side backlog, and
-//! ADR-0044 puts durable retention in the human application rather than
-//! in transport. A queue that survived its lease would be exactly the
-//! transport-side store neither document permits.
+//! A queue never survives its lease. An administrative end -- a revoke, a
+//! disable, a removal -- closes it and drops what it held; a session's
+//! own close TAKES it instead ([`EndpointQueues::take`]), so what was
+//! admitted goes to the session that is leaving, in the step that ends
+//! its lease, rather than being dropped (`LOCAL-CLIENT.md`, A
+//! 2026-11-28). Either way nothing is left behind for an endpoint nobody
+//! holds: `testing.md` requires that an offline human endpoint holds no
+//! daemon-side backlog, and ADR-0044 puts durable retention in the human
+//! application rather than in transport. A queue that survived its lease
+//! would be exactly the transport-side store neither document permits.
 
 use std::collections::{BTreeMap, VecDeque};
 
@@ -181,6 +186,20 @@ impl EndpointQueues {
             .map_or(0, |queue| queue.events.len())
     }
 
+    /// Take `endpoint`'s queue whole: what it held, oldest first, and the
+    /// queue itself, so a push after this is refused
+    /// [`QueueRefusal::NotOpen`] -- the coarse `no_route` of an unleased
+    /// endpoint -- exactly as after [`close`](Self::close)
+    /// (`taking_a_queue_returns_what_it_held_and_closes_it`). What a
+    /// session's own close owes the session: the release that ends its
+    /// lease takes its queue in the same step, and hands it to the closer.
+    pub fn take(&mut self, endpoint: &EndpointId) -> Vec<DirectEvent> {
+        self.queues
+            .remove(endpoint)
+            .map(|queue| queue.events.into_iter().collect())
+            .unwrap_or_default()
+    }
+
     /// Whether a queue is open for `endpoint`.
     ///
     /// Read by this module's tests only: nothing in production does, so
@@ -323,6 +342,38 @@ mod tests {
             "a refused push must not have grown the map"
         );
         assert!(!queues.is_open(&endpoint("not-leased")));
+    }
+
+    /// A session's own close takes its queue: what it held comes back in
+    /// order, the queue is gone -- a push after is `NotOpen`, `no_route`
+    /// on the wire -- and a re-open starts empty. Another endpoint's queue
+    /// is untouched: the control.
+    #[test]
+    fn taking_a_queue_returns_what_it_held_and_closes_it() {
+        let mut queues = EndpointQueues::new();
+        queues.open(endpoint("human"), 8);
+        queues.open(endpoint("agent"), 8);
+        queues.push(event("human", b"one")).expect("admitted");
+        queues.push(event("human", b"two")).expect("admitted");
+        queues.push(event("agent", b"kept")).expect("admitted");
+
+        let taken: Vec<_> = queues
+            .take(&endpoint("human"))
+            .into_iter()
+            .map(|e| e.payload.bytes().to_vec())
+            .collect();
+        assert_eq!(taken, [b"one".to_vec(), b"two".to_vec()], "in order");
+        assert!(!queues.is_open(&endpoint("human")), "the queue went");
+        assert_eq!(
+            queues.push(event("human", b"after")),
+            Err(QueueRefusal::NotOpen),
+            "nothing is admitted after the take"
+        );
+        assert_eq!(QueueRefusal::NotOpen.to_wire(), DirectRejectReason::NoRoute);
+        assert!(queues.take(&endpoint("human")).is_empty(), "taken once");
+        assert_eq!(queues.len(&endpoint("agent")), 1, "another queue untouched");
+        queues.open(endpoint("human"), 8);
+        assert_eq!(queues.len(&endpoint("human")), 0, "a re-open starts empty");
     }
 
     /// An offline endpoint has no daemon-side backlog: closing discards.

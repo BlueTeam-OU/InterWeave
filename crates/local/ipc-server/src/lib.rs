@@ -28,6 +28,7 @@ mod server;
 mod state;
 
 pub use admission::Limits;
+pub use connection::CLOSE_GRACE;
 pub use counters::Counters;
 pub use hello::{KeepalivePolicy, ServerConfig, WRITE_STALL};
 pub use listen::{BindError, Listeners, SocketPaths, bind, bind_replacing_stale};

@@ -469,6 +469,46 @@ struct Queues {
 }
 
 impl Queues {
+    /// Take at most `max` of what waits here, in the port's order: the
+    /// state, the notices, the direct messages, the broadcasts, then the
+    /// path notices. `events` and `close` take through it.
+    fn take(&mut self, max: usize, path: Option<PeerPath>) -> Vec<SessionEvent> {
+        let queues = self;
+        let mut taken = Vec::new();
+        if max > 0
+            && let Some(state) = queues.state.take()
+        {
+            taken.push(SessionEvent::Local(state));
+        }
+        while taken.len() < max {
+            if let Some(notice) = queues.notices.pop_front() {
+                taken.push(SessionEvent::Local(notice));
+            } else if let Some(direct) = queues.direct.pop_front() {
+                // A message TAKEN is a route, as the runtime records it
+                // (`SessionNotices::drained_from`): not one merely queued.
+                queues.route(direct.source_peer.clone(), path);
+                taken.push(SessionEvent::Direct(direct));
+            } else if let Some(broadcast) = queues.broadcast.pop_front() {
+                queues.route(broadcast.source_peer.clone(), path);
+                taken.push(SessionEvent::Broadcast(broadcast));
+            } else if let Some((peer, (previous, current, reason_class, observed_at))) =
+                queues.paths.pop_first()
+            {
+                // The ordinary lane, after every message.
+                taken.push(SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
+                    peer,
+                    previous,
+                    current,
+                    reason_class,
+                    observed_at,
+                }));
+            } else {
+                break;
+            }
+        }
+        taken
+    }
+
     fn wake(&mut self) {
         for waker in self.wakers.drain(..) {
             waker.wake();
@@ -1026,7 +1066,11 @@ impl FakeSession {
         }
         self.closed = true;
         let mut state = lock(&self.node.state);
-        let id = self.session.session_id();
+        Self::end_in(&mut state, self.session.session_id());
+    }
+
+    /// The end itself, under a lock the caller holds.
+    fn end_in(state: &mut State, id: &Generation) {
         state.leases.retain(|_, lease| &lease.session != id);
         state.sessions.remove(id);
         // Its last use: an ended session leaves the set with it.
@@ -1157,39 +1201,7 @@ impl DataSessionPort for FakeSession {
         let Some(queues) = state.sessions.get_mut(self.session.session_id()) else {
             return Ok(Vec::new());
         };
-        let mut taken = Vec::new();
-        if max > 0
-            && let Some(state) = queues.state.take()
-        {
-            taken.push(SessionEvent::Local(state));
-        }
-        while taken.len() < max {
-            if let Some(notice) = queues.notices.pop_front() {
-                taken.push(SessionEvent::Local(notice));
-            } else if let Some(direct) = queues.direct.pop_front() {
-                // A message TAKEN is a route, as the runtime records it
-                // (`SessionNotices::drained_from`): not one merely queued.
-                queues.route(direct.source_peer.clone(), path);
-                taken.push(SessionEvent::Direct(direct));
-            } else if let Some(broadcast) = queues.broadcast.pop_front() {
-                queues.route(broadcast.source_peer.clone(), path);
-                taken.push(SessionEvent::Broadcast(broadcast));
-            } else if let Some((peer, (previous, current, reason_class, observed_at))) =
-                queues.paths.pop_first()
-            {
-                // The ordinary lane, after every message.
-                taken.push(SessionEvent::Local(LocalSessionEvent::PeerPathChanged {
-                    peer,
-                    previous,
-                    current,
-                    reason_class,
-                    observed_at,
-                }));
-            } else {
-                break;
-            }
-        }
-        Ok(taken)
+        Ok(queues.take(max, path))
     }
 
     async fn ready(&self) -> Result<(), TransportError> {
@@ -1250,16 +1262,32 @@ impl DataSessionPort for FakeSession {
         })
     }
 
-    async fn close(mut self) -> Result<(), TransportError> {
-        let stopped = {
-            let state = lock(&self.node.state);
-            state.stopped || state.ended.contains(self.session.session_id())
+    /// What the session's queues hold is taken in the step that ends its
+    /// lease, under the one lock a send admits under, so nothing is
+    /// admitted between the take and the end (`LOCAL-CLIENT.md`, A
+    /// 2026-11-28).
+    async fn close(mut self) -> Result<Vec<SessionEvent>, interweave_local_client_api::CloseError> {
+        let (stopped, remainder) = {
+            let mut state = lock(&self.node.state);
+            let stopped = state.stopped || state.ended.contains(self.session.session_id());
+            let path = state.path;
+            let remainder = match state.sessions.get_mut(self.session.session_id()) {
+                Some(queues) if !stopped && self.session.holds(DataCapability::Events) => {
+                    queues.take(usize::MAX, path)
+                }
+                _ => Vec::new(),
+            };
+            self.closed = true;
+            Self::end_in(&mut state, self.session.session_id());
+            (stopped, remainder)
         };
-        self.end();
         if stopped {
-            Err(TransportError::BackendUnavailable)
+            // A stopped node takes nothing: there is nothing to hand back.
+            Err(interweave_local_client_api::CloseError::empty(
+                TransportError::BackendUnavailable,
+            ))
         } else {
-            Ok(())
+            Ok(remainder)
         }
     }
 }

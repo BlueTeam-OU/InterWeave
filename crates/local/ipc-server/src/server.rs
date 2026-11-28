@@ -1031,6 +1031,317 @@ mod tests {
         );
     }
 
+    /// Shut the client's write half: a clean end of stream between frames.
+    async fn leave(client: &mut Client) {
+        use tokio::io::AsyncWriteExt as _;
+        client.write.shutdown().await.expect("shut");
+    }
+
+    /// Every event frame the client reads until the server ends the
+    /// stream, checked in sequence; and whether a `close` came.
+    async fn read_to_the_end(client: &mut Client) -> (usize, bool) {
+        let mut next = 0;
+        while let Some(frame) = client.next().await {
+            match frame {
+                Frame::Event(event) => {
+                    assert_eq!(event.sequence, next as u64, "in sequence, none lost");
+                    next += 1;
+                }
+                Frame::Close(_) => return (next, true),
+                _ => {}
+            }
+        }
+        (next, false)
+    }
+
+    /// Wait until the fake's session is closed and its lease free.
+    async fn until_released(fake: &Fake, patience: Duration) {
+        let deadline = tokio::time::Instant::now() + patience;
+        while fake.script().closed == 0 || !fake.script().leased.is_empty() {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "the lease was released within {patience:?}"
+            );
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    }
+
+    /// A client's close (`LOCAL-IPC.md` §Disconnect/reconnect, A
+    /// 2026-11-28): a client that shuts its write half is written what
+    /// its session still held, in sequence, and then the stream ends --
+    /// no `close` frame -- with nothing dropped and nothing counted. The
+    /// lease is released FIRST: it is free while the client has read
+    /// nothing at all, its lane and socket full, long before the grace
+    /// would have let a hand-over that drained before releasing finish.
+    /// As the gap was found, the session was closed on the end of stream
+    /// and what its queue held was dropped uncounted; the client read only
+    /// what the socket and the lane held.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_clients_close_is_written_what_the_session_held_before_the_stream_ends() {
+        const QUEUED: usize = 1000;
+        let fake = Fake::default();
+        let harness = Harness::start(&fake, config());
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let held = stuff(&fake, QUEUED).await;
+        leave(&mut client).await;
+        // The grace is 5 s: a release inside 2 s with nothing read did not
+        // wait for the client.
+        until_released(&fake, Duration::from_secs(2)).await;
+        let (read, closed) = read_to_the_end(&mut client).await;
+        assert!(!closed, "a leaving client is sent no close");
+        assert_eq!(
+            read, QUEUED,
+            "every event the session held ({held} at the close), before the end"
+        );
+        let counters = harness.stop().await;
+        assert_eq!(counters.events_dropped_at_close(), 0, "nothing to count");
+        assert_eq!(counters.events_dropped_at_stop(), 0, "not a stop");
+    }
+
+    /// A leaving client that does not read is ended when the grace from
+    /// its end of stream runs out, its slot freed by then and the writer's
+    /// `CLOSE_GRACE`, and what it did not take is counted as dropped at a
+    /// close -- not at a stop. What the socket delivered and what was
+    /// counted are the queue whole, less the one frame the writer may have
+    /// been part-way through when it was aborted. The queue ends in
+    /// runtime states, which the connection never writes as events: they
+    /// are no loss to the client and are not counted, so the count stays a
+    /// floor. The `close{Timeout}` queued for the cut-short hand-over is
+    /// never written, since the writer is stuck behind a socket the client
+    /// does not read.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_clients_close_counts_what_a_client_that_does_not_read_left() {
+        const QUEUED: usize = 1000;
+        const STATES: usize = 5;
+        let fake = Fake::default();
+        let mut short = config();
+        short.shutdown_grace = Duration::from_millis(300);
+        short.limits = Limits {
+            max_clients: 1,
+            max_admin_clients: 1,
+        };
+        let harness = Harness::start(&fake, short);
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let held = stuff(&fake, QUEUED).await;
+        for _ in 0..STATES {
+            fake.script()
+                .events
+                .push_back(SessionEvent::Local(LocalSessionEvent::ServerState {
+                    health: Health::Healthy,
+                    connectivity: None,
+                }));
+        }
+        leave(&mut client).await;
+        let left = tokio::time::Instant::now();
+        // The one slot comes back once the connection has ended.
+        loop {
+            use tokio::io::AsyncWriteExt as _;
+            let mut next = Client::connect(&harness.paths.data).await;
+            // Refused for the slot, the connection may be closed before
+            // the hello lands: the write's failure is that refusal.
+            let hello = encode_frame(DATA).expect("a frame");
+            let _ = next.write.write_all(&hello).await;
+            match next.next_reply().await {
+                Some(Frame::HelloResponse(_)) => break,
+                Some(Frame::Close(close)) if close.code == TransportError::Overloaded => {}
+                None => {}
+                other => panic!("a hello_response or the slot's refusal: {other:?}"),
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        assert!(
+            left.elapsed() < Duration::from_millis(300) + crate::connection::CLOSE_GRACE * 2,
+            "the slot is held for the grace and the writer's CLOSE_GRACE, not longer: {:?}",
+            left.elapsed()
+        );
+        let counters = harness.stop().await;
+        let dropped = usize::try_from(counters.events_dropped_at_close()).expect("fits");
+        assert!(
+            dropped >= held,
+            "at least what the session held: {dropped} < {held}"
+        );
+        assert_eq!(counters.events_dropped_at_stop(), 0, "not a stop's");
+        let (read, closed) = read_to_the_end(&mut client).await;
+        assert!(!closed, "a writer stuck behind the socket writes no close");
+        assert!(
+            read + dropped == QUEUED || read + dropped + 1 == QUEUED,
+            "read {read} + counted {dropped} is the queue of {QUEUED} events, less one at \
+             most, and none of its {STATES} states"
+        );
+    }
+
+    /// A leaving client that reads only once the hand-over's grace has run
+    /// out is told the remainder is NOT complete: what the socket and the
+    /// writer still carry, then `close{Timeout}` -- on the control lane, so
+    /// ahead of what the event lane still held -- and the count is exact:
+    /// the writer finished every frame it began, so what the client read
+    /// and what was counted are the queue whole. The control is
+    /// `a_clients_close_is_written_what_the_session_held_before_the_stream_ends`,
+    /// whose complete hand-over ends with no close. As the gap was found,
+    /// a cut-short hand-over ended with the same clean end of stream as a
+    /// complete one, and the client could not tell them apart.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_clients_close_cut_short_ends_with_a_timeout_close() {
+        const QUEUED: usize = 1000;
+        const GRACE: Duration = Duration::from_millis(300);
+        let fake = Fake::default();
+        let mut short = config();
+        short.shutdown_grace = GRACE;
+        let harness = Harness::start(&fake, short);
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let held = stuff(&fake, QUEUED).await;
+        leave(&mut client).await;
+        // Past the grace, well inside the writer's CLOSE_GRACE after it.
+        tokio::time::sleep(GRACE + Duration::from_millis(400)).await;
+        let mut read = 0;
+        let mut close = None;
+        while let Some(frame) = client.next().await {
+            match frame {
+                Frame::Event(event) => {
+                    assert_eq!(event.sequence, read as u64, "in sequence");
+                    read += 1;
+                }
+                Frame::Close(frame) => {
+                    close = Some(frame.code);
+                    break;
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(close, Some(TransportError::Timeout), "after {read} events");
+        assert!(read < QUEUED, "cut short: {read} of {QUEUED}, {held} held");
+        let counters = harness.stop().await;
+        let dropped = usize::try_from(counters.events_dropped_at_close()).expect("fits");
+        assert_eq!(
+            read + dropped,
+            QUEUED,
+            "read {read} + counted {dropped} is the queue of {QUEUED}"
+        );
+        assert_eq!(counters.events_dropped_at_stop(), 0, "not a stop's");
+    }
+
+    /// `admin.status` serves what a leaving client did not read as
+    /// `ipc.events_dropped_at_close_total`: 0 before, then the queue it
+    /// left, while the session-queue overflow count (the fake's 2) and
+    /// the stop's count do not move (`LOCAL-IPC.md` A 2026-11-28).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_clients_close_is_served_in_admin_status_apart_from_the_other_drops() {
+        const QUEUED: usize = 1000;
+        let fake = Fake::default();
+        fake.script().events_dropped = Some(2);
+        let mut short = config();
+        short.shutdown_grace = Duration::from_millis(300);
+        short.limits = Limits {
+            // The ceiling is across both sockets: the admin connection and
+            // the one data client.
+            max_clients: 2,
+            max_admin_clients: 1,
+        };
+        let harness = Harness::start(&fake, short);
+        let mut admin = Client::connect(&harness.paths.admin).await;
+        admin.hello(ADMIN).await;
+        let mut asked = 0_u32;
+        let mut status = async |admin: &mut Client| -> serde_json::Value {
+            asked += 1;
+            admin
+                .send(&format!(
+                    r#"{{"type":"request","id":"s{asked}","method":"admin.status"}}"#
+                ))
+                .await;
+            let answer = admin.response().await;
+            let answer: serde_json::Value = serde_json::from_str(&answer.body).expect("json");
+            answer["result"]["ipc"].clone()
+        };
+        let before = status(&mut admin).await;
+        assert_eq!(before["events_dropped_at_close_total"], 0, "{before}");
+        assert_eq!(before["events_dropped_total"], 2, "{before}");
+
+        let mut client = Client::connect(&harness.paths.data).await;
+        client.hello(DATA).await;
+        let held = stuff(&fake, QUEUED).await;
+        leave(&mut client).await;
+        // The close is counted when the connection ends, after the grace
+        // the server gives a client that does not read.
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+        while status(&mut admin).await["events_dropped_at_close_total"] == 0 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "a close is counted within the grace"
+            );
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        let after = status(&mut admin).await;
+        let left = after["events_dropped_at_close_total"]
+            .as_u64()
+            .unwrap_or_else(|| panic!("a kept count is served: {after}"));
+        assert!(
+            left >= held as u64,
+            "at least what the session held: {after}"
+        );
+        assert_eq!(
+            after["events_dropped_total"], 2,
+            "overflow count unmoved: {after}"
+        );
+        let counters = harness.stop().await;
+        assert_eq!(
+            counters.events_dropped_at_stop(),
+            0,
+            "the stop's is unmoved"
+        );
+        assert_eq!(
+            counters.events_dropped_at_close(),
+            left,
+            "one count, served whole"
+        );
+    }
+
+    /// Only a CLEAN end of stream is a client leaving: a stream cut inside
+    /// a frame is a connection lost, and is handed nothing and counts
+    /// nothing, as before A 2026-11-28 -- the client reads only what the
+    /// socket and the lane already held. The control beside it: the same
+    /// queue, ended cleanly, is read whole.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_connection_cut_inside_a_frame_is_handed_nothing() {
+        const QUEUED: usize = 1000;
+        for clean in [true, false] {
+            let fake = Fake::default();
+            let harness = Harness::start(&fake, config());
+            let mut client = Client::connect(&harness.paths.data).await;
+            client.hello(DATA).await;
+            let _ = stuff(&fake, QUEUED).await;
+            if !clean {
+                use tokio::io::AsyncWriteExt as _;
+                // A length prefix promising nine bytes, and one of them.
+                client
+                    .write
+                    .write_all(&[0, 0, 0, 9, b'{'])
+                    .await
+                    .expect("written");
+            }
+            leave(&mut client).await;
+            until_released(&fake, PATIENCE).await;
+            let (read, _) = read_to_the_end(&mut client).await;
+            let counters = harness.stop().await;
+            if clean {
+                assert_eq!(read, QUEUED, "the control: a clean end is handed it all");
+            } else {
+                assert!(read < QUEUED, "a cut stream is handed nothing more: {read}");
+                assert!(
+                    fake.script().events.is_empty(),
+                    "the session's close took the rest, and it was dropped"
+                );
+            }
+            assert_eq!(
+                counters.events_dropped_at_close(),
+                0,
+                "neither counts: one read all, one was not a close"
+            );
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn stopping_closes_every_connection_with_shutting_down() {
         let fake = Fake::default();

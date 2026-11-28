@@ -15,6 +15,7 @@ pub struct Counters {
     cross_domain_capability_denied: AtomicU64,
     peer_credential_refused: AtomicU64,
     events_dropped_at_stop: AtomicU64,
+    events_dropped_at_close: AtomicU64,
 }
 
 impl Counters {
@@ -28,6 +29,10 @@ impl Counters {
                 .cross_domain_capability_denied
                 .load(Ordering::Relaxed),
             peer_credential_refused_total: self.peer_credential_refused.load(Ordering::Relaxed),
+            // Kept here, so always served, 0 included (LOCAL-IPC.md A 2026-11-28;
+            // `a_clients_close_is_served_in_admin_status_apart_from_the_other_drops`
+            // reads the 0 before any close).
+            events_dropped_at_close: Some(self.events_dropped_at_close.load(Ordering::Relaxed)),
         }
     }
 
@@ -43,6 +48,38 @@ impl Counters {
 
     pub(crate) fn dropped_at_stop(&self, events: u64) {
         self.events_dropped_at_stop
+            .fetch_add(events, Ordering::Relaxed);
+    }
+
+    /// The events a client's close was handed and did not read before the
+    /// hand-over's grace ended or its writer gave up on it: what its
+    /// session's close returned and the connection would have written but
+    /// could not, and what was still in its lane (`LOCAL-IPC.md`
+    /// §Disconnect/reconnect, A 2026-11-28).
+    ///
+    /// A floor, counted as the stop's is: the frame the writer was
+    /// part-way through when it was aborted is not counted, and an event
+    /// the connection would not have written -- the runtime's state, which
+    /// rides the close's remainder -- is not counted either, so what the
+    /// client read and this count add up to the remainder or to one less
+    /// (`a_clients_close_counts_what_a_client_that_does_not_read_left`,
+    /// whose queue ends in states, and
+    /// `a_clients_close_cut_short_ends_with_a_timeout_close`, exact).
+    ///
+    /// Its own count: a client's close does not move
+    /// [`events_dropped_at_stop`](Self::events_dropped_at_stop) (both tests
+    /// above read it 0) nor the session-queue overflow count
+    /// (`a_clients_close_is_served_in_admin_status_apart_from_the_other_drops`).
+    /// Unlike the stop's, it is served by `admin.status` as
+    /// `ipc.events_dropped_at_close_total` (`snapshot`), since the server
+    /// is still answering when a client closes.
+    #[must_use]
+    pub fn events_dropped_at_close(&self) -> u64 {
+        self.events_dropped_at_close.load(Ordering::Relaxed)
+    }
+
+    pub(crate) fn dropped_at_close(&self, events: u64) {
+        self.events_dropped_at_close
             .fetch_add(events, Ordering::Relaxed);
     }
 

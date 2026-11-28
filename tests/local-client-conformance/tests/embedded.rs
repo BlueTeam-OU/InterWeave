@@ -333,6 +333,21 @@ fn item_4_local_refusals_map_exactly() {
 }
 
 #[test]
+fn a_close_hands_over_what_was_admitted_and_after_it_no_route() {
+    let pair = EmbeddedPair::start();
+    let (a, b) = pair.bindings();
+    pair.run(
+        suite::a_close_hands_over_what_was_admitted_and_after_it_no_route(
+            &a,
+            &b,
+            &pair.b_peer,
+            &human(),
+        ),
+    );
+    pair.stop();
+}
+
+#[test]
 fn item_8_nothing_is_kept_for_an_unleased_endpoint() {
     let pair = EmbeddedPair::start();
     let (a, b) = pair.bindings();

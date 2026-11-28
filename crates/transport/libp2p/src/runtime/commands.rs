@@ -1045,7 +1045,11 @@ pub(super) fn handle_command(
                 reply.send(direct_state.claim(LocalSessionId(session), &endpoint, &client_kind));
         }
         SwarmCommand::ReleaseSession { session, reply } => {
-            // The session's end: its losses go with it, after its leaves.
+            // The session's end: its losses go with it, before or after its
+            // leaves -- a leave after the release finds no ledger and folds
+            // nothing. Its endpoint queues are TAKEN in this one command and
+            // handed to the closer (`DirectState::release`); a reply nobody
+            // waits for, a session dropped without `close`, drops them.
             broadcast_state.queues.losses_mut().released(&session);
             let _ = reply.send(direct_state.release(&LocalSessionId(session)));
         }

@@ -189,6 +189,7 @@ impl AdminStatusResult {
                 peer_credential_refused_total: counters.peer_credential_refused_total,
                 events_dropped_total: status.events_dropped,
                 events_refused_total: status.events_refused,
+                events_dropped_at_close_total: counters.events_dropped_at_close,
             },
             pre_auth: status.pre_auth.map(|counts| PreAuthCounters {
                 tracked_sources: Some(u64::try_from(counts.tracked_sources).unwrap_or(u64::MAX)),
@@ -250,6 +251,11 @@ pub struct ServerCounters {
     pub cross_domain_capability_denied_total: u64,
     /// Connections refused on their peer credential.
     pub peer_credential_refused_total: u64,
+    /// Events a client that closed in order did not take before the
+    /// hand-over ended: the server's count, `None` for a server that
+    /// keeps none, which leaves the member out rather than serve 0
+    /// (`LOCAL-IPC.md` A 2026-11-28).
+    pub events_dropped_at_close: Option<u64>,
 }
 
 /// `admin-status.ipc`.
@@ -291,6 +297,19 @@ pub struct IpcCounters {
         deserialize_with = "absent_or_count"
     )]
     pub events_refused_total: Option<u64>,
+    /// Events a client that closed in order did not take before the
+    /// hand-over's grace or write stall ended, every such client's since
+    /// the daemon started: the server's count, emitted only when it keeps
+    /// one (`LOCAL-IPC.md` A 2026-11-28). Absent says "not counted", where
+    /// a 0 says "none dropped". A floor, and an exited client's remainder
+    /// counts with a leaving one's. Its own counter: never part of
+    /// `events_dropped_total` or of the stop's count.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "absent_or_count"
+    )]
+    pub events_dropped_at_close_total: Option<u64>,
 }
 
 /// `admin-status.pre_auth`: every field optional on the wire.
@@ -2291,6 +2310,61 @@ mod tests {
             let back: AdminStatusResult = serde_json::from_value(wire).expect("de");
             assert_eq!(AdminStatus::from(back), status);
         }
+    }
+
+    /// `ipc.events_dropped_at_close_total` is the server's, never the
+    /// port's: served when `ServerCounters` carries it (0 is "none
+    /// dropped"), left out when it does not, and apart from both siblings.
+    #[test]
+    fn the_dropped_at_close_total_is_served_when_the_server_keeps_it() {
+        use interweave_transport_api::{
+            DirectInboundState, PathReadiness, PreferredPathPolicy, TransportIdentity,
+        };
+        let status = AdminStatus {
+            health: Health::Healthy,
+            peer: TransportIdentity::parse("12D3KooWDpJ7As7BWAwRMfu1VU2WCqNjvq387JEYKDBj4kx6nXTN")
+                .expect("peer"),
+            connectivity: ConnectivitySummary {
+                direct_inbound: DirectInboundState::Unknown,
+                relay_inbound: PathReadiness::Unavailable,
+                active_relay_reservations: 0,
+                target_relay_reservations: 0,
+                active_relayed_peer_paths: 0,
+                hole_punch_inflight: 0,
+                preferred_path_policy: PreferredPathPolicy::DirectFirst,
+                updated_at: 0,
+            },
+            active_leases: 0,
+            pre_auth: None,
+            ingress: None,
+            events_dropped: Some(2),
+            events_refused: Some(5),
+        };
+        let wire = |kept: Option<u64>| {
+            serde_json::to_value(AdminStatusResult::new(
+                status.clone(),
+                ServerCounters {
+                    events_dropped_at_close: kept,
+                    ..ServerCounters::default()
+                },
+            ))
+            .expect("ser")
+        };
+        for kept in [0, 7] {
+            let wire = wire(Some(kept));
+            assert_eq!(wire["ipc"]["events_dropped_at_close_total"], kept, "{wire}");
+            assert_eq!(wire["ipc"]["events_dropped_total"], 2, "sibling apart");
+            assert_eq!(wire["ipc"]["events_refused_total"], 5, "sibling apart");
+            let back: AdminStatusResult = serde_json::from_value(wire).expect("de");
+            assert_eq!(back.ipc.events_dropped_at_close_total, Some(kept));
+        }
+        let none = wire(None);
+        assert!(
+            none["ipc"].get("events_dropped_at_close_total").is_none(),
+            "a server that keeps no count names none: {none}"
+        );
+        let back: AdminStatusResult = serde_json::from_value(none).expect("de");
+        assert_eq!(back.ipc.events_dropped_at_close_total, None, "never 0");
     }
 
     /// `ipc.events_refused_total` is served whenever the port keeps the
