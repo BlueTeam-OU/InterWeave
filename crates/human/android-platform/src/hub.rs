@@ -848,10 +848,13 @@ impl Hub {
     /// Facade `generation` held `more` while it runs: the held list a
     /// view attached later is told gains them, and the attached view is
     /// told [`ToView::HeldMore`], listed or not -- one not listed hears
-    /// them before the listing that follows. Under the one slot lock, so
-    /// a view attaching is told them once, in the list it is attached
-    /// with or in the message, not in neither and not in both
+    /// them before the listing that follows. A view attached after it is
+    /// told them in the list it is attached with
     /// (`a_view_attached_after_a_create_is_told_the_new_identity_held`).
+    /// The list grows and the message goes out in one hold of the slot
+    /// lock, which `attach` takes too, so a view attaching meanwhile
+    /// cannot be told them twice; no test interleaves an attach inside
+    /// that hold.
     /// Refused unless it is the hub's current facade.
     pub(crate) fn held_more(&self, generation: u64, more: Vec<EndpointId>) {
         let commands = self.commands();
@@ -1552,7 +1555,9 @@ mod tests {
     /// `HeldMore`; a retired facade's is refused. Mutations: `held_more`
     /// not growing the slot's list -- the late view's `Held` lacks it;
     /// not checking the generation -- the retired facade's reaches the
-    /// view.
+    /// view. The late view's `HeldMore` assert holds `attach` to telling
+    /// no `HeldMore` of its own; it says nothing of an attach inside
+    /// `held_more`'s lock hold, which the method's doc names untested.
     #[test]
     fn a_view_attached_after_a_create_is_told_the_new_identity_held() {
         let hub = Hub::new();
