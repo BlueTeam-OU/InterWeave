@@ -557,6 +557,15 @@ const MATRIX: &[Clause] = &[
         error: "no_route",
         proof: Proof::Test("every_routing_refusal_is_indistinguishable_on_the_wire"),
     },
+    // DIRECT.md "A client's close hands over too" (A 2026-11-28): the
+    // release that takes the queue unleases the endpoint in the same
+    // command, so the next request is refused like any unleased one.
+    Clause {
+        doc: DIRECT,
+        text: "a request after it is answered `no_route` as for any unleased endpoint",
+        error: "no_route",
+        proof: Proof::Test("a_close_hands_over_what_was_admitted_and_after_it_no_route"),
+    },
 ];
 
 /// The error vocabularies, read from the schemas that define them.
