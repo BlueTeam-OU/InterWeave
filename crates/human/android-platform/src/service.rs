@@ -14,7 +14,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use interweave_human_app_core::KeyProblem;
 use interweave_human_app_core::{
-    HeldEntry, HeldList, KeySource, Roster, RosterConfig, RosterError, held_list,
+    AddFactory, HeldEntry, HeldList, KeySource, Roster, RosterConfig, RosterError, held_list,
 };
 use interweave_human_store::at_rest;
 use interweave_human_store::key_custody::{CipherFailure, Custody, KeyCipher};
@@ -374,8 +374,11 @@ impl ServiceHost {
             let mut other_problems = Vec::new();
             for source in sources {
                 let endpoint = source.endpoint().clone();
-                // Every source names a held identity: the roster holds
-                // what the sources were made from.
+                // A source the roster holds no side for is passed by: the
+                // profile names an identity a pending-add record still
+                // names, which the roster does not hold (app-core's
+                // `an_id_a_pending_add_record_names_is_not_held_and_opens_no_session`)
+                // and the start's settle takes up.
                 let problem = roster.side_mut(&endpoint).and_then(|side| {
                     side.set_key_source(source);
                     side.key_problem().cloned()
@@ -868,16 +871,30 @@ impl ServiceHost {
         let cipher = SharedCipher::new(launch.store_cipher);
         let sources = key_sources(host.paths(), &held, || Box::new(cipher.clone()));
         let (data, admin) = (data(&host), host.binding());
+        // What an identity made while the client runs is held with
+        // (Create through the embedded host, ADR-0061 decision 7): the
+        // same bindings and the same custody the identities held at the
+        // start use.
+        let factory = AddFactory {
+            bindings: {
+                let (data, admin) = (data.clone(), admin.clone());
+                Box::new(move |_| (data.clone(), admin.clone()))
+            },
+            admin: Arc::new(admin.clone()),
+            paths: host.paths().clone(),
+            cipher: Arc::new(cipher.clone()),
+        };
         let roster_config = roster_config(&config, &held);
         let make = self.with_key_sources(
             move || {
-                Roster::new(
+                Ok(Roster::new(
                     roster_config,
                     store,
                     move |_| (data.clone(), admin.clone()),
                     wall_ms,
                     0,
-                )
+                )?
+                .adding(factory))
             },
             sources,
         );
@@ -962,17 +979,30 @@ impl ServiceHost {
             .enable_time()
             .build()
             .map_err(|e| StartRefused::Thread(e.to_string()))?;
+        let cipher = Arc::clone(&store_cipher);
         let sources = key_sources(&paths, &held, move || Box::new(Arc::clone(&store_cipher)));
         let roster_config = roster_config(&config, &held);
+        // The offline binding's admin answers BackendUnavailable, so an
+        // add or a settle made here goes no further than its first
+        // administrative call, leaving the record for the next start
+        // (`over_the_offline_posture_a_settle_and_a_create_stop_at_their_first_call`
+        // in tests/adding.rs).
+        let factory = AddFactory {
+            bindings: Box::new(|_| (offline_embedded(), offline_embedded())),
+            admin: Arc::new(offline_embedded()),
+            paths: paths.clone(),
+            cipher: Arc::clone(&cipher),
+        };
         let make = self.with_key_sources(
             move || {
-                Roster::new(
+                Ok(Roster::new(
                     roster_config,
                     store,
                     |_| (offline_embedded(), offline_embedded()),
                     wall_ms,
                     0,
-                )
+                )?
+                .adding(factory))
             },
             sources,
         );

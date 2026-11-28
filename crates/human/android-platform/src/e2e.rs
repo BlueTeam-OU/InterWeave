@@ -77,6 +77,10 @@ impl AppClient for HubClient {
                 // Whose the updates are: the case's client holds one
                 // identity and sends as the one in front.
                 | ToView::Held(_)
+                // Nor an identity held later, nor what an add came to:
+                // the case sends no add act.
+                | ToView::HeldMore(_)
+                | ToView::Add(_)
                 // The identities' rows: nothing a case exchanges.
                 | ToView::Identities(_)
                 | ToView::NetworkAccess(true)
