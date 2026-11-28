@@ -227,9 +227,11 @@ States:
 - **Loading**: the store read is local and fast; nothing is drawn until
   it answers.
 - **Store degraded** (`StorageDegraded` already shown by the app): the
-  list shows what it read; Add, Save and Remove are disabled with the
-  existing degraded notice above them, since a card that cannot be
-  stored cannot be saved.
+  list shows what it read; Add and Remove are disabled with the
+  existing degraded notice above them, Add another identity in the card
+  editor's overflow too. Save is not disabled (§5.2: Save is never
+  disabled); what a Save the store refuses shows is identities §15's
+  open item (identities' answer to rust-ui-dev-02's U6, 2026-11-28).
 - **At the bound**: when the profile holds 64 endpoints, the
   configuration's bound (ENDPOINTS.md), authored and added counted
   together, agent endpoints included (§12 Q7–Q10), Add an identity opens
@@ -2284,7 +2286,7 @@ and are for them to write.
 | `ConfirmContactDeleted` / `ConfirmPhotoRemoved` | Contact deleted / Photo removed | snackbars, with Undo; `ConfirmPhotoRemoved` on the contact page only, never in the card editor (§5.2) |
 | `IdentitiesTitle` | Your identities | menu item, page title, the switcher's link |
 | `OwnCardTitle` | Your card | menu item with one identity |
-| `IdentitiesShareDevice` | Desktop: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. To stop the people you talk to from linking two identities, use a separate InterWeave profile for each. The network can still see that both profiles are on this device. Any peer you trust who knows an identity's label can write to that identity. There is no setting to limit this. Android: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. On this phone, any two of your identities can be linked in this way. Any peer you trust who knows an identity's label can write to that identity. There is no setting to limit this. | §5.1; Android ends instead: "This phone cannot keep two identities fully apart." Must state the shared PeerId and addresses, who can see it, the separation that exists, and that a label is no secret from a trusted peer (ADR-0061 d. 5) The last sentence was changed by ux-designer when the reach control was withdrawn |
+| `IdentitiesShareDevice` | Desktop: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. To stop the people you talk to from linking two identities, use a separate InterWeave profile for each. The network can still see that both profiles are on this device. Any peer you trust who knows an identity's label can write to that identity. There is no setting to limit this. Android: Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. On this phone, any two of your identities can be linked in this way. Any peer you trust who knows an identity's label can write to that identity. There is no setting to limit this. | §5.1; each platform's whole text is in this column (the Android ending once proposed here, "This phone cannot keep two identities fully apart.", is withdrawn: language-culture's Android form ends "On this phone, any two of your identities can be linked in this way."; identities §13). Must state the shared PeerId and addresses, who can see it, the separation that exists, and that a label is no secret from a trusted peer (ADR-0061 d. 5) The last sentence was changed by ux-designer when the reach control was withdrawn |
 | `IdentityRouteLabel` | Seen by others as {route} | §5.1 row, under the name |
 | `IdentityDefault` | Default | §5.1 row |
 | `IdentityInFront` | In use | §5.1 row's accessible description; the check mark's meaning |

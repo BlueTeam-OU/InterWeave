@@ -615,7 +615,20 @@ So "Anna Rossi" gives `anna-rossi`, a second "Anna Rossi"
 `anna-rossi-2`, "Ελένη" `identity` (or `identity-2` when that is
 taken), and "2024 team" `identity-2024-team`. It is shown on the identity's page under the card's fields,
 read-only, as `IdentityAlias` ("Name to use on the command line: {alias}") with Copy,
-so a person who uses the command line can find it. Editing the card's
+so a person who uses the command line can find it.
+**Its Copy** (rust-ui-dev-02's QUESTION 01a21fa9, T1) works as
+Details' Copy PeerId does: its visible label is `CopyAlias` ("Copy"),
+since the line beside it says what is copied; its accessible name is
+`CopyAliasName` ("Copy the name to use on the command line"), which
+begins with the visible label (WCAG 2.5.3) and says what is copied when
+the button is reached alone, by Tab or by a screen reader's next item.
+It puts the alias alone on the clipboard, without the line's words.
+What is said once copied is Copy PeerId's rule: where the platform
+confirms nothing itself (below Android 13, and the desktop), the
+snackbar `AliasCopied` ("Name to use on the command line copied"), with
+no action; where the platform confirms a copy itself, nothing more.
+Focus stays on Copy. A copy that fails is not told, as Copy PeerId's
+is not today: this note adds no text for it (§15). Editing the card's
 name later does not change it, since a script may use it; the command
 line renames it (ADR-0061 d. 7), and a rename it refuses is its own
 (`AliasInvalid`, `AliasTaken`). **Alternative named:** an alias field
@@ -803,7 +816,12 @@ Outcomes other than Done, each with nothing half-made shown as made:
 - **Refused, with nothing created**: the add answered
   `InvalidArgument`, or `refused` for a reason other than `exists`,
   `bound` or `key_missing`; or Create stopped before the add, because
-  the record or the key could not be written. Each of these is this
+  the record or the key could not be written, or because the
+  administrative connection that the add goes on did not open (no
+  daemon running, for one: no add was sent, so nothing was changed is
+  true; rust-ui-dev-02's QUESTION 01a21fa9, U3). A connection that
+  opened and then dropped is not this case: an add may have gone on it,
+  and it is an unknown outcome (below). Each of these is this
   outcome only when no earlier add of the form's key ended unknown;
   after such an add, each
   is an unknown outcome (below).
@@ -1130,7 +1148,34 @@ Outcomes other than Done, each with nothing half-made shown as made:
   identities opens with the row focused and `IdentityCardNotSaved`
   under it ("The name and photo were not saved. Open this identity
   to try again."); its page opens with the form's values kept for this
-  session.
+  session. `ConfirmIdentityAdded` does not show (rust-ui-dev-02's
+  QUESTION 01a21fa9, U4): it would name the identity by a name that
+  was not saved, beside a row that names it by its alias. The focused
+  row, read with its line (§11 F9), is what tells the person that the
+  identity was made and what is still owed.
+- **The identity is made and not held yet** (rust-ui-dev-02's
+  QUESTION 01a21fa9, U5): the record is deleted, so the id is an
+  identity, but the client could not take it into the identities it
+  holds yet (the store could not be read, or the client holds as many
+  as it can), and Your identities lists only identities the client
+  holds. Your identities opens with no row for it, focus on the title
+  (F4), and `ConfirmIdentityAdded` shows, whether or not the card was
+  written, since no row can say that the identity was made: with
+  `IdentityCardNotSaved` owed, the snackbar's `{name}` is the name the
+  form held. When the client holds the identity later (it tries again
+  at each poll, or, when its queue of identities waiting to be held is
+  full, at the next start), its row appears in the list's order, with
+  `IdentityCardNotSaved` under it if its card was not written, and
+  focus does not move; nothing is announced. Hypothesis: a person who
+  reads `ConfirmIdentityAdded` and sees no row waits, or opens the list
+  again, rather than choosing Add again; falsified if a person in a
+  test adds a second identity for the same name in this state. That
+  state needs the store unreadable or the hold bound reached, so this
+  note gives it no line of its own.
+  **Alternative named:** a row for an identity the client does not
+  hold, with `IdentityUnavailable`. Rejected for now: Your identities
+  lists the held identities, and a row whose page could not open the
+  identity's card or act on it would lead nowhere.
 
 ## 7. Remove an identity, and turning the first one off
 
@@ -1152,6 +1197,33 @@ where focus lands — with its dialog changed for ADR-0067:
   old contact, stopped being true with ADR-0067 d. 2: a new identity has
   a new key and so a new EndpointId.
 - **Cancel** first focus, **Remove** filled in `error`, no Undo.
+- **While Remove runs** (rust-ui-dev-02's QUESTION 01a21fa9, U1 and
+  T3), as Create does (§6.2 step 1): the dialog stays open, showing what
+  it showed, and Remove shows a progress indicator in itself from the
+  moment it is chosen. Remove cannot be stopped halfway: its first step
+  takes the key path, after which no one can use the identity again,
+  as the dialog said. So Cancel is shown disabled, and Escape, Back and
+  a tap outside the dialog do nothing, until Remove ends. Remove's own
+  press does nothing more. Focus stays on Remove, the control the person
+  pressed. While Remove runs, its accessible name is `IdentityRemoving`
+  ("Removing {identity}"), with `{identity}` the name the dialog shows,
+  so a screen reader that reads it says that the identity is being
+  removed, not that a button waits to be pressed; nothing is announced
+  when it starts. Each call that Remove sends to the device, the remove
+  and the list read back after a lost answer (below), waits at most the
+  add's wait (§6.2) for its answer, so Remove ends: a call with no
+  answer in that time is handled as a lost answer. When Remove ends,
+  the dialog closes, and where the app lands and where focus goes are
+  what the end gives: cards §5.2's "Where it lands" when Remove is
+  done (§11 F11), and the overflow button of the identity's page after
+  `IdentityChangeFailed`, `IdentityRemoveUnfinished` or
+  `IdentityRemoveUnfinishedRows` (below; §11 F29). An identity that
+  leaves by this section's last item while its Remove runs is left to
+  that Remove, which ends as done when its list shows the id absent.
+  **Alternative named:** close the dialog at once and show progress on
+  the identity's page. Rejected: the page would stay open on an
+  identity whose key is already gone, with controls the person could
+  act on while it is being removed.
 - **Its trusted peers** leave the device's admission set when no other
   set holds them; nothing on the remaining identities' screens changes.
 - **Its key path** is the first thing Remove takes, as ADR-0063
@@ -1461,7 +1533,7 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | Peers | back arrow, title and subtitle, Show my address, Add an address, `PeersShared`, `PeersNoTrust`, the rows as today |
 | a contact | as cards §6.3; on each route row, Open conversation, then the route menu button |
 | route menu | Move, Remove |
-| Remove dialog (identity) | title, the list of what goes, Cancel, Remove |
+| Remove dialog (identity) | title, the list of what goes, Cancel, Remove; while Remove runs, Cancel is no stop (F29) |
 
 **Focus table.** One row per case; prose elsewhere points here.
 
@@ -1494,7 +1566,8 @@ can, and the TalkBack rows of §14 are blocked until it does.
 | F25 | the form's seed is not answered while focus is on the inert Create; or a seed is answered while `IdentityAddWaitsSeed` shows (§6.2) | in the first case, `IdentityAddWaitsSeed`; in the second, if focus was on the line or its Try again, Create, which takes their place; with focus elsewhere, focus stays where it was | keyboard, with acceptance 10 (u) |
 | F26 | `CardDiscardChanges` opens on the add form, and closes (§6.2, "Leaving asks first") | as cards §5.2 gives it: Continue editing on opening; on Continue editing, the control that had focus when the dialog opened, or, if that control no longer exists, the control that cards §5.2's rule gives for that case; on Close without saving, where the leaving puts it | keyboard, with acceptance 10 (w) |
 | F27 | Try again under `IdentityAddWaitsSeed` (§6.2) | stays on Try again, inert, while the seed is asked; on a seed not answered, stays on Try again, enabled again; on a seed answered, as F25 | keyboard, with acceptance 10 (u) |
-| F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant |
+| F28 | a settle finds a second identity while the card editor shows (§6.2, the settle) | if focus was on an item of the editor's overflow menu, the menu closes, and focus goes to the overflow button; when the overflow then holds no item (Make default and Turn off not offered there, cards §5.2), no overflow button is drawn, and focus goes to the page's title (rust-ui-dev-02's QUESTION 01a21fa9, U2); otherwise focus stays where it was | keyboard, with acceptance 10 (t)'s second variant, once on a build whose overflow keeps an item and once on one where it keeps none |
+| F29 | Remove chosen in the identity Remove dialog (§7, "While Remove runs") | stays on Remove, its accessible name `IdentityRemoving`, while it runs; Tab and Shift+Tab do not reach the disabled Cancel; when it ends done, F11; when it ends with `IdentityChangeFailed`, `IdentityRemoveUnfinished` or `IdentityRemoveUnfinishedRows`, the overflow button of the identity's page | keyboard, with acceptance 13's refusal run, its run with the unlink made to fail, and a run whose remove answer is held past the add's wait; desktop screen reader: Remove read as "Removing {identity}" while it runs |
 
 ## 12. Accessibility beyond focus
 
@@ -1624,6 +1697,9 @@ front.
 | `IdentityNewNote` | A new identity has no contacts and trusts no peer. No one has its card until you share it. | the add form | it trusts no one and no one has its card until shared |
 | `CreateIdentity` | Create | the add form's primary | create |
 | `IdentityAlias` | Name to use on the command line: {alias} | an identity's page | the name used in commands, with the alias; the alias last, nothing touching it |
+| `CopyAlias` | Copy | the button beside `IdentityAlias` (§6.2) | new text, proposal; copy, the line beside it saying what |
+| `CopyAliasName` | Copy the name to use on the command line | that button's accessible name (§6.2); never visible text | new text, proposal; begins with `CopyAlias`'s visible text (WCAG 2.5.3) and says what is copied |
+| `AliasCopied` | Name to use on the command line copied | snackbar after that Copy where the platform confirms nothing itself (below Android 13, and the desktop), no action | new text, proposal; the command-line name was copied, named as `IdentityAlias` names it |
 | `ConfirmIdentityAdded` | {name} was created. It does not trust any peer yet. | snackbar | {name} added; it trusts no one yet |
 | `IdentityAddUnknown` | InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one. | the add form, above Create | could not tell whether it was created; Create tries again and cannot make it twice |
 | `IdentityAddNotFinished` | {name} was created, but InterWeave could not finish setting it up. Choose Create to finish. Create does not create a second one. | the add form, above Create | it exists, but is not ready yet; Create finishes it and makes nothing new |
@@ -1635,6 +1711,7 @@ front.
 | `BackToIdentities` | Back to your identities | the back arrow's accessible name on the add form opened from Your identities, and on an identity's page opened from its row (§6.2) | new text, proposal; where the arrow returns |
 | `BackToCard` | Back to your card | the add form's back arrow when it was opened from the card editor's Add another identity (§6.2) | new text, proposal; where the arrow returns |
 | `IdentityOptions` | Identity options | an identity's page, its overflow button's accessible name (§6.2) | new text, proposal; the options of this identity, told apart from `AppOptions` and `MoreOptions` |
+| `IdentityRemoving` | Removing {identity} | Remove's accessible name in the identity Remove dialog while Remove runs (§7, "While Remove runs"); never visible text | new text, proposal; the identity is being removed now, and the button is not waiting to be pressed; as `IdentityCreating` |
 | `IdentityRemoveKey` | The key of {identity}. No one can use this identity again. | Remove dialog, an item of `IdentityRemoveLoses` | its key, so it can never be used again |
 | `IdentityRemoveUnfinished` | Could not finish removing {identity}. Its key was removed, but the identity is still here. Choose Remove again to finish. | snackbar after a Remove that failed after its key path was taken and before its rows were deleted (§7) | the key is gone, the identity is still there; Remove chosen again finishes it |
 | `IdentityRemoveUnfinishedRows` | Could not finish removing {identity}. Its key, conversations, contacts and card were removed. If this identity is still listed, choose Remove again. | snackbar after a Remove that failed after its rows were deleted, or whose answer from the device was lost, and before the device was known to have removed the endpoint (§7) | the key, conversations, contacts and card are gone; the identity may still be listed, or may leave the list a moment later or at the device's next start, so the text never says it is still here or that Remove again will finish it; while it is listed, Remove again is the way on |
@@ -1702,10 +1779,13 @@ the same text, and so do `ContactRouteTrustedAs` and
 
 | key | text | what changed |
 |---|---|---|
-| `IdentitiesShareDevice` | First half as cards §10, each platform's, up to and not including "Any peer you trust who knows an identity's label"; then: Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device. That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel. | the second half, for ADR-0067 (§6.1) |
+| `IdentitiesShareDevice` | First half as cards §10, each platform's, up to and not including "Any peer you trust who knows an identity's label"; then: Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device. That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel. | the second half, for ADR-0067 (§6.1). The first half is cards §10's Text column, each platform's; on Android it ends "On this phone, any two of your identities can be linked in this way." (rust-ui-dev-02's QUESTION 01a21fa9, T4). The note "Android ends instead" in that row's last column was left from the row's first proposal, whose last sentence it replaced, and is withdrawn there |
 | `IdentityRemoveLoses` | This deletes from this device: / The conversations of {identity}, with their unread and kept messages and the messages waiting to be sent / The contacts of {identity} / The list of peers that {identity} trusts / The card of {identity}, with its name and photo / `IdentityRemoveKey` / People who write to {identity} will no longer reach you. This cannot be undone. | its items are §7's, in its order, the trusted peers and the key added; one item a line, each "/" a line break |
 | `IdentityAddFailed` | The identity could not be created. Nothing was changed. Choose Create to try again. | it stands above Create now, not Save (§6.2), and names the button; shown only where the client knows that nothing was created (§6.2, "Refused, with nothing created"), never on `Internal`, which shows `IdentityAddUnknown` |
 | `PeerStateNeedsTrust` | unchanged | kept only with one identity held |
+| `IdentityDefaultHelp` | People who write only to your PeerId reach your default identity. | for ADR-0067: an identity is reached by its own EndpointId, no label exists any more, and a message that names no identity reaches the default. Proposal for language-culture (rust-ui-dev-02's QUESTION 01a21fa9, T2); must say who reaches the default: people who write to the PeerId without naming one of the identities; never "label" |
+| `ConfirmDefaultSetOne` | People who write only to your PeerId now reach you. | the same, with one identity held; proposal (T2); must not use the word "identity" (cards §10), nor "label" |
+| `IdentityNoDefault` | One identity: People who write only to your PeerId do not reach you. To let them reach you, choose Make default in the menu on this page. Two or more identities: You have no default identity. People who write only to your PeerId do not reach any of your identities. To set a default, open an identity that is turned on and choose Make default. | the same, both forms; proposal (T2); must say who is not reached, without "label", and, as before, what fixes it |
 | `TrustExplanation` | The peers listed here can exchange messages with you. A change made here stays until you change it again. | from the Stage 22 release: no "Only", no claim about this profile (§5.1, §16 Q9) |
 | `ConfirmRevoke` | Do you want to stop trusting {peer}? Messages that this peer sends to you are then refused, until you trust it again. | from the Stage 22 release: it states the route's refusal only, no claim that connections close or about channels (§5.1, §16 Q9, Q10); `{peer}` the exact PeerId, whole, as today |
 
@@ -1755,6 +1835,10 @@ pass before it lands.
 8. Add's alias follows §6.2's rule for each of its four examples and
    for a name of only punctuation (`identity`); renaming the card
    leaves the alias. Needs D3 (#553).
+   On an identity's page, Copy beside `IdentityAlias` is read as "Copy
+   the name to use on the command line", puts the alias alone on the
+   clipboard, and keeps focus; `AliasCopied` shows on the desktop and
+   below Android 13, and nothing shows on Android 13 or later.
 9. Add at the bound: with 64 endpoints, Create is not offered and
    `IdentityLimit` is focused; the daemon's refusal by name shows the
    same if the list was stale. Needs D1. *(Exit gate, "the add refused
@@ -1960,7 +2044,8 @@ pass before it lands.
     `IdentityCreating` while it runs, and a seam holds back the add's
     answer so that Create keeps running. TalkBack blocked (§11).
 11. Add with the card write made to fail: the identity exists, named by
-    its alias, with `IdentityCardNotSaved`. Needs D1.
+    its alias, with `IdentityCardNotSaved`, its row focused, and no
+    `ConfirmIdentityAdded` shows (§6.2). Needs D1.
 11a. Add with the record's delete made to fail after the add answers
     `added`, six runs, each observed from the daemon's list, the
     store and the lease table. (a) `IdentityAddNotFinished` shows above
@@ -1995,6 +2080,22 @@ pass before it lands.
     fail and Create chosen: the same line stays, focus returns to it,
     and the record is not deleted. Needs D1 and ADR-0061 decision 7 as
     #767 amends it.
+11b. Add with the identity made and not held (§6.2, "The identity is
+    made and not held yet"), in two runs: with the hold refused once
+    (the store made unreadable for one poll), Your identities opens
+    with no new row, focus on its title, and `ConfirmIdentityAdded`
+    names the form's name; at the next poll the row appears in the
+    list's order and focus has not moved. With the queue of identities
+    waiting to be held made full, the same, and the row appears only
+    after the app is restarted. In each run, with the card write also
+    made to fail, `ConfirmIdentityAdded` still shows, and the row, when
+    it appears, carries `IdentityCardNotSaved`.
+11c. Add with no daemon running (desktop) on a form whose seed was
+    answered earlier in the run, and no earlier add of its key ended
+    unknown: Create ends with `IdentityAddFailed` focused, and the key
+    file and the record are deleted when the form is left. On a form where an
+    earlier add of its key ended unknown, the same stop ends with
+    `IdentityAddUnknown`. Needs D1.
 12. Add offers no configured endpoint that is not an identity (an
     agent's), and lists none as an identity. *(`human-client-ui.md` §13 bullet 18.)*
 13. Remove: the dialog lists §7's items in order, with the key and
@@ -2057,6 +2158,15 @@ pass before it lands.
     file is not deleted, the identity's rows are still there after
     the next list that answers. Needs D1. *(`human-client-ui.md` §13
     bullets 17, 36; exit gate.)*
+13a. Remove while it runs (§7, "While Remove runs"): with the
+    device's answer to the remove held for 10 seconds, the dialog stays
+    open, Remove shows its progress indicator, Cancel is shown disabled,
+    and Escape, Back, a tap outside the dialog and a second press of
+    Remove each change nothing; focus stays on Remove, which a desktop
+    screen reader reads as "Removing {identity}". With the answer held
+    past the add's wait, the list is read back and Remove ends as a
+    lost answer does (13's runs), within twice the add's wait of the
+    press plus the local steps. Focus at each end is F29's.
 14. Turn off the first identity once another is on: listed as off, its
     trusted set unchanged when turned on again; the composed-profile
     check passes. *(Exit gate.)*
@@ -2104,7 +2214,7 @@ pass before it lands.
     Tab in that order on the desktop, and by a hardware keyboard on the
     Pixel; Escape and Back close each menu, sheet and dialog with
     focus on the opener; no key switches identity without the switcher.
-21. Focus table: each row F1–F24 holds, checked as its row says.
+21. Focus table: each row F1–F29 holds, checked as its row says.
 22. Contrast: one row per mark and surface named in §12, each measured
     at or above its ratio, light and dark.
 23. TalkBack: each "as" line is read with its control, and each
@@ -2249,6 +2359,20 @@ pass before it lands.
 - **A desktop system notification** (§9; its rule ruled, §16 Q6).
 - **Editing the alias in the graphical clients** (§6.2): the command
   line's.
+- **A Copy of the alias that fails** (§6.2): told nowhere, as a Copy
+  PeerId that fails is told nowhere today. A clipboard that refuses a
+  write is not a state this note has seen on either platform; if a run
+  shows one, both Copies get their text together.
+- **A card's Save while the store is degraded** (rust-ui-dev-02's
+  QUESTION 01a21fa9, U6). Cards §5.1's store-degraded state disables
+  Add and Remove (Add an identity, and Add another identity in the card
+  editor's overflow); Save stays as the build has it on main, enabled,
+  since cards §5.2 says that Save is never disabled, and the degraded
+  notice (`StorageDegraded`) speaks of messages, not of cards, so a
+  Save shown disabled beside it would not say why. What a Save that
+  the store refuses then shows is not designed by this note; it is
+  owed by ux-designer as its own item, with the card editor's other
+  failed writes.
 - **Trusting a peer for several identities at once.** Each identity
   trusts as itself; a "trust for all" control would be the cross-
   identity act the owner's rule forbids.
