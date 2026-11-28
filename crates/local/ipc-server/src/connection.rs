@@ -74,7 +74,13 @@ pub(crate) const EVENT_POLL: Duration = Duration::from_millis(20);
 
 /// How long a connection's writer has to flush its last frames after the
 /// connection ends, before it is aborted.
-pub(crate) const CLOSE_GRACE: Duration = Duration::from_secs(1);
+///
+/// Public because it is half of the bound a client's close waits out: a
+/// leaving client's stream ends within the shutdown grace from its end of
+/// stream plus this, and `ipc-client`'s `CLOSE_WAIT` must outlast both
+/// (`the_clients_close_wait_outlasts_the_servers_bound`,
+/// `tests/local-client-conformance`).
+pub const CLOSE_GRACE: Duration = Duration::from_secs(1);
 
 /// The outbox's backstop: everything that can be owed while reading is
 /// paused -- an answer for each request in flight or waiting, a probe per
