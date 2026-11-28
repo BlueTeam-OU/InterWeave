@@ -263,7 +263,17 @@ struct Slot {
     busy: Option<StartBusy>,
     /// `Refused`'s, as [`ToView::StartRefused`] says it.
     refused: Option<StartBusy>,
+    /// What the facade that runs told of an add while no view took it,
+    /// oldest first, handed to the view that attaches next
+    /// ([`Hub::attach`]) and cleared there. A settle at a service's start
+    /// is told before any Activity is bound, and was lost with no
+    /// viewer. At most [`ADD_TOLD_CAP`]; past it the oldest goes
+    /// (`add_told_kept_with_no_viewer_is_handed_to_the_next_view_once`).
+    adds: Vec<AddTold>,
 }
+
+/// How many add tolds the hub keeps for a view not attached yet.
+const ADD_TOLD_CAP: usize = 32;
 
 impl Default for Slot {
     fn default() -> Self {
@@ -280,6 +290,7 @@ impl Default for Slot {
             unlock: None,
             busy: None,
             refused: None,
+            adds: Vec::new(),
         }
     }
 }
@@ -486,6 +497,11 @@ impl Hub {
         // (`a_view_attached_late_is_told_the_identities_last_told`).
         if let Some(identities) = slot.identities.clone() {
             viewer.send(ToView::Identities(identities));
+        }
+        // After the held list and rows the view applies them to, in the
+        // order told.
+        for told in std::mem::take(&mut slot.adds) {
+            viewer.send(ToView::Add(told));
         }
         viewer.send(ToView::NetworkAccess(slot.network));
         viewer.send(ToView::AuthenticationNeeded(slot.authentication));
@@ -795,6 +811,8 @@ impl Hub {
         }
         // A facade that starts tells its own; one that stopped holds none.
         slot.identities = None;
+        // Likewise: a retired facade's tolds are not the next one's.
+        slot.adds.clear();
         if let Some(viewer) = slot.viewer.as_mut() {
             // Listed again from the new facade's first turn: rows the
             // last one showed may have changed while none ran.
@@ -856,19 +874,29 @@ impl Hub {
     }
 
     /// Facade `generation` tells what came of an add act or a settle: to
-    /// the attached view, listed or not; refused unless it is the hub's
-    /// current facade.
+    /// the attached view, listed or not, or kept for the next to attach
+    /// when none takes it; refused unless it is the hub's current facade.
     pub(crate) fn add_told(&self, generation: u64, told: AddTold) {
         let commands = self.commands();
         if !commands.current(generation) {
             return;
         }
         let mut slot = self.slot();
-        if let Some(viewer) = slot.viewer.as_ref()
-            && !viewer.send(ToView::Add(told))
+        // Kept when no view takes it: one attached whose link is gone
+        // refuses the send, and the told is then the next view's.
+        let kept = told.clone();
+        if slot
+            .viewer
+            .as_ref()
+            .is_some_and(|v| v.send(ToView::Add(told)))
         {
-            slot.viewer = None;
+            return;
         }
+        slot.viewer = None;
+        if slot.adds.len() == ADD_TOLD_CAP {
+            slot.adds.remove(0);
+        }
+        slot.adds.push(kept);
     }
 
     /// Facade `generation` could not list the store for an identity it
@@ -1560,6 +1588,69 @@ mod tests {
         assert!(
             matches!(&view.take()[0], ToView::Held(h) if h.held == [me()]),
             "a retired facade's identity is not told (generation {again})"
+        );
+    }
+
+    fn adds_in(taken: &[ToView]) -> Vec<AddTold> {
+        taken
+            .iter()
+            .filter_map(|t| match t {
+                ToView::Add(told) => Some(told.clone()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// An add told while no view is attached is handed to the view that
+    /// attaches next, in the order told, once; one told to an attached
+    /// view is not kept; what waits is bounded and a retired facade's is
+    /// not the next one's. Mutations: `add_told` keeping nothing -- the
+    /// first assert fails; `attach` not replaying them -- the first
+    /// assert fails; not clearing on replay -- the second attach assert
+    /// fails; no bound -- the length assert fails; the bound dropping
+    /// the newest -- the first-entry assert fails; `say_running` not
+    /// clearing them -- the last assert fails.
+    #[test]
+    fn add_told_kept_with_no_viewer_is_handed_to_the_next_view_once() {
+        let hub = Hub::new();
+        let (commands, _rx) = tokio::sync::mpsc::unbounded_channel();
+        let g = hub.started(commands, held());
+        hub.add_told(g, AddTold::Offered);
+        hub.add_told(g, AddTold::WaitsSeed);
+        let mut first = hub.attach(Arc::new(|| {}));
+        assert_eq!(
+            adds_in(&first.take()),
+            [AddTold::Offered, AddTold::WaitsSeed],
+            "told once, in order"
+        );
+        let mut second = hub.attach(Arc::new(|| {}));
+        assert!(adds_in(&second.take()).is_empty(), "not told again");
+        hub.add_told(g, AddTold::NoSeed);
+        assert_eq!(adds_in(&second.take()), [AddTold::NoSeed], "told live");
+        let mut third = hub.attach(Arc::new(|| {}));
+        assert!(adds_in(&third.take()).is_empty(), "a live told is not kept");
+
+        drop(third);
+        hub.add_told(g, AddTold::Offered);
+        for _ in 0..ADD_TOLD_CAP {
+            hub.add_told(g, AddTold::NotStarted);
+        }
+        hub.add_told(g, AddTold::WaitsSeed);
+        let mut late = hub.attach(Arc::new(|| {}));
+        let kept = adds_in(&late.take());
+        assert_eq!(kept.len(), ADD_TOLD_CAP, "bounded");
+        assert_eq!(kept[0], AddTold::NotStarted, "the oldest went");
+        assert_eq!(kept.last(), Some(&AddTold::WaitsSeed), "the newest stayed");
+
+        drop(late);
+        hub.add_told(g, AddTold::Offered);
+        hub.retire(g);
+        let (commands, _rx2) = tokio::sync::mpsc::unbounded_channel();
+        hub.started(commands, held());
+        let mut after = hub.attach(Arc::new(|| {}));
+        assert!(
+            adds_in(&after.take()).is_empty(),
+            "a retired facade's told is not the next one's"
         );
     }
 

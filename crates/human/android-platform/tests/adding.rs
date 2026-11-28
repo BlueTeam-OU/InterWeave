@@ -36,6 +36,8 @@ mod common;
 const PROFILE: &str = "human";
 const WAIT: Duration = Duration::from_secs(40);
 const GRACE: Duration = Duration::from_secs(1);
+/// How long a start with no view attached is given to settle.
+const SETTLE: Duration = Duration::from_secs(3);
 
 /// An app data directory as the platform hands it over: private, under a
 /// parent that is not.
@@ -424,6 +426,43 @@ fn a_record_left_by_an_earlier_run_is_settled_at_start_through_the_real_thread()
     assert!(
         identity_key::key_path(&paths(&app), &found).exists(),
         "the key is kept"
+    );
+}
+
+/// A settle at the service's start, told before any view is attached (a
+/// restart of the Service with no Activity bound), reaches the view that
+/// attaches after it, once: the identity it held is told held, and a
+/// second view attached after is told nothing of it. Through the real
+/// embedded host and facade thread; the pause lets the first turn's
+/// settle finish with no view, so a settle slower than it is told live
+/// and this passes without the replay -- the mutations below each failed
+/// it at this pause. Mutations (run, each failing it): `Hub::add_told`
+/// keeping nothing, or `Hub::attach` not replaying what it kept -- the
+/// wait for the told times out; `attach` not clearing what it replayed
+/// -- the second view's assert fails.
+#[test]
+fn a_settle_at_start_told_before_any_view_reaches_the_view_attached_after_it() {
+    let app = app();
+    let (first, found) = left_by_an_earlier_run(&app);
+    let service = ServiceHost::new();
+    start(&app, &service).expect("the service starts");
+    std::thread::sleep(SETTLE);
+    let mut view = View::attach(&service);
+    view.until("the settle told to the view attached after it", |v| {
+        v.told(&AddTold::Held(found.clone()))
+    });
+    let mut later = View::attach(&service);
+    std::thread::sleep(Duration::from_millis(200));
+    later.take();
+    assert!(
+        !later.said.iter().any(|s| matches!(s, Said::Add(_))),
+        "told once: {:?}",
+        later.said
+    );
+    let _ = service.stop(GRACE);
+    assert!(
+        pending_adds(&app, &first).is_empty(),
+        "the record is deleted"
     );
 }
 
