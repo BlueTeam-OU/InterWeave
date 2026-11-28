@@ -7,7 +7,7 @@
 
 use interweave_human_app_core::{AddAct, ModelSide, Opener, Problem, Surface, Update};
 use interweave_human_transport_client::{ClientEvent, SessionState};
-use interweave_human_ui_model::{IdentityIntent, UiModel, ViewEvent, WindowEvent};
+use interweave_human_ui_model::{AddIntent, IdentityIntent, UiModel, ViewEvent, WindowEvent};
 use interweave_human_ui_slint::View;
 use interweave_transport_api::EndpointId;
 
@@ -31,6 +31,18 @@ impl Surface for SlintSurface {
 
     fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
         self.0.take_identity_intents()
+    }
+
+    fn take_add_intents(&mut self) -> Vec<AddIntent> {
+        self.0.take_add_intents()
+    }
+
+    fn render_page(&mut self, model: &UiModel) {
+        self.0.render_page(model);
+    }
+
+    fn take_page_events(&mut self, model: &UiModel) -> Vec<ViewEvent> {
+        self.0.take_page_events(model)
     }
 }
 
@@ -134,8 +146,13 @@ pub struct App<S: Surface, O: Opener> {
 impl<S: Surface, O: Opener> App<S, O> {
     /// The root over `surface`, fed by `facade`.
     pub fn new(surface: S, opener: O, facade: FacadeThread) -> Self {
+        let mut side = ModelSide::new(surface, opener);
+        // The desktop's roster is always given its add factory
+        // (`ipc.rs`, `Roster::adding`), so this root can add: Add and Add
+        // another identity are drawn, and their acts reach the roster.
+        side.can_add(true);
         Self {
-            side: ModelSide::new(surface, opener),
+            side,
             facade: Some(facade),
             listing_failed: false,
             started: std::time::Instant::now(),
@@ -216,9 +233,13 @@ impl<S: Surface, O: Opener> App<S, O> {
                         log("the identities held later were not taken");
                     }
                 }
-                // No screen shows it yet: the class goes to the log, never
-                // the identity, its alias or the card's name.
-                FromFacade::Add(told) => log(&format!("add: {}", told.class())),
+                // The form and the list show it; the log takes its class,
+                // never the identity, its alias or the card's name.
+                FromFacade::Add(told) => {
+                    log(&format!("add: {}", told.class()));
+                    let now = self.now_ms();
+                    self.side.add_told(told, now);
+                }
                 FromFacade::ListingFailed => {
                     self.listing_failed = true;
                     log("the message store could not be listed");
@@ -244,6 +265,16 @@ impl<S: Surface, O: Opener> App<S, O> {
                 stopped = true;
             }
         });
+        // The list's and the form's acts, in the person's order -- the
+        // list's Add just taken among them -- before the turn, whose
+        // render then shows what they did to the form.
+        let now = self.now_ms();
+        for act in self.side.take_add_acts(now) {
+            if !stopped && !facade.add(act) {
+                log("the transport side has stopped");
+                stopped = true;
+            }
+        }
         // The front's, by name once the facade said what it holds: before
         // that the one model is the front's, whichever it is.
         let front = self.side.front().cloned();
@@ -256,6 +287,14 @@ impl<S: Surface, O: Opener> App<S, O> {
                 stopped = true;
             }
         }
+        // The page of an identity behind the front, drawn from its own
+        // model; what the person did there is carried out as it.
+        self.side.page_turn(|crossing| {
+            if !stopped && !facade.cross(crossing) {
+                log("the transport side has stopped");
+                stopped = true;
+            }
+        });
         self.log_problems();
     }
 
@@ -378,6 +417,12 @@ const fn command_name(command: &interweave_human_app_core::Command) -> &'static 
 impl<S: Surface, O: Opener> App<S, O> {
     fn elapsed_ms(&self) -> u128 {
         self.started.elapsed().as_millis()
+    }
+
+    /// The model side's clock: ms since the root was made, which only a
+    /// form's own times are measured against.
+    fn now_ms(&self) -> u64 {
+        u64::try_from(self.elapsed_ms()).unwrap_or(u64::MAX)
     }
 }
 
