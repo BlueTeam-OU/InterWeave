@@ -357,6 +357,18 @@ amend "$R" 2026-09-05 "Something else changed"
 out="$(bash "$CHECK" --root "$R" 2>&1)"
 [[ "$out" == *"digest entry is unchanged"* ]] && ok "the default base is the merge-base with origin/main, not its tip" || bad "default base should catch the stale entry: $out"
 [ "$(run_base_code "$R" no-such-rev)" = "2" ] && ok "an unresolvable --base exits 2" || bad "a bad --base should exit 2"
+# The two a push to main hands over when its `before` is gone: all zeros
+# (main recreated) and a full sha the clone lacks (a force push). The
+# second is why the resolve peels to ^{commit}: `rev-parse --verify` of a
+# bare 40-hex name echoes it back and exits 0 without looking it up, and
+# the refusal then comes later as "no digest at base", which names the
+# wrong cause. So the message is asserted, not only the code.
+for sha in 0000000000000000000000000000000000000000 1234567890123456789012345678901234567890; do
+    out="$(run_base "$R" "$sha")"
+    [ "$(run_base_code "$R" "$sha")" = "2" ] && [[ "$out" == *"--base $sha does not resolve to a commit"* ]] \
+        && ok "a --base of $sha (main recreated, or a force push's before) is refused as unresolved" \
+        || bad "a --base of $sha should exit 2 as unresolved: $out"
+done
 out="$(run "$R")"
 [[ "$out" == *"not checked (--base none)"* ]] && ok "--base none says AMENDED did not run" || bad "--base none should say so: $out"
 

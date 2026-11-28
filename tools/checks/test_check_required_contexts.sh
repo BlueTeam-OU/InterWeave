@@ -71,8 +71,8 @@ case "$out" in *rust*) ok "  and names the job that is missing from the document
                *) bad "  must name it: $out" ;; esac
 
 echo "check_required_contexts: a renamed job is the dangerous direction"
-# Renaming un-gates main silently: the ruleset keeps requiring a context
-# nothing reports, and the queue waits forever.
+# Renaming blocks every merge silently: the ruleset keeps requiring a
+# context nothing reports, and the queue waits forever.
 R="$TMP/renamed"; mkdir -p "$R"
 workflow "$R" "rust" "tree-checks" "tool self-tests"
 contract "$R" "rust" "tree checks" "tool self-tests"
