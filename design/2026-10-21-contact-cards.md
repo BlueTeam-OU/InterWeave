@@ -348,7 +348,14 @@ recovery, which needs the changes still there to retry with).
   shown as they are and are not operable, so what is written is what
   the person saw when they chose Save. The store answers a write with
   done or refused: unlike an identity's Create, a Save has no unknown
-  outcome, and so no third case here.
+  outcome, and so no third case here. The wait for the photo is
+  bounded: a preparation that has not ended 30 seconds after Save was
+  chosen is dropped and treated as a picture that cannot be used (the
+  item "A photo that cannot be used", below), so the editor is never held longer than
+  that and the write after it. (Hypothesis, 30 s: well past the
+  preparations measured above, which no record times; falsified, and
+  the bound revisited, if a camera photograph's preparation on the
+  Pixel 9a reaches it.)
 - **A way of leaving chosen while Save runs** (any of the list under
   "Leaving with unsaved changes", above) is not lost: the editor holds
   the last one chosen, and it acts when Save ends, as it would act
@@ -371,7 +378,8 @@ recovery, which needs the changes still there to retry with).
   (`design/2026-11-04-identities.md` §5.2).
   The line stays until the next Save starts or the editor closes. Save
   stays offered, as it always is (above).
-- **A photo that cannot be used, found while Save waits for it**:
+- **A photo that cannot be used, found while Save waits for it**, or
+  not ready within the bound above:
   nothing is written, the name included, since the person chose Save
   for a card that had the new photo. The circle and the photo's buttons
   are as the photo step says for a picture that cannot be used
@@ -2239,7 +2247,9 @@ and `work`, each with a card ("Anna Rossi" and "A. Rossi").
     file named `.png` that holds no image): nothing is written (the
     card read back is "Anna Rossi" with its old photo), `PhotoUnusable`
     and `CardNotSaved` show, focus is on Change photo, and Save then
-    writes "Anna Bianchi" with the old photo. (e) A kill while (b)'s
+    writes "Anna Bianchi" with the old photo. The same results when the
+    preparation is held past 30 seconds (a test hook), at 30 seconds
+    and not before. (e) A kill while (b)'s
     Save waits leaves the card "Anna Rossi"; a kill after it wrote
     leaves "Anna Bianchi". Desktop screen reader: `CardSaving` and
     `CardNotSaved` read as item 1's table says; TalkBack blocked (§8).
