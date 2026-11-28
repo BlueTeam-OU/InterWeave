@@ -59,6 +59,33 @@ pub trait Surface {
     fn take_add_intents(&mut self) -> Vec<AddIntent> {
         Vec::new()
     }
+    /// Show the page of an identity behind the front, opened from its row
+    /// of Your identities: `model` is THAT identity's, whose card the page
+    /// edits ([`ModelSide::page_turn`]). Nothing by default: a surface
+    /// that draws no such page has nothing to show.
+    fn render_page(&mut self, _model: &UiModel) {}
+    /// What the person did on that page since the last call, resolved
+    /// against `model`, that identity's. None by default.
+    fn take_page_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+        Vec::new()
+    }
+}
+
+/// Whether `intent` is one a page of an identity behind the front
+/// carries out as that identity: its card's Save, its photo, its key.
+/// Anything else on that page is dropped, so no other act can be made as
+/// an identity the person is not using
+/// (`only_the_cards_acts_leave_a_page_of_an_identity_behind`).
+const fn page_act(intent: &Intent) -> bool {
+    matches!(
+        intent,
+        Intent::SetOwnCard { .. }
+            | Intent::ChooseOwnPhoto(_)
+            | Intent::ForgetOwnPhoto
+            | Intent::RemoveOwnPhoto
+            | Intent::RetryKey
+            | Intent::CloseKeyStep
+    )
 }
 
 /// The add form and the list's acts: the profile's, not one identity's,
@@ -555,6 +582,49 @@ impl<S: Surface, O: Opener> ModelSide<S, O> {
                 .model
                 .identities_mut()
                 .start(Some(IdentityKey::new(old.as_str())));
+        }
+    }
+
+    /// The page of an identity behind the front, while the front's Your
+    /// identities shows it (identities §6.2 step 4): drawn from that
+    /// identity's own model, and its card's acts -- Save, the photo, the
+    /// key -- carried out as THAT identity, each sent as a crossing naming
+    /// it, whichever identity is in front
+    /// (`save_on_that_page_writes_that_identitys_card_and_no_other`). The
+    /// page of the identity in front is its own model's editor, which
+    /// [`Self::turn`] draws and carries; nothing is done here for it.
+    pub fn page_turn(&mut self, mut send: impl FnMut(Crossing)) {
+        let Some(page) = self.model.identities().identity_page() else {
+            return;
+        };
+        let Some(i) = self
+            .behind
+            .iter()
+            .position(|(e, _)| e.as_str() == page.key.as_str())
+        else {
+            return;
+        };
+        let (identity, mut behind) = self.behind.remove(i);
+        // That identity's model in the front's fields for the page, as
+        // `apply_as` does, so its in-flight marks are its own.
+        self.exchange(&mut behind);
+        self.surface.render_page(&self.model);
+        let mut commands = Vec::new();
+        for event in self.surface.take_page_events(&self.model) {
+            if let ViewEvent::Intent(intent) = event
+                && page_act(&intent)
+                && let Some(command) = self.command_for(intent)
+            {
+                commands.push(command);
+            }
+        }
+        self.exchange(&mut behind);
+        self.behind.insert(i, (identity.clone(), behind));
+        for command in commands {
+            send(Crossing::Command {
+                identity: identity.clone(),
+                command,
+            });
         }
     }
 
@@ -3010,5 +3080,223 @@ mod tests {
         );
         assert!(side.hold_more(&[third()]));
         assert_eq!(held_form(&side, &third()).as_deref(), Some("Anna"));
+    }
+
+    /// A surface with a page of an identity behind the front: what it
+    /// drew the page from, and the person's acts on the page and the
+    /// identities.
+    #[derive(Default)]
+    struct Paged {
+        drawn: Vec<Option<EndpointId>>,
+        page_events: Vec<ViewEvent>,
+        intents: Vec<IdentityIntent>,
+    }
+
+    impl Surface for Paged {
+        fn render(&mut self, _model: &UiModel) {}
+        fn take_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            Vec::new()
+        }
+        fn take_identity_intents(&mut self) -> Vec<IdentityIntent> {
+            std::mem::take(&mut self.intents)
+        }
+        fn render_page(&mut self, model: &UiModel) {
+            self.drawn
+                .push(model.identity().map(|view| view.endpoint.clone()));
+        }
+        fn take_page_events(&mut self, _model: &UiModel) -> Vec<ViewEvent> {
+            std::mem::take(&mut self.page_events)
+        }
+    }
+
+    fn view_of(endpoint: &EndpointId, name: &str) -> interweave_human_ui_model::IdentityView {
+        interweave_human_ui_model::IdentityView {
+            endpoint: endpoint.clone(),
+            name: name.to_owned(),
+            given: name.to_owned(),
+            surname: None,
+            has_photo: false,
+            photo: None,
+            key: interweave_human_ui_model::OwnKey::Ready {
+                fingerprint: "0123456789abcdef".to_owned(),
+            },
+            peer: None,
+        }
+    }
+
+    /// Three held, the first in front, each model shown its own card, and
+    /// the page of `page` opened from Your identities.
+    fn paged_side(page: &EndpointId) -> ModelSide<Paged, Nothing> {
+        let mut side = ModelSide::new(Paged::default(), Nothing);
+        side.hold(&[first(), second(), third()], &first());
+        side.held_changed(&[
+            held(first().as_str(), true),
+            held(second().as_str(), false),
+            held(third().as_str(), false),
+        ])
+        .expect("three held");
+        for (identity, name) in [(first(), "First"), (second(), "Second"), (third(), "Third")] {
+            assert!(side.apply_as(&identity, Update::IdentityShown(view_of(&identity, name))));
+        }
+        side.surface_mut().intents = vec![
+            IdentityIntent::OpenIdentities,
+            IdentityIntent::OpenRow(key_of(page)),
+        ];
+        side.take_identity_acts(|_| {});
+        side
+    }
+
+    fn save(name: &str) -> ViewEvent {
+        ViewEvent::Intent(Intent::SetOwnCard {
+            name: name.to_owned(),
+            surname: None,
+            photo: interweave_human_ui_model::PhotoEdit::Keep,
+        })
+    }
+
+    /// Identities §6.2 step 4 and cards §5.2: the page of an identity
+    /// behind the front is drawn from THAT identity's model, its card the
+    /// one shown; the front's own page is its editor and draws nothing
+    /// here; with no page open nothing is drawn. Mutation: the page drawn
+    /// from the front's model.
+    #[test]
+    fn a_page_of_an_identity_behind_draws_that_identitys_card() {
+        let mut side = paged_side(&third());
+        side.page_turn(|_| {});
+        assert_eq!(side.surface().drawn, [Some(third())]);
+        assert_eq!(side.front(), Some(&first()), "nothing switched");
+        assert_eq!(
+            side.model().identity().map(|v| v.name.as_str()),
+            Some("First"),
+            "the front's model is back in front"
+        );
+
+        let mut own = paged_side(&first());
+        own.page_turn(|_| {});
+        assert!(own.surface().drawn.is_empty(), "the front's own editor");
+    }
+
+    /// Save on the page of an identity behind the front is sent as THAT
+    /// identity's command, a crossing naming it, while the identity in
+    /// front sends nothing; a second Save before the first is answered is
+    /// held back as that identity's own, never the front's. Mutation:
+    /// the Save sent as the front.
+    #[test]
+    fn save_on_that_page_writes_that_identitys_card_and_no_other() {
+        let mut side = paged_side(&second());
+        side.surface_mut().page_events = vec![save("Anna")];
+        let mut sent = Vec::new();
+        side.page_turn(|c| sent.push(c));
+        assert_eq!(
+            sent,
+            [Crossing::Command {
+                identity: second(),
+                command: Command::SetOwnCard {
+                    name: "Anna".to_owned(),
+                    surname: None,
+                    photo: interweave_human_ui_model::PhotoEdit::Keep,
+                },
+            }]
+        );
+        assert!(side.turn().is_empty(), "the front sends nothing");
+        side.surface_mut().page_events = vec![save("Anna")];
+        side.page_turn(|c| sent.push(c));
+        assert_eq!(sent.len(), 1, "in flight as the second's");
+    }
+
+    /// A photo chosen on that page is that identity's own photo edit:
+    /// prepared as its command, its number that model's. Mutation: the
+    /// choice sent as the front.
+    #[test]
+    fn a_photo_chosen_on_that_page_is_that_identitys_edit() {
+        let mut side = paged_side(&third());
+        side.surface_mut().page_events =
+            vec![ViewEvent::Intent(Intent::ChooseOwnPhoto(vec![1, 2, 3]))];
+        let mut sent = Vec::new();
+        side.page_turn(|c| sent.push(c));
+        match sent.as_slice() {
+            [
+                Crossing::Command {
+                    identity,
+                    command: Command::PrepareOwnPhoto { chosen, .. },
+                },
+            ] => {
+                assert_eq!(identity, &third());
+                assert_eq!(chosen, &[1, 2, 3]);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    /// Only the card's acts leave a page of an identity behind: a send,
+    /// a trust act or a reopen made there is dropped, so nothing is done
+    /// as an identity the person is not using. Mutation: every intent on
+    /// the page carried out.
+    #[test]
+    fn only_the_cards_acts_leave_a_page_of_an_identity_behind() {
+        let mut side = paged_side(&second());
+        side.surface_mut().page_events = vec![
+            ViewEvent::Intent(Intent::Reopen),
+            ViewEvent::Intent(Intent::RecheckStorage),
+            ViewEvent::Intent(Intent::RetryKey),
+        ];
+        let mut sent = Vec::new();
+        side.page_turn(|c| sent.push(c));
+        assert!(
+            sent.iter().all(|c| matches!(
+                c,
+                Crossing::Command {
+                    command: Command::RetryKey,
+                    ..
+                }
+            )),
+            "{sent:?}"
+        );
+    }
+
+    /// F9: a row whose card Done did not write says so until a Save on
+    /// its page lands -- the held list then gives it a card's name -- and
+    /// its page then holds the form's values no longer. Mutation: a held
+    /// list after Done's not told to the front's model -- the line stays.
+    #[test]
+    fn a_save_that_lands_clears_the_rows_not_saved_line() {
+        let log: Log = std::rc::Rc::default();
+        let (mut side, _) = adding_side(&log);
+        side.add_told(AddTold::Offered, 0);
+        form_acts(&mut side, vec![anna(), AddIntent::Create]);
+        side.add_told(created(&third(), CardSaved::NotSaved), 0);
+        assert!(side.hold_more(&[third()]));
+        let mut list = vec![
+            held(first().as_str(), true),
+            held(second().as_str(), false),
+            held(third().as_str(), false),
+        ];
+        side.held_changed(&list).expect("three held");
+        let row = |side: &ModelSide<Person, Nothing>| {
+            side.model()
+                .identities()
+                .your_identities()
+                .and_then(|p| p.rows.into_iter().find(|r| r.key == key_of(&third())))
+                .expect("its row")
+        };
+        assert!(row(&side).card_not_saved.is_some());
+        act(&mut side, vec![IdentityIntent::OpenRow(key_of(&third()))]);
+        assert!(
+            side.model()
+                .identities()
+                .identity_page()
+                .is_some_and(|p| p.unsaved.is_some())
+        );
+
+        // Its Save landed: the facade side reads the card's name.
+        list[2].card_name = Some("Anna".to_owned());
+        side.held_changed(&list).expect("three held");
+        assert_eq!(row(&side).card_not_saved, None);
+        assert!(
+            side.model()
+                .identities()
+                .identity_page()
+                .is_some_and(|p| p.unsaved.is_none())
+        );
     }
 }
