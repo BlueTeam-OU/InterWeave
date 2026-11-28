@@ -279,7 +279,7 @@ impl DataSessionPort for SpySession {
         self.inner.losses().await
     }
 
-    async fn close(self) -> Result<(), TransportError> {
+    async fn close(self) -> Result<Vec<SessionEvent>, TransportError> {
         if let Some(e) = &self.endpoint {
             self.asked
                 .lock()

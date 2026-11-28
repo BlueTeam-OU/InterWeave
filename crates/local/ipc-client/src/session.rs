@@ -337,13 +337,13 @@ impl DataSessionPort for IpcSession {
             .map(SessionLosses::from)
     }
 
-    async fn close(self) -> Result<(), TransportError> {
+    async fn close(self) -> Result<Vec<SessionEvent>, TransportError> {
         let Self {
             connection, events, ..
         } = self;
         // The buffer goes first, so a reader held by a full one is freed
         // to read on to the server's close.
         drop(events);
-        connection.close().await
+        connection.close().await.map(|()| Vec::new())
     }
 }

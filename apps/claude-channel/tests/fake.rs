@@ -288,7 +288,7 @@ impl DataSessionPort for RecordedSession {
         self.record.call("query_endpoints");
         self.inner.query_endpoints(peer).await
     }
-    async fn close(self) -> Result<(), TransportError> {
+    async fn close(self) -> Result<Vec<SessionEvent>, TransportError> {
         self.record.call("close");
         self.inner.close().await
     }

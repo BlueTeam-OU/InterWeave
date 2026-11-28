@@ -635,7 +635,7 @@ impl DataSessionPort for InProcessSession {
         Ok(())
     }
 
-    async fn close(mut self) -> Result<(), TransportError> {
+    async fn close(mut self) -> Result<Vec<SessionEvent>, TransportError> {
         let channels = self.channels_to_leave();
         for channel in channels {
             self.commander
@@ -648,7 +648,7 @@ impl DataSessionPort for InProcessSession {
             .await
             .map_err(stopped)?;
         self.closed = true;
-        Ok(())
+        Ok(Vec::new())
     }
 
     async fn losses(&self) -> Result<interweave_local_client_api::SessionLosses, TransportError> {

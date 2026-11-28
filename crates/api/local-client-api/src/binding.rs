@@ -293,16 +293,35 @@ pub trait DataSessionPort {
         std::future::ready(Err(TransportError::ProtocolUnsupported))
     }
 
-    /// End the session: its lease is released at once and its joins
-    /// dropped (§3: "session closure/revocation releases the lease
-    /// immediately").
+    /// End the session: its lease is released and its joins dropped (§3:
+    /// "session closure/revocation releases the lease immediately"), and
+    /// what still waited for it is RETURNED -- the remainder, in the order
+    /// [`events`](Self::events) takes it: session notices, then direct
+    /// messages, then broadcasts, then path notices (`LOCAL-CLIENT.md`,
+    /// A 2026-11-28).
+    ///
+    /// The lease's end and the taking of its endpoint queue are one step
+    /// of the runtime: nothing is admitted to that queue after it, a
+    /// sender after it is answered the coarse `no_route` of an unleased
+    /// endpoint, and every message answered `AcceptedV2` before it is in
+    /// the remainder or was already taken by `events`. The lease is free
+    /// before this resolves. A broadcast is in the remainder as far as the
+    /// session's queue held it when the close took it: one arriving after
+    /// carries no acceptance and is not handed over. A session without
+    /// `events` is handed nothing, since it could never read it.
+    ///
+    /// Over a connection (IPC) the remainder is what the server writes
+    /// after the client shuts its write half, read until the server ends
+    /// the stream, within the server's hand-over bounds; what a client
+    /// does not read in them the server counts as dropped. A session
+    /// dropped without `close` is handed nothing.
     ///
     /// # Errors
     /// `BackendUnavailable` once the runtime has stopped. A binding over a
     /// connection (IPC) answers with the code the connection ended with
     /// when it had already ended, and `Timeout` when the release was not
     /// confirmed in time.
-    fn close(self) -> impl Future<Output = Result<(), TransportError>> + Send;
+    fn close(self) -> impl Future<Output = Result<Vec<SessionEvent>, TransportError>> + Send;
 }
 
 /// One live lease, as administration sees it.

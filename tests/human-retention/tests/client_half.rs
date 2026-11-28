@@ -168,7 +168,7 @@ impl DataSessionPort for ObservingSession {
     ) -> Result<EndpointDirectoryV1, TransportError> {
         self.inner.query_endpoints(peer).await
     }
-    async fn close(self) -> Result<(), TransportError> {
+    async fn close(self) -> Result<Vec<SessionEvent>, TransportError> {
         self.inner.close().await
     }
 }

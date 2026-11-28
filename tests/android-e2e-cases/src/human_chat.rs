@@ -180,7 +180,7 @@ impl<S: DataSessionPort> DataSessionPort for RecordingSession<S> {
         self.inner.query_endpoints(peer)
     }
 
-    fn close(self) -> impl Future<Output = Result<(), TransportError>> + Send {
+    fn close(self) -> impl Future<Output = Result<Vec<SessionEvent>, TransportError>> + Send {
         self.inner.close()
     }
 }

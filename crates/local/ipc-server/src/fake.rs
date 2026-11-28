@@ -248,7 +248,10 @@ impl DataSessionPort for FakeSession {
         })
     }
 
-    async fn close(self) -> Result<(), TransportError> {
+    /// The lease is released and what the script still holds is taken in
+    /// one step, under the script's lock, as the runtime's one command
+    /// does (`LOCAL-CLIENT.md`, A 2026-11-28).
+    async fn close(self) -> Result<Vec<SessionEvent>, TransportError> {
         let delay = self.fake.script().close_delay;
         tokio::time::sleep(delay).await;
         let mut script = self.fake.script();
@@ -256,7 +259,14 @@ impl DataSessionPort for FakeSession {
         if let Some(lease) = self.session.endpoint_lease() {
             script.leased.remove(&name(&lease.endpoint));
         }
-        Ok(())
+        if self
+            .session
+            .holds(interweave_local_client_api::DataCapability::Events)
+        {
+            Ok(script.events.drain(..).collect())
+        } else {
+            Ok(Vec::new())
+        }
     }
 }
 
