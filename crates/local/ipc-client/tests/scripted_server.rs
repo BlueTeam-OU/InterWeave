@@ -11,12 +11,13 @@
 use std::path::PathBuf;
 use std::time::Duration;
 
-use interweave_ipc_client::{IpcBinding, SocketPaths};
+use interweave_ipc_client::{CLOSE_WAIT, IpcBinding, SocketPaths};
 use interweave_ipc_protocol::{DecodedFrame, Frame, FrameError, decode_frame, encode_frame};
 use interweave_local_client_api::{
-    DataCapability, DataSessionBinding as _, DataSessionPort as _, SessionRequest,
+    CloseError, DataCapability, DataSessionBinding as _, DataSessionPort as _, LocalSessionEvent,
+    SessionEvent, SessionRequest,
 };
-use interweave_transport_api::ChannelId;
+use interweave_transport_api::{ChannelId, TransportError};
 use serde_json::json;
 use tokio::io::{AsyncReadExt as _, AsyncWriteExt as _};
 use tokio::net::{UnixListener, UnixStream};
@@ -729,9 +730,131 @@ async fn close_reports_a_server_end_even_after_it_asked() {
         drop(server);
     });
     assert_eq!(
-        closed.map_err(|e| e.code),
-        Err(interweave_transport_api::TransportError::ShuttingDown),
+        closed,
+        Err(CloseError::empty(TransportError::ShuttingDown)),
         "the server's own end, not the answer to the Finish"
+    );
+}
+
+/// How many of `events` are the scripted server's `peer.disconnected`.
+fn disconnects(events: &[SessionEvent]) -> usize {
+    events
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                SessionEvent::Local(LocalSessionEvent::PeerDisconnected { .. })
+            )
+        })
+        .count()
+}
+
+/// A close the server ends with a `close` frame after its Finish -- a
+/// stop racing the close (`ShuttingDown`, after the stop's own
+/// hand-over), or a hand-over its bounds cut short (`Timeout`) -- is an
+/// error, and the error carries everything the close received: the
+/// server's state first, what the buffer held and what was written after
+/// the Finish, more than the buffer's bound. The control is the clean
+/// end, which answers the same events as `Ok`. As the gap was found, an
+/// error return dropped every event the close had already read.
+#[tokio::test]
+async fn a_close_ended_another_way_carries_what_it_read() {
+    const BEFORE: u64 = 2;
+    const AFTER: u64 = 10;
+    for code in [None, Some("ShuttingDown"), Some("Timeout")] {
+        let script = Script::new();
+        let (session, mut server) = opened(&script, 2, &["events", "commands"]).await;
+        server
+            .write(&json!({"type": "server_state", "health": "healthy"}))
+            .await;
+        for sequence in 0..BEFORE {
+            server.event(sequence).await;
+        }
+        let (closed, ()) = tokio::join!(session.close(), async {
+            assert!(server.read().await.is_none(), "the client sent its Finish");
+            for sequence in BEFORE..BEFORE + AFTER {
+                server.event(sequence).await;
+            }
+            if let Some(code) = code {
+                server.write(&json!({"type": "close", "code": code})).await;
+            }
+            drop(server);
+        });
+        let (remainder, failed) = match closed {
+            Ok(remainder) => (remainder, None),
+            Err(failed) => (failed.remainder, Some(failed.code)),
+        };
+        let want = code.map(|code| match code {
+            "ShuttingDown" => TransportError::ShuttingDown,
+            _ => TransportError::Timeout,
+        });
+        assert_eq!(failed, want, "the server's code, or Ok at a clean end");
+        assert!(
+            matches!(
+                remainder.first(),
+                Some(SessionEvent::Local(LocalSessionEvent::ServerState { .. }))
+            ),
+            "{code:?}: the state first: {remainder:?}"
+        );
+        assert_eq!(
+            disconnects(&remainder),
+            usize::try_from(BEFORE + AFTER).expect("fits"),
+            "{code:?}: what the buffer held and what the server wrote after the finish"
+        );
+    }
+}
+
+/// A server that never ends the stream is given up on after `CLOSE_WAIT`,
+/// `Timeout`, and the error carries what the close had read by then.
+#[tokio::test(start_paused = true)]
+async fn a_close_that_times_out_carries_what_it_read() {
+    const AFTER: u64 = 5;
+    let script = Script::new();
+    let (session, mut server) = opened(&script, 2, &["events", "commands"]).await;
+    let started = tokio::time::Instant::now();
+    let (closed, _held_open) = tokio::join!(session.close(), async {
+        assert!(server.read().await.is_none(), "the client sent its Finish");
+        for sequence in 0..AFTER {
+            server.event(sequence).await;
+        }
+        // Returned, not dropped: the stream stays open past the wait.
+        server
+    });
+    assert!(started.elapsed() >= CLOSE_WAIT, "{:?}", started.elapsed());
+    let failed = closed.expect_err("no end in time");
+    assert_eq!(failed.code, TransportError::Timeout);
+    assert_eq!(
+        disconnects(&failed.remainder),
+        usize::try_from(AFTER).expect("fits"),
+        "what was read before the wait ran out: {:?}",
+        failed.remainder
+    );
+}
+
+/// Closing a connection that has already ended hands back what its
+/// buffer still held, with the end's code: received, so not dropped.
+#[tokio::test]
+async fn closing_an_ended_connection_hands_back_its_buffer() {
+    const HELD: u64 = 3;
+    let script = Script::new();
+    let (session, mut server) = opened(&script, 8, &["events", "commands"]).await;
+    for sequence in 0..HELD {
+        server.event(sequence).await;
+    }
+    drop(server);
+    let deadline = tokio::time::Instant::now() + PATIENCE;
+    // `events(0)` answers the end without taking what is buffered.
+    while session.events(0).await.is_ok() {
+        assert!(tokio::time::Instant::now() < deadline, "the end is seen");
+        tokio::time::sleep(Duration::from_millis(5)).await;
+    }
+    let failed = session.close().await.expect_err("an ended connection");
+    assert_eq!(failed.code, TransportError::BackendUnavailable);
+    assert_eq!(
+        disconnects(&failed.remainder),
+        usize::try_from(HELD).expect("fits"),
+        "{:?}",
+        failed.remainder
     );
 }
 
