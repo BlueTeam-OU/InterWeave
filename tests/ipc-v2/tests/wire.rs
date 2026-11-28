@@ -922,6 +922,7 @@ async fn a_client_queue_that_overflows_is_counted_in_admin_status() {
         };
         let new = status(&mut current).await;
         assert_eq!(new["events_refused_total"], 0, "no refusal: {new}");
+        assert_eq!(new["events_dropped_at_close_total"], 0, "no close: {new}");
         new["events_dropped_total"]
             .as_u64()
             .unwrap_or_else(|| panic!("the count is kept, so emitted: {new}"))
