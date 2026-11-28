@@ -230,7 +230,9 @@ pub enum AddTold {
     /// [`ADD_WAIT_MS`](interweave_human_transport_client::ADD_WAIT_MS).
     WaitsSeed,
     /// Create is not offered: the form's own seed ask ended unanswered.
-    /// Opening the form again asks once more.
+    /// [`AddAct::Opened`] again -- the form's Try again -- asks once more;
+    /// a seed answered meanwhile on another connection, by a trust act of
+    /// any identity, is told [`Self::Offered`] at the next poll.
     NoSeed,
     /// The card a Create carried is outside a card's bounds: nothing was
     /// made, written or sent.

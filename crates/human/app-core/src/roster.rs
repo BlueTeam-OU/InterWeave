@@ -307,6 +307,10 @@ struct OpenForm<A> {
     add: FormAdd<A>,
     card: Option<NewCard>,
     seed: Option<SeedAsk>,
+    /// [`AddTold::Offered`] was told since the form last waited for the
+    /// seed: a seed answered on another connection is told once
+    /// (`a_seed_answered_on_another_connection_offers_create_on_the_open_form`).
+    offered: bool,
 }
 
 /// The card a Create gives the identity it makes.
@@ -709,7 +713,10 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
     ///   ([`Self::first_seeded`]); until then the form asks for the seed
     ///   on a connection of its own, waiting at most `ADD_WAIT_MS`, and
     ///   the answer is the run's
-    ///   (`add_is_offered_only_once_the_first_seed_answered`).
+    ///   (`add_is_offered_only_once_the_first_seed_answered`); a seed
+    ///   answered on another connection while the form waits is told
+    ///   `Offered` once at the next poll
+    ///   (`a_seed_answered_on_another_connection_offers_create_on_the_open_form`).
     /// - [`AddAct::Create`] runs the form's add with the card held to a
     ///   card's bounds, never while Create is not offered. An identity it
     ///   makes is given its card -- one that cannot be written still ends
@@ -753,10 +760,13 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                     ),
                     card: None,
                     seed: None,
+                    offered: false,
                 });
                 if self.seed.answered() {
+                    form.offered = true;
                     self.adding.told.push(AddTold::Offered);
                 } else {
+                    form.offered = false;
                     form.seed
                         .get_or_insert_with(|| SeedAsk::new(&factory.admin, &self.seed, now));
                     self.adding.told.push(AddTold::WaitsSeed);
@@ -850,11 +860,22 @@ impl<B: SessionBinding, A: AdminBinding> Roster<B, A> {
                 && let Some(answered) = ask.poll(now)
             {
                 form.seed = None;
-                self.adding.told.push(if answered {
-                    AddTold::Offered
+                // A seed answered elsewhere while this ask ran unanswered
+                // is answered all the same: the run's record is shared.
+                if answered || self.seed.answered() {
+                    form.offered = true;
+                    self.adding.told.push(AddTold::Offered);
                 } else {
-                    AddTold::NoSeed
-                });
+                    self.adding.told.push(AddTold::NoSeed);
+                }
+            }
+            // The form told NoSeed waits for nothing of its own, and a
+            // trust act of any identity may answer the seed meanwhile on
+            // its own connection (identities §6.2, F25): Create is offered
+            // at the next poll, once.
+            if form.seed.is_none() && !form.offered && self.seed.answered() {
+                form.offered = true;
+                self.adding.told.push(AddTold::Offered);
             }
             if let Some(end) = form.add.poll(now, &mut local) {
                 found.extend(identities(end.settled));

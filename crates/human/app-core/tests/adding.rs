@@ -25,7 +25,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use interweave_human_app_core::{
-    AddAct, AddFactory, AddTold, CardSaved, Roster, RosterConfig, Update,
+    AddAct, AddFactory, AddTold, CardSaved, Command, Roster, RosterConfig, Update,
 };
 use interweave_human_store::identity_key::{self, FilesystemCustody};
 use interweave_human_store::{HumanStore, PENDING_ADD_CAP, StoreOptions};
@@ -487,6 +487,49 @@ async fn add_is_offered_only_once_the_first_seed_answered() {
     );
     assert!(roster.first_seeded(), "the run's flag");
     roster.add(create("Anna"), now);
+    let (endpoint, _, _) = created(&roster.take_add_told());
+    assert!(roster.held().any(|e| e == &endpoint));
+}
+
+/// F25's second case at the engine (identities §6.2, "Create waits for
+/// the first identity's seed"): after the form's own ask ended `NoSeed`,
+/// a trust act of the first identity answers the seed on its own
+/// connection, and the next poll tells `Offered`, once -- later polls
+/// tell nothing more -- with no second ask of the form's; a Create then
+/// runs. Mutation: the check for a seed answered elsewhere removed --
+/// nothing is told after the trust act.
+#[tokio::test]
+async fn a_seed_answered_on_another_connection_offers_create_on_the_open_form() {
+    let mut device = Device::new();
+    device.script(|s| s.seeds.push_back(Reply::Holds));
+    let mut roster = device.roster(memory(), Vec::new());
+    started(&mut roster).await;
+    roster.add(AddAct::Opened, 10);
+    assert_eq!(roster.take_add_told(), [AddTold::WaitsSeed]);
+    roster.turn(10 + ADD_WAIT_MS).await;
+    assert_eq!(roster.take_add_told(), [AddTold::NoSeed]);
+    assert!(!roster.first_seeded(), "the premise: nothing answered yet");
+
+    let now = 20 + ADD_WAIT_MS;
+    roster
+        .execute(&human(), Command::ReadTrust, now)
+        .await
+        .expect("held");
+    assert!(
+        roster.first_seeded(),
+        "answered on the trust act's connection"
+    );
+    let seeds = device.log.count(|s| matches!(s, Step::Seeded(_)));
+    roster.turn(now + 1).await;
+    assert_eq!(roster.take_add_told(), [AddTold::Offered]);
+    roster.turn(now + 2).await;
+    assert!(roster.take_add_told().is_empty(), "told once");
+    assert_eq!(
+        device.log.count(|s| matches!(s, Step::Seeded(_))),
+        seeds,
+        "the form asked nothing more"
+    );
+    roster.add(create("Anna"), now + 3);
     let (endpoint, _, _) = created(&roster.take_add_told());
     assert!(roster.held().any(|e| e == &endpoint));
 }
