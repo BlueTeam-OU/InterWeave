@@ -416,7 +416,7 @@ read `.claude/settings.json`.
 >
 > A job can instead be an **advisory context the ruleset does not require**, named in a sentence of that wording here, while its subject is not yet on `main`; `check_required_contexts.sh` holds every job to exactly one of the two lists. None is today. A job moves between the two lists on the owner's word, here and in the ruleset in one change of devex-tooling's, never by the prose alone.
 >
-> A job's `name:` *is* its required-check context, so renaming a job silently un-gates `main` — the ruleset goes on requiring a context nothing reports, and the queue waits forever. Rename a job only together with the ruleset.
+> A job's `name:` *is* its required-check context, so renaming a job silently blocks every merge — the ruleset goes on requiring a context nothing reports, and every pull request and the queue wait on it forever. Rename a job only together with the ruleset.
 >
 > `merge_group` in that workflow is equally load-bearing: the queue builds its own ref, so a workflow that triggers only on `pull_request` never reports for that build and the queue hangs on a check that will never arrive.
 
