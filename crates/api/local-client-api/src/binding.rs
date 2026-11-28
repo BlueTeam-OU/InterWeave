@@ -312,17 +312,69 @@ pub trait DataSessionPort {
     ///
     /// Over a connection (IPC) the remainder is what the server writes
     /// after the client shuts its write half, read until the server ends
-    /// the stream, within the server's hand-over bounds; what a client
-    /// does not read in them the server counts as dropped. A session
-    /// dropped without `close` is handed nothing.
+    /// the stream. The server ends it within its hand-over's bounds -- its
+    /// shutdown grace from the client's end of stream (the daemon's is
+    /// 5 s, not configurable), then at most its writer's one-second flush
+    /// -- and a client waits longer than that before it gives up. A clean
+    /// end of stream says the remainder is complete; a hand-over its
+    /// bounds cut short ends with `close{Timeout}` instead, and what the
+    /// client did not read the server counts as dropped
+    /// (`LOCAL-IPC.md` §Disconnect/reconnect). A session dropped without
+    /// `close` is handed nothing.
     ///
     /// # Errors
-    /// `BackendUnavailable` once the runtime has stopped. A binding over a
-    /// connection (IPC) answers with the code the connection ended with
-    /// when it had already ended, and `Timeout` when the release was not
-    /// confirmed in time.
-    fn close(self) -> impl Future<Output = Result<Vec<SessionEvent>, TransportError>> + Send;
+    /// A [`CloseError`], whose `remainder` is every event this close had
+    /// already been handed when it failed -- so an error never drops one
+    /// -- and whose `code` is: `BackendUnavailable` once the runtime has
+    /// stopped. A binding over a connection (IPC) answers with the code
+    /// the connection ended with when it had already ended or when the
+    /// server ended it some other way (`ShuttingDown` for a stop racing
+    /// the close, after the stop's own hand-over), `Timeout` when the
+    /// server's hand-over was cut short by its bounds, and `Timeout` when
+    /// the server did not end the stream in time.
+    fn close(self) -> impl Future<Output = Result<Vec<SessionEvent>, CloseError>> + Send;
 }
+
+/// A [`DataSessionPort::close`] that failed, with what it had already
+/// been handed: an error never drops an event the closer received.
+///
+/// There is deliberately no `From<CloseError> for TransportError`: a `?`
+/// that converted would drop `remainder` without a word, which is the
+/// loss this type exists to make visible. A caller that wants the code
+/// alone takes `.code`, and so says it discards the rest.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CloseError {
+    /// Why the close failed (the codes [`DataSessionPort::close`] names).
+    pub code: TransportError,
+    /// What the close had been handed before it failed, in the order
+    /// [`DataSessionPort::events`] takes it: possibly part of the
+    /// remainder, possibly none of it.
+    pub remainder: Vec<SessionEvent>,
+}
+
+impl CloseError {
+    /// A close that failed `code` having been handed nothing.
+    #[must_use]
+    pub const fn empty(code: TransportError) -> Self {
+        Self {
+            code,
+            remainder: Vec::new(),
+        }
+    }
+}
+
+impl core::fmt::Display for CloseError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        write!(
+            f,
+            "the close failed with {:?}, {} event(s) received",
+            self.code,
+            self.remainder.len()
+        )
+    }
+}
+
+impl core::error::Error for CloseError {}
 
 /// One live lease, as administration sees it.
 #[derive(Debug, Clone, PartialEq, Eq)]

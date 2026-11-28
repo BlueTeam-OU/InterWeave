@@ -12,8 +12,9 @@ use interweave_ipc_protocol::{
     QueryParams, Request, RequestedCapability, SendParams, SendResult, SessionLossesResult,
 };
 use interweave_local_client_api::{
-    DEFAULT_EVENT_QUEUE, DataCapability, DataSessionBinding, DataSessionPort, EndpointLease,
-    Generation, LocalDataSession, MAX_EVENT_QUEUE, SessionEvent, SessionLosses, SessionRequest,
+    CloseError, DEFAULT_EVENT_QUEUE, DataCapability, DataSessionBinding, DataSessionPort,
+    EndpointLease, Generation, LocalDataSession, MAX_EVENT_QUEUE, SessionEvent, SessionLosses,
+    SessionRequest,
 };
 use interweave_transport_api::{
     BroadcastMessageV1, ChannelId, DirectDestination, EndpointDirectoryV1, EndpointId, MessageId,
@@ -346,7 +347,7 @@ impl DataSessionPort for IpcSession {
     /// (`close_returns_what_the_server_wrote_after_the_finish`). As the
     /// gap was found, the buffer was dropped before the server was asked
     /// to end, and what it held was lost on an orderly close.
-    async fn close(self) -> Result<Vec<SessionEvent>, TransportError> {
+    async fn close(self) -> Result<Vec<SessionEvent>, CloseError> {
         let Self {
             connection, events, ..
         } = self;
@@ -354,7 +355,7 @@ impl DataSessionPort for IpcSession {
             Some((buffer, inbox)) => (Some(buffer.into_inner()), Some(inbox)),
             None => (None, None),
         };
-        let mut remainder = connection.close(buffer).await?;
+        let mut remainder = connection.close(buffer).await.map_err(CloseError::empty)?;
         if let Some(state) = inbox.and_then(|inbox| inbox.take_state()) {
             remainder.insert(0, state);
         }

@@ -925,7 +925,12 @@ async fn a_session_from_before_a_restart_ends_with_it() {
         .await
         .expect("ready returns at once")
         .expect("and says nothing waits");
-    assert_eq!(old.close().await, Err(TransportError::BackendUnavailable));
+    assert_eq!(
+        old.close().await,
+        Err(interweave_local_client_api::CloseError::empty(
+            TransportError::BackendUnavailable
+        ))
+    );
 
     let new = p.a.open(suite::full(None)).await.expect("opens after it");
     assert!(new.events(8).await.is_ok(), "the control");

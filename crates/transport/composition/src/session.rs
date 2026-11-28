@@ -653,12 +653,14 @@ impl DataSessionPort for InProcessSession {
     /// arriving later carries no acceptance and is not handed over --
     /// then the path notices. The leaves come last, since a session that
     /// holds no join loses its broadcast queue with its last leave.
-    async fn close(mut self) -> Result<Vec<SessionEvent>, TransportError> {
+    async fn close(mut self) -> Result<Vec<SessionEvent>, interweave_local_client_api::CloseError> {
         let released = self
             .commander
             .release_session(self.key().to_owned())
             .await
-            .map_err(stopped)?;
+            // The release is the only step that can fail, and it fails
+            // before anything was taken: its error has nothing to carry.
+            .map_err(|e| interweave_local_client_api::CloseError::empty(stopped(e)))?;
         let mut remainder = Vec::new();
         if self.session.holds(DataCapability::Events) {
             remainder.extend(released.notices.into_iter().map(SessionEvent::Local));

@@ -361,7 +361,7 @@ async fn a_call_on_an_ended_connection_is_refused_not_left_waiting() {
         );
     }
     assert_eq!(
-        session.close().await,
+        session.close().await.map_err(|e| e.code),
         Err(interweave_transport_api::TransportError::BackendUnavailable),
         "closing an ended connection reports it"
     );
@@ -729,7 +729,7 @@ async fn close_reports_a_server_end_even_after_it_asked() {
         drop(server);
     });
     assert_eq!(
-        closed,
+        closed.map_err(|e| e.code),
         Err(interweave_transport_api::TransportError::ShuttingDown),
         "the server's own end, not the answer to the Finish"
     );

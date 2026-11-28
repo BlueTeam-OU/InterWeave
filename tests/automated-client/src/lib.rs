@@ -256,16 +256,26 @@ impl Client {
     /// client had not yet read -- into the record (`LOCAL-CLIENT.md`, A
     /// 2026-11-28).
     ///
+    /// A close that fails is recorded all the same: what it had been
+    /// handed before it failed is in the record, and its code is returned.
+    ///
     /// # Errors
-    /// The close's own refusal; `EndpointNotRegistered` with no session.
+    /// The close's own code; `EndpointNotRegistered` with no session.
     pub async fn close(&mut self) -> Result<(), TransportError> {
         let session = self
             .session
             .take()
             .ok_or(TransportError::EndpointNotRegistered)?;
-        let remainder = session.close().await?;
-        self.record(remainder);
-        Ok(())
+        match session.close().await {
+            Ok(remainder) => {
+                self.record(remainder);
+                Ok(())
+            }
+            Err(failed) => {
+                self.record(failed.remainder);
+                Err(failed.code)
+            }
+        }
     }
 
     /// Take `events` into the record.

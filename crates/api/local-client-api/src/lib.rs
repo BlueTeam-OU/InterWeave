@@ -32,11 +32,11 @@ pub mod binding;
 
 pub use binding::{
     AddressChange, AddressRefusal, AddressSource, AddressesChange, AdminBinding, AdminPort,
-    AdminStatus, BootstrapAddress, DataSessionBinding, DataSessionPort, EndpointAdminView,
-    IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD, MAX_OWN_ADDRESSES, OwnAddress,
-    OwnAddressKind, OwnAddresses, PeerGateView, PeerLastSeen, PeerOutcome, PreAuthCounts,
-    ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionLosses, SessionRequest, TrustAdminView,
-    TrustChange, TrustRefusal, TrustSource, TrustedPeer,
+    AdminStatus, BootstrapAddress, CloseError, DataSessionBinding, DataSessionPort,
+    EndpointAdminView, IngressCounts, LeaseRecord, LineChange, MAX_ADDRESSES_PER_ADD,
+    MAX_OWN_ADDRESSES, OwnAddress, OwnAddressKind, OwnAddresses, PeerGateView, PeerLastSeen,
+    PeerOutcome, PreAuthCounts, ReceivedBroadcast, ReceivedDirect, SessionEvent, SessionLosses,
+    SessionRequest, TrustAdminView, TrustChange, TrustRefusal, TrustSource, TrustedPeer,
 };
 pub use binding::{
     AliasChange, AliasRefusal, EndpointAddChange, EndpointAddRefusal, EndpointRemoveChange,

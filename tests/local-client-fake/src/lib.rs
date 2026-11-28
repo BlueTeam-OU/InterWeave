@@ -1266,7 +1266,7 @@ impl DataSessionPort for FakeSession {
     /// lease, under the one lock a send admits under, so nothing is
     /// admitted between the take and the end (`LOCAL-CLIENT.md`, A
     /// 2026-11-28).
-    async fn close(mut self) -> Result<Vec<SessionEvent>, TransportError> {
+    async fn close(mut self) -> Result<Vec<SessionEvent>, interweave_local_client_api::CloseError> {
         let (stopped, remainder) = {
             let mut state = lock(&self.node.state);
             let stopped = state.stopped || state.ended.contains(self.session.session_id());
@@ -1282,7 +1282,10 @@ impl DataSessionPort for FakeSession {
             (stopped, remainder)
         };
         if stopped {
-            Err(TransportError::BackendUnavailable)
+            // A stopped node takes nothing: there is nothing to hand back.
+            Err(interweave_local_client_api::CloseError::empty(
+                TransportError::BackendUnavailable,
+            ))
         } else {
             Ok(remainder)
         }
