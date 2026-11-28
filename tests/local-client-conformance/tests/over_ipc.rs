@@ -434,3 +434,23 @@ async fn a_later_ports_write_supersedes_an_older_ports() {
     suite::a_later_ports_write_supersedes_an_older_ports(&a).await;
     pair.stop().await;
 }
+
+/// The client's close wait outlasts the server's bound on a leaving
+/// client (`LOCAL-IPC.md` §Disconnect/reconnect): the daemon ends the
+/// stream within its shutdown grace from the client's end of stream --
+/// the substrate's `SHUTDOWN_GRACE`, which `transport-daemon` gives the
+/// server and no configuration changes -- plus the writer's flush
+/// (`CLOSE_GRACE`), and the client's wait starts before the server reads
+/// that end, so it must be longer, with room for the Finish to arrive.
+/// Here because this crate sees all three crates, which do not see each
+/// other. As the gap was found, the wait was 5 s against a 6 s bound.
+#[test]
+fn the_clients_close_wait_outlasts_the_servers_bound() {
+    let bound =
+        interweave_transport_composition::SHUTDOWN_GRACE + interweave_ipc_server::CLOSE_GRACE;
+    assert!(
+        interweave_ipc_client::CLOSE_WAIT > bound,
+        "CLOSE_WAIT {:?} must outlast the server's bound {bound:?}",
+        interweave_ipc_client::CLOSE_WAIT
+    );
+}

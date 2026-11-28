@@ -684,6 +684,15 @@ async fn in_process_ready_is_woken_well_inside_its_recheck() {
         Err(TransportError::BackendUnavailable),
         "and events reports it"
     );
+    // The in-process close fails only at the release, its first step,
+    // before it has taken anything: its error carries an empty remainder.
+    assert_eq!(
+        survivor.close().await,
+        Err(interweave_local_client_api::CloseError::empty(
+            TransportError::BackendUnavailable
+        )),
+        "and close reports it, having been handed nothing"
+    );
 }
 
 /// Item 10's path half through the in-process binding's own wiring, a
