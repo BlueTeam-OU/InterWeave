@@ -279,8 +279,12 @@ impl FacadeLoop {
         // tests/root.rs
         // `a_second_send_while_one_is_in_flight_is_not_sent_twice`). What can
         // wait is at most one per action and per unread row the model
-        // holds: rows the store holds, bounded by its quota; and a switch,
-        // one per the person's choice in the switcher. The loop below
+        // holds: rows the store holds, bounded by its quota; a switch,
+        // one per the person's choice in the switcher; and an add act,
+        // one per the person's act on the add form or the list of
+        // identities, which `Hub::add` and `ViewSide::add` send without a
+        // `ModelSide`, so none is deduplicated, and no Android screen
+        // sends one yet. The loop below
         // takes every waiting command each turn, which is latency, not the
         // bound. The other direction is bounded (hub.rs `TO_VIEW`).
         let (commands, mut waiting) = mpsc::unbounded_channel();
