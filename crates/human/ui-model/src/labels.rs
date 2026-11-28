@@ -1614,6 +1614,71 @@ ui_texts! {
     NotificationIdentityLineOne => "{identity}: 1 new message",
     /// The same, `{count}` new messages.
     NotificationIdentityLine => "{identity}: {count} new messages",
+    /// Your identities: that other devices get no list of them, and who
+    /// can still write to one (identities §6.1).
+    IdentitiesUnlisted => "Other devices cannot get a list of your identities from this device. A peer that already knows one of your identities can still send messages to that identity if that identity trusts the peer.",
+    /// A Your identities row: the default identity (cards §5.1).
+    IdentityDefault => "Default",
+    /// A Your identities row's accessible description: the identity in
+    /// front, which its check mark means (cards §5.1).
+    IdentityInFront => "In use",
+    /// Your identities' primary (cards §5.1).
+    AddIdentity => "Add an identity",
+    /// The card editor's overflow while one identity is held: the way to
+    /// a second (cards §5.2).
+    AddAnotherIdentity => "Add another identity",
+    /// Your identities at the profile's endpoint bound, under Add, and the
+    /// add form in Create's place when the add was refused at it.
+    IdentityLimit => "You cannot add more identities on this device.",
+    /// The add form's title.
+    AddIdentityTitle => "New identity",
+    /// The add form, under its fields.
+    IdentityNewNote => "A new identity has no contacts and trusts no peer. No one has its card until you share it.",
+    /// The add form's primary.
+    CreateIdentity => "Create",
+    /// An identity's page: the name the command line takes, `{alias}`
+    /// last, nothing touching it.
+    IdentityAlias => "Name to use on the command line: {alias}",
+    /// The snackbar at Done, `{name}` the new identity's.
+    ConfirmIdentityAdded => "{name} was created. It does not trust any peer yet.",
+    /// The add form, above Create: the client knows that nothing was
+    /// created.
+    IdentityAddFailed => "The identity could not be created. Nothing was changed. Choose Create to try again.",
+    /// The add form, above Create: whether `{name}` was created is not
+    /// known.
+    IdentityAddUnknown => "InterWeave could not check whether {name} was created. Choose Create to try again. If {name} was already created, Create does not create a second one.",
+    /// The add form, above Create: the endpoint exists and its setting up
+    /// did not finish.
+    IdentityAddNotFinished => "{name} was created, but InterWeave could not finish setting it up. Choose Create to finish. Create does not create a second one.",
+    /// The add form, in Create's place: the form's key is missing or
+    /// cannot be read.
+    IdentityAddKeyGone => "{name} cannot be created from this form, because the key that InterWeave made for it is missing or cannot be read. Go back, then choose Add an identity to start again.",
+    /// A Your identities row whose card was not saved at Done.
+    IdentityCardNotSaved => "The name and photo were not saved. Open this identity to try again.",
+    /// The add form, in Create's place with Try again under it: no
+    /// first-identity seed answered yet. Names neither the seed nor the
+    /// daemon (`no_add_text_names_the_seed_or_the_daemon`).
+    // PLACEHOLDER (en)
+    IdentityAddWaitsSeed => "InterWeave cannot create an identity yet. Choose Try again to check again. What you entered stays on this form.",
+    /// Create's accessible name while the form asks the seed; not
+    /// shown as text.
+    // PLACEHOLDER (en)
+    IdentityAddChecking => "Checking whether an identity can be created",
+    /// Create's accessible name while it runs; not shown as text.
+    // PLACEHOLDER (en)
+    IdentityCreating => "Creating {name}",
+    /// The back arrow's accessible name on the add form opened from Your
+    /// identities, and on an identity's page opened from its row.
+    // PLACEHOLDER (en)
+    BackToIdentities => "Back to your identities",
+    /// The add form's back arrow when it was opened from the card
+    /// editor's Add another identity.
+    // PLACEHOLDER (en)
+    BackToCard => "Back to your card",
+    /// An identity's page: its overflow button's accessible name, told
+    /// apart from `AppOptions` and `MoreOptions`.
+    // PLACEHOLDER (en)
+    IdentityOptions => "Identity options",
 }
 
 /// Where the transport runtime runs, which decides how a text that names
@@ -1754,6 +1819,14 @@ host_texts! {
     WaitingMaybeUnavailable => {
         daemon: "May have reached the peer. Still sending, started {age}. Last attempt: the transport daemon was not available",
         embedded: "May have reached the peer. Still sending, started {age}. Last attempt: the network service was not available",
+    },
+    /// Your identities, always: what the identities share on this device
+    /// and who can see it (cards §5.1), its second half as identities
+    /// §13 changed it for ADR-0067. Each platform's first half is cards
+    /// §10's text column (Q-T4 asks which Android text stands).
+    IdentitiesShareDevice => {
+        daemon: "Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. To stop the people you talk to from linking two identities, use a separate InterWeave profile for each. The network can still see that both profiles are on this device. Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device. That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel.",
+        embedded: "Your identities use this device's PeerId and network addresses. Someone who talks to two of your identities can see that these identities are on the same device. Anyone who sees your network traffic can also see this. On this phone, any two of your identities can be linked in this way. Each identity trusts its own peers. A peer that any of your identities trusts can connect to this device. That peer reaches only the identities that trust it. In a channel, a peer can post if any of your identities trusts it or if it is in this device's own list of trusted peers, whichever of your identities reads the channel.",
     },
 }
 
@@ -2351,6 +2424,50 @@ mod tests {
         );
     }
 
+    /// The add form's and Your identities' texts tell the person what
+    /// they can do, and never name the first identity's seed or the
+    /// daemon the add asks (identities §13, `IdentityAddWaitsSeed`: "nor
+    /// name the seed or the daemon"), on either host. Mutation: "the
+    /// daemon" written into `IdentityAddWaitsSeed`.
+    #[test]
+    fn no_add_text_names_the_seed_or_the_daemon() {
+        let add = [
+            UiText::IdentitiesUnlisted,
+            UiText::IdentityDefault,
+            UiText::IdentityInFront,
+            UiText::AddIdentity,
+            UiText::AddAnotherIdentity,
+            UiText::IdentityLimit,
+            UiText::AddIdentityTitle,
+            UiText::IdentityNewNote,
+            UiText::CreateIdentity,
+            UiText::IdentityAlias,
+            UiText::ConfirmIdentityAdded,
+            UiText::IdentityAddFailed,
+            UiText::IdentityAddUnknown,
+            UiText::IdentityAddNotFinished,
+            UiText::IdentityAddKeyGone,
+            UiText::IdentityCardNotSaved,
+            UiText::IdentityAddWaitsSeed,
+            UiText::IdentityAddChecking,
+            UiText::IdentityCreating,
+            UiText::BackToIdentities,
+            UiText::BackToCard,
+            UiText::IdentityOptions,
+        ]
+        .map(placeholder_en::text);
+        for &host in RuntimeHost::ALL {
+            let shared = placeholder_en::host_text(host, HostText::IdentitiesShareDevice);
+            for text in add.iter().chain([&shared]) {
+                let lower = text.to_lowercase();
+                assert!(
+                    !lower.contains("seed") && !lower.contains("daemon"),
+                    "{host:?}: {text}"
+                );
+            }
+        }
+    }
+
     /// Every template is filled by name, and filling leaves no
     /// placeholder behind: a template is one string a translation may
     /// reorder, never pieces joined in code (U4b).
@@ -2395,6 +2512,7 @@ mod tests {
             ("identity", "Ada"),
             ("front", "Grace"),
             ("short", "…abcd1234"),
+            ("alias", "anna-rossi"),
             (
                 "path",
                 "/home/ada/.local/state/interweave/default/identity-keys",
