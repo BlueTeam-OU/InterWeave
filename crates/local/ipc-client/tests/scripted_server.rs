@@ -267,6 +267,61 @@ async fn close_waits_for_the_server_to_close() {
     );
 }
 
+/// A client's close (`LOCAL-IPC.md` §Disconnect/reconnect, A
+/// 2026-11-28) returns what the server wrote after the client shut its
+/// write half, with what the buffer already held, the server's state
+/// first: the buffer is kept, and drained while the reader runs, so a
+/// remainder past the buffer's bound arrives whole. As the gap was found,
+/// the buffer was dropped before the close and every one was lost.
+#[tokio::test]
+async fn close_returns_what_the_server_wrote_after_the_finish() {
+    const BEFORE: u64 = 2;
+    const AFTER: u64 = 10;
+    let script = Script::new();
+    let (session, mut server) = opened(&script, 2, &["events", "commands"]).await;
+    server
+        .write(&json!({"type": "server_state", "health": "healthy"}))
+        .await;
+    for sequence in 0..BEFORE {
+        server.event(sequence).await;
+    }
+    let (closed, ()) = tokio::join!(session.close(), async {
+        assert!(server.read().await.is_none(), "the client shut its side");
+        // More than the buffer holds: only a buffer drained while the
+        // reader runs lets it read on to the end.
+        for sequence in BEFORE..BEFORE + AFTER {
+            server.event(sequence).await;
+        }
+        drop(server);
+    });
+    let remainder = closed.expect("closes");
+    assert!(
+        matches!(
+            remainder.first(),
+            Some(interweave_local_client_api::SessionEvent::Local(
+                interweave_local_client_api::LocalSessionEvent::ServerState { .. }
+            ))
+        ),
+        "the state first: {remainder:?}"
+    );
+    let disconnects = remainder
+        .iter()
+        .filter(|event| {
+            matches!(
+                event,
+                interweave_local_client_api::SessionEvent::Local(
+                    interweave_local_client_api::LocalSessionEvent::PeerDisconnected { .. }
+                )
+            )
+        })
+        .count();
+    assert_eq!(
+        disconnects,
+        usize::try_from(BEFORE + AFTER).expect("fits"),
+        "what the buffer held and what the server wrote after the finish"
+    );
+}
+
 /// Open a session against a script that grants with `bound` and
 /// `capabilities`, returning both ends.
 async fn opened(

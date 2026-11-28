@@ -46,7 +46,8 @@ const OUTGOING: usize = 64;
 const DRAIN_BUDGET: usize = 1024 * 1024;
 
 /// How long `close` waits for the server to finish the session -- it
-/// releases the lease before it closes the socket -- before giving up.
+/// releases the lease, writes the session's remainder and then ends the
+/// stream -- before giving up.
 const CLOSE_WAIT: Duration = Duration::from_secs(5);
 
 /// What the writer is handed: frames already encoded, each by the code
@@ -55,7 +56,7 @@ const CLOSE_WAIT: Duration = Duration::from_secs(5);
 enum Outgoing {
     Bytes(Vec<u8>),
     /// Shut the write half: the server reads end of stream, closes the
-    /// session and then the socket.
+    /// session, writes what its close returned and then ends the stream.
     Finish,
 }
 
@@ -426,14 +427,21 @@ impl Connection {
     }
 
     /// End the connection the way a client leaving does: shut the write
-    /// half and wait for the server to close its side, which it does only
-    /// after the session is closed and its lease released.
+    /// half and read until the server ends its side, which it does only
+    /// after the session is closed, its lease released and what its close
+    /// returned written. `buffer`, the session's event buffer when it
+    /// reads events, is drained WHILE the reader runs -- a full buffer
+    /// holds the reader, which would then never reach the end -- and what
+    /// it held and what arrived are answered in arrival order.
     ///
     /// # Errors
     /// The connection's end code when it had already ended -- there is no
     /// server left to release anything -- and `Timeout` when the server
-    /// did not close within [`CLOSE_WAIT`].
-    pub(crate) async fn close(mut self) -> Result<(), TransportError> {
+    /// did not end within [`CLOSE_WAIT`].
+    pub(crate) async fn close(
+        mut self,
+        mut buffer: Option<mpsc::Receiver<SessionEvent>>,
+    ) -> Result<Vec<SessionEvent>, TransportError> {
         self.shared.closing.store(true, Ordering::SeqCst);
         // Ended for good already: nothing left to release. A writer's
         // provisional end waits below for the reader's, which names the
@@ -443,11 +451,22 @@ impl Connection {
         }
         let _ = self.out.send(Outgoing::Finish).await;
         let Some(reader) = self.reader.as_mut() else {
-            return Ok(());
+            return Ok(Vec::new());
         };
-        match tokio::time::timeout(CLOSE_WAIT, reader).await {
+        let mut taken = Vec::new();
+        let read = tokio::time::timeout(CLOSE_WAIT, async {
+            if let Some(buffer) = buffer.as_mut() {
+                // `None` once the reader has ended: it drops the sender.
+                while let Some(event) = buffer.recv().await {
+                    taken.push(event);
+                }
+            }
+            reader.await
+        })
+        .await;
+        match read {
             Ok(_) if self.shared.uninvited.load(Ordering::SeqCst) => Err(self.gone()),
-            Ok(_) => Ok(()),
+            Ok(_) => Ok(taken),
             Err(_) => Err(TransportError::Timeout),
         }
     }

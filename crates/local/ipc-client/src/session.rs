@@ -337,13 +337,27 @@ impl DataSessionPort for IpcSession {
             .map(SessionLosses::from)
     }
 
+    /// The client's close (`LOCAL-IPC.md` §Disconnect/reconnect, A
+    /// 2026-11-28): the write half is shut and the buffer KEPT, and what
+    /// the server writes until it ends the stream -- the session's
+    /// remainder, after the lease was released -- is read with what the
+    /// buffer already held, in arrival order, the server's state first as
+    /// `events` takes it
+    /// (`close_returns_what_the_server_wrote_after_the_finish`). As the
+    /// gap was found, the buffer was dropped before the server was asked
+    /// to end, and what it held was lost on an orderly close.
     async fn close(self) -> Result<Vec<SessionEvent>, TransportError> {
         let Self {
             connection, events, ..
         } = self;
-        // The buffer goes first, so a reader held by a full one is freed
-        // to read on to the server's close.
-        drop(events);
-        connection.close().await.map(|()| Vec::new())
+        let (buffer, inbox) = match events {
+            Some((buffer, inbox)) => (Some(buffer.into_inner()), Some(inbox)),
+            None => (None, None),
+        };
+        let mut remainder = connection.close(buffer).await?;
+        if let Some(state) = inbox.and_then(|inbox| inbox.take_state()) {
+            remainder.insert(0, state);
+        }
+        Ok(remainder)
     }
 }
